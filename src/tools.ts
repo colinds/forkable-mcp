@@ -39,6 +39,11 @@ function toCallToolResult(r: ToolResultLike): CallToolResult {
   };
 }
 
+// --- Dish images: always include the URL (as markdown) so clients that render images show them. ---
+function imageMd(item: { name: string; imageUrl?: string | null }): string {
+  return item.imageUrl ? `\n      ![${item.name}](${item.imageUrl})` : "";
+}
+
 function reauthResult(e: ReauthRequiredError): CallToolResult {
   return {
     isError: true,
@@ -127,7 +132,7 @@ const DELIVERY_SEL =
 
 const MENU_SEL =
   "id name displayName " +
-  "sections { id name items { id menuId name description price ingredientTags dietLevel modifierIds " +
+  "sections { id name items { id menuId name description price imageUrl ingredientTags dietLevel modifierIds " +
   "modifiers { id name display optionSetId min max required hidden options { id name price ingredientTags } } } } " +
   "optionSets { id price }";
 
@@ -270,6 +275,7 @@ function compactMenus(menus: Menu[]) {
         name: it.name,
         price: it.price ?? null,
         dietLevel: it.dietLevel ?? null,
+        imageUrl: it.imageUrl ?? null,
         modifiers: it.modifiers?.length ?? 0,
       })),
   }));
@@ -283,6 +289,7 @@ function itemDetail(item: MenuItem, menu: Menu) {
     name: item.name,
     price: item.price ?? null,
     description: item.description ?? null,
+    imageUrl: item.imageUrl ?? null,
     modifiers: resolveItemModifiers(item).map((mod) => ({
       id: mod.id,
       name: mod.display || mod.name || `modifier ${mod.id}`,
@@ -390,14 +397,16 @@ export function registerAllTools(server: McpServer): void {
         if (itemId != null) {
           const { item, menu } = resolveOneItem(menus, itemId, menuId, deliveryId);
           const detail = itemDetail(item, menu);
-          return ok(fmtItemDetail(detail), { item: detail });
+          return ok(fmtItemDetail(detail) + imageMd(item), { item: detail });
         }
 
         // Compact list mode.
         const summary = menus
           .map((m) => {
             const items = m.sections.flatMap((s) => s.items);
-            const lines = items.map((it) => `    ${it.id}  ${it.name}  ${formatMoney(it.price)}`);
+            const lines = items.map(
+              (it) => `    ${it.id}  ${it.name}  ${formatMoney(it.price)}${imageMd(it)}`,
+            );
             return `${m.displayName || m.name || `menu ${m.id}`} (${items.length} items):\n${lines.join("\n")}`;
           })
           .join("\n\n");
@@ -436,11 +445,12 @@ export function registerAllTools(server: McpServer): void {
             menuId: n.menuId,
             name: it?.name ?? null,
             price: it?.price ?? null,
+            imageUrl: it?.imageUrl ?? null,
           };
         });
         const lines = results.map(
           (r) =>
-            `  ${r.itemId}  ${r.name ?? "(item)"}  ${formatMoney(r.price)}  [menu ${r.menuId}]`,
+            `  ${r.itemId}  ${r.name ?? "(item)"}  ${formatMoney(r.price)}  [menu ${r.menuId}]${imageMd({ name: r.name ?? "item", imageUrl: r.imageUrl })}`,
         );
         return ok(`Matches for "${query}":\n${lines.join("\n")}`, { items: results });
       }),
@@ -483,12 +493,21 @@ export function registerAllTools(server: McpServer): void {
         const top = scores.toSorted((a, b) => b.score - a.score).slice(0, limit ?? 8);
         if (!top.length) return ok("No recommendations available.");
         const items = flattenItems(await loadMenus(client, d));
-        const lines = top.map((t, i) => {
+        const enriched = top.map((t) => {
           const it = findItem(items, t.menuId, t.itemId)?.item;
-          return `  ${i + 1}. ${it?.name ?? `item ${t.itemId}`}  ${formatMoney(it?.price)}  (score ${t.score.toFixed(2)})`;
+          return {
+            ...t,
+            name: it?.name ?? `item ${t.itemId}`,
+            price: it?.price ?? null,
+            imageUrl: it?.imageUrl ?? null,
+          };
         });
+        const lines = enriched.map(
+          (e, i) =>
+            `  ${i + 1}. ${e.name}  ${formatMoney(e.price)}  (score ${e.score.toFixed(2)})${imageMd(e)}`,
+        );
         return ok(`Top picks for delivery ${deliveryId}:\n${lines.join("\n")}`, {
-          recommendations: top,
+          recommendations: enriched,
         });
       }),
   );

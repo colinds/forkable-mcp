@@ -24,7 +24,8 @@ export interface MenuItem {
   menuId: number;
   name: string;
   description?: string;
-  price?: number; // cents
+  price?: number; // dollars
+  imageUrl?: string;
   ingredientTags?: string[];
   dietLevel?: number;
   modifierIds?: number[];
