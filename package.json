@@ -1,0 +1,44 @@
+{
+  "name": "forkable-mcp",
+  "private": true,
+  "type": "module",
+  "version": "0.1.0",
+  "description": "Unofficial MCP server for Forkable — order and manage corporate lunches from any MCP client.",
+  "license": "MIT",
+  "author": "Colin D'Souza",
+  "homepage": "https://github.com/colinds/forkable-mcp#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/colinds/forkable-mcp.git"
+  },
+  "bugs": {
+    "url": "https://github.com/colinds/forkable-mcp/issues"
+  },
+  "keywords": ["mcp", "model-context-protocol", "forkable", "lunch", "bun"],
+  "engines": {
+    "bun": ">=1.3.0"
+  },
+  "scripts": {
+    "start": "bun run src/index.ts",
+    "dev": "bun --watch src/index.ts",
+    "auth": "bun run src/index.ts --auth",
+    "test": "bun test",
+    "typecheck": "tsc --noEmit",
+    "lint": "oxlint",
+    "lint:fix": "oxlint --fix",
+    "fmt": "oxfmt src tests",
+    "fmt:check": "oxfmt --check src tests",
+    "check": "oxlint && oxfmt --check src tests && tsc --noEmit && bun test"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/server": "^2.0.0",
+    "@modelcontextprotocol/core": "^2.0.0",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.3.14",
+    "oxfmt": "^0.63.0",
+    "oxlint": "^1.78.0",
+    "typescript": "^7.0.2"
+  }
+}
