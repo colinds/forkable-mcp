@@ -3,6 +3,7 @@
     "target": "ES2023",
     "module": "ESNext",
     "moduleResolution": "bundler",
+    "paths": { "@/*": ["./src/*"] },
     "lib": ["ES2023", "DOM"],
     "types": ["bun-types", "node"],
     "strict": true,

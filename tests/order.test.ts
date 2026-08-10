@@ -1,8 +1,8 @@
 import { expect, test, describe } from "bun:test";
-import { buildSelectionsHash, resolveItemModifiers } from "../src/order/selections.ts";
-import { evaluateGuards, blockers } from "../src/order/guards.ts";
-import { formatMoney } from "../src/order/format.ts";
-import { type MenuItem, type MenuModifier, type Delivery } from "../src/order/types.ts";
+import { buildSelectionsHash, resolveItemModifiers } from "@/order/selections.ts";
+import { evaluateGuards, blockers } from "@/order/guards.ts";
+import { formatMoney } from "@/order/format.ts";
+import { type MenuItem, type MenuModifier, type Delivery } from "@/order/types.ts";
 
 // A protein single-select (required, max 1, >1 options) + a "extras" multi-select.
 const protein: MenuModifier = {

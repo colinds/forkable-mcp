@@ -7,7 +7,7 @@ import { mkdir, rename, chmod, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join, dirname } from "node:path";
 import { randomBytes } from "node:crypto";
-import { ReauthRequiredError } from "../net/errors.ts";
+import { ReauthRequiredError } from "@/net/errors.ts";
 import { hasSessionCookie } from "./cookies.ts";
 
 // ---------------------------------------------------------------------------

@@ -1,10 +1,11 @@
 // Ingest — the ONE shared writer path.
 // Normalize credentials → mint CSRF if needed → verify {me{id}} → persist.
 
-import { type FetchImpl } from "../net/endpoints.ts";
-import { fetchCsrf, verifyMe, type Me } from "../net/client.ts";
+import { type FetchImpl } from "@/net/endpoints.ts";
+import { fetchCsrf, verifyMe, type Me } from "@/net/client.ts";
 import { mergeSetCookies, hasSessionCookie, parseCurl } from "./cookies.ts";
 import { type SessionRecord, patchSession, readSession } from "./session.ts";
+import { loginWithPassword, envLoginInput } from "./login.ts";
 
 export interface IngestInput {
   curl?: string;
@@ -60,15 +61,23 @@ export async function ingestCredentials(
 }
 
 /**
- * Headless provisioning: if no usable session exists and `FORKABLE_COOKIE` is set, ingest it
- * (with optional `FORKABLE_CSRF`). Lets a headless agent inject the cookie via env — no terminal,
- * no browser. Returns the user on success, or null when there's nothing to do.
+ * Headless provisioning: if no usable session exists, establish one from env — no terminal, no
+ * browser. Prefers `FORKABLE_COOKIE` (+ optional `FORKABLE_CSRF`); otherwise logs in with
+ * `FORKABLE_EMAIL`/`FORKABLE_PASSWORD` (+ `FORKABLE_MFA`). Returns the user, or null if nothing to do.
  */
-export async function ingestFromEnvIfNeeded(fetchImpl: FetchImpl = fetch): Promise<Me | null> {
-  const cookie = process.env.FORKABLE_COOKIE;
-  if (!cookie) return null;
+export async function provisionFromEnvIfNeeded(fetchImpl: FetchImpl = fetch): Promise<Me | null> {
   const existing = await readSession();
   if (existing && hasSessionCookie(existing.cookie)) return null; // already provisioned
-  const { me } = await ingestCredentials({ cookie, csrf: process.env.FORKABLE_CSRF }, fetchImpl);
-  return me;
+
+  const cookie = process.env.FORKABLE_COOKIE;
+  if (cookie) {
+    const { me } = await ingestCredentials({ cookie, csrf: process.env.FORKABLE_CSRF }, fetchImpl);
+    return me;
+  }
+  const creds = envLoginInput();
+  if (creds) {
+    const { me } = await loginWithPassword(creds, fetchImpl);
+    return me;
+  }
+  return null;
 }

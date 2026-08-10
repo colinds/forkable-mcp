@@ -9,7 +9,7 @@
 // Stateless-safe: no server-side memory of pending writes.
 
 import { createHmac, createHash, timingSafeEqual } from "node:crypto";
-import { type Guard } from "./order/guards.ts";
+import { type Guard } from "@/order/guards.ts";
 
 // ---------------------------------------------------------------------------
 // Canonical serialization

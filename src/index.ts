@@ -4,7 +4,7 @@
 
 import { runStdio } from "./server.ts";
 import { loadConfig } from "./config.ts";
-import { runAuthCli } from "./auth/cli.ts";
+import { runAuthCli } from "@/auth/cli.ts";
 
 const argv = process.argv.slice(2);
 if (argv.includes("--auth")) {

@@ -9,8 +9,8 @@ import { McpServer } from "@modelcontextprotocol/server";
 import { serveStdio } from "@modelcontextprotocol/server/stdio";
 import { registerAllTools } from "./tools.ts";
 import { type Config } from "./config.ts";
-import { ForkableClient } from "./net/client.ts";
-import { ingestFromEnvIfNeeded } from "./auth/ingest.ts";
+import { ForkableClient } from "@/net/client.ts";
+import { provisionFromEnvIfNeeded } from "@/auth/ingest.ts";
 
 /** Build a fresh MCP server with all tools registered (one per stdio connection). */
 function makeServer(cfg: Config): McpServer {
@@ -34,7 +34,7 @@ function startKeepalive(): void {
 export async function runStdio(cfg: Config): Promise<void> {
   // Headless provisioning: if FORKABLE_COOKIE is set and there's no session yet, ingest it first
   // (best-effort — a failure just means tools return the re-auth message).
-  const me = await ingestFromEnvIfNeeded().catch((e) => {
+  const me = await provisionFromEnvIfNeeded().catch((e) => {
     console.error(`env auth failed: ${(e as Error).message}`);
     return null;
   });

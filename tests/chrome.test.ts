@@ -1,6 +1,6 @@
 import { expect, test, describe } from "bun:test";
 import { createCipheriv, createHash } from "node:crypto";
-import { deriveKey, decryptCookieValue, assertDarwin } from "../src/auth/chrome.ts";
+import { deriveKey, decryptCookieValue, assertDarwin } from "@/auth/chrome.ts";
 
 // Encrypt a value the way macOS Chrome does: "v10" + AES-128-CBC(key, iv=16×0x20), PKCS7.
 function encryptV10(plaintext: Buffer, key: Buffer): Buffer {

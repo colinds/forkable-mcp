@@ -69,11 +69,18 @@ Then ask your client things like *"what's for lunch this week?"* or *"set Tuesda
 
 ## Auth
 
-There's no API key — Forkable uses your browser session. Import it one of these ways, and re-run when it
-expires:
+There's no API key. Authenticate once (re-run when the session expires) one of these ways:
+
+**Email / password** — works headless and **auto-refreshes** on expiry (for accounts that allow password login):
+
+```bash
+bun run auth --login --email you@co.com --password …   # or set FORKABLE_EMAIL / FORKABLE_PASSWORD (+ FORKABLE_MFA)
+```
+
+**Browser cookie** — use this for SSO-only accounts:
 
 - `bun run auth --chrome` — from your logged-in browser on macOS (`--browser brave|edge|arc|…`)
-- `FORKABLE_COOKIE='_easyorder_session=…; …'` — headless (env); provisioned on startup
+- `FORKABLE_COOKIE='_easyorder_session=…; …'` — headless (env)
 - `pbpaste | bun run auth` — paste a DevTools "Copy as cURL"
 
 The session is stored at `~/.forkable-mcp/session.json` and is never logged.

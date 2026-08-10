@@ -10,15 +10,16 @@
 
 import { z } from "zod";
 import type { McpServer, CallToolResult } from "@modelcontextprotocol/server";
-import { ForkableClient } from "./net/client.ts";
-import { ReauthRequiredError } from "./net/errors.ts";
-import { requireSession, getWriteSecret, type SessionRecord } from "./auth/session.ts";
-import { buildMutation } from "./net/gql.ts";
+import { ForkableClient } from "@/net/client.ts";
+import { ReauthRequiredError } from "@/net/errors.ts";
+import { requireSession, getWriteSecret, type SessionRecord } from "@/auth/session.ts";
+import { loginWithPassword, envLoginInput } from "@/auth/login.ts";
+import { buildMutation } from "@/net/gql.ts";
 import { withWriteGate, type GateCtx, type WritePlan, type ToolResultLike } from "./write-gate.ts";
-import { buildSelectionsHash, resolveItemModifiers } from "./order/selections.ts";
-import { evaluateGuards } from "./order/guards.ts";
-import { formatMoney, formatDate } from "./order/format.ts";
-import { type Delivery, type Menu, type MenuItem, type Order, type Piece } from "./order/types.ts";
+import { buildSelectionsHash, resolveItemModifiers } from "@/order/selections.ts";
+import { evaluateGuards } from "@/order/guards.ts";
+import { formatMoney, formatDate } from "@/order/format.ts";
+import { type Delivery, type Menu, type MenuItem, type Order, type Piece } from "@/order/types.ts";
 
 // --- Result helpers (return the SDK's CallToolResult directly; it carries an index signature) ---
 
@@ -52,21 +53,38 @@ function reauthResult(e: ReauthRequiredError): CallToolResult {
   };
 }
 
+/** Re-login from env credentials (FORKABLE_EMAIL/PASSWORD), if present. Returns true on success. */
+async function tryEnvRelogin(): Promise<boolean> {
+  const creds = envLoginInput();
+  if (!creds) return false;
+  try {
+    await loginWithPassword(creds);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /** Run a tool body with a live client + session, mapping ReauthRequiredError to a friendly result. */
 async function guard(
   fn: (client: ForkableClient, session: SessionRecord) => Promise<CallToolResult>,
 ): Promise<CallToolResult> {
-  let session: SessionRecord;
+  const run = async (): Promise<CallToolResult> => {
+    const session = await requireSession();
+    return fn(new ForkableClient({ session }), session);
+  };
   try {
-    session = await requireSession();
+    return await run();
   } catch (e) {
-    if (e instanceof ReauthRequiredError) return reauthResult(e);
-    throw e;
-  }
-  const client = new ForkableClient({ session });
-  try {
-    return await fn(client, session);
-  } catch (e) {
+    // A dead/missing session self-heals when password creds are in env: re-login + one retry.
+    if (e instanceof ReauthRequiredError && (await tryEnvRelogin())) {
+      try {
+        return await run();
+      } catch (e2) {
+        if (e2 instanceof ReauthRequiredError) return reauthResult(e2);
+        return errResult(`Error: ${(e2 as Error).message}`);
+      }
+    }
     if (e instanceof ReauthRequiredError) return reauthResult(e);
     return errResult(`Error: ${(e as Error).message}`);
   }

@@ -5,7 +5,7 @@ import {
   buildMutation,
   inputTypeName,
   assertNameSafe,
-} from "../src/net/gql.ts";
+} from "@/net/gql.ts";
 
 describe("serializeLiteral", () => {
   test("scalars", () => {

@@ -43,18 +43,21 @@ HTTP server. Each tool reads the session per call, so nothing is held in memory 
 
 ## Auth
 
-Forkable uses a session cookie plus a CSRF token (fetched automatically) — there's no API key, and the
-server never logs in for you; you provide a cookie from a browser session, one of:
+Forkable uses a session cookie plus a CSRF token (fetched automatically) — there's no API key. Establish
+a session one of:
 
-- `bun run auth --chrome` — decrypts the local browser cookie via the macOS Keychain (`--browser` picks
-  chrome / brave / edge / arc / vivaldi / opera / chromium / chrome-beta)
-- `FORKABLE_COOKIE` env — provisioned on startup if no session exists (the headless path)
-- `bun run auth --file <path>` / `pbpaste | bun run auth` — a "Copy as cURL" or raw Cookie header
+- **Email/password** (`auth/login.ts`): `bun run auth --login` (`--email`/`--password`/`--mfa`) or
+  `FORKABLE_EMAIL`/`FORKABLE_PASSWORD` (+ `FORKABLE_MFA`) env. Logs in via the `createSession` mutation;
+  works headless. A public `identities` pre-check fails fast on SSO-only accounts. Password-capable only.
+- **Browser cookie**: `bun run auth --chrome` (macOS Keychain-decrypts the local browser cookie; `--browser`
+  picks chrome / brave / edge / arc / vivaldi / opera / chromium / chrome-beta), `FORKABLE_COOKIE` env, or
+  `bun run auth --file <path>` / `pbpaste | bun run auth`.
 
-The session is stored at `~/.forkable-mcp/session.json` (mode `0600`, never logged). The client mints a
-CSRF token on demand, persists rotated cookies from every response, and a ~20-minute keepalive keeps the
-session warm while connected. On a `401` the tool returns an actionable re-auth message — no auto-retry,
-since the server can't self-refresh the session.
+On startup with no session, `provisionFromEnvIfNeeded` establishes one from env (cookie first, else
+email/password). The session is stored at `~/.forkable-mcp/session.json` (mode `0600`, never logged); the
+client mints CSRF on demand, persists rotated cookies, and a ~20-min keepalive keeps it warm. On a `401`:
+if `FORKABLE_EMAIL`/`FORKABLE_PASSWORD` are set, `guard()` **auto-relogins and retries once** (self-healing);
+otherwise it returns a re-auth message (a pasted cookie can't be refreshed without a browser).
 
 ## Write safety (preview-then-token)
 
@@ -86,6 +89,8 @@ calendar day (`todayLocal`) to avoid a UTC off-by-one near midnight.
 
 | Variable | Purpose |
 |---|---|
+| `FORKABLE_EMAIL` / `FORKABLE_PASSWORD` | Headless email/password login; also enables auto-relogin on 401. |
+| `FORKABLE_MFA` | Optional MFA code for password login. |
 | `FORKABLE_COOKIE` | Headless auth: a full Cookie header, provisioned on startup if no session exists. |
 | `FORKABLE_CSRF` | Optional CSRF token to pin (otherwise fetched automatically). |
 | `FORKABLE_WRITE_SECRET` | Optional HMAC key for confirm-tokens (else a per-install key is generated and stored). |

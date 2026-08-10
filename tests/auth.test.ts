@@ -1,7 +1,7 @@
 import { expect, test, describe } from "bun:test";
-import { parseCurl, mergeSetCookies, hasSessionCookie } from "../src/auth/cookies.ts";
-import { forkableHeaders } from "../src/net/endpoints.ts";
-import { redact, type SessionRecord } from "../src/auth/session.ts";
+import { parseCurl, mergeSetCookies, hasSessionCookie } from "@/auth/cookies.ts";
+import { forkableHeaders } from "@/net/endpoints.ts";
+import { redact, type SessionRecord } from "@/auth/session.ts";
 
 describe("parseCurl", () => {
   test("extracts cookie from -b flag and csrf from -H", () => {

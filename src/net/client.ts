@@ -12,8 +12,8 @@ import {
 } from "./endpoints.ts";
 import { ReauthRequiredError, MutationError, QueryError, type GqlResponse } from "./errors.ts";
 import { buildQuery, buildMutation, type LiteralArgs } from "./gql.ts";
-import { type SessionRecord, patchSession, requireSession } from "../auth/session.ts";
-import { mergeSetCookies } from "../auth/cookies.ts";
+import { type SessionRecord, patchSession, requireSession } from "@/auth/session.ts";
+import { mergeSetCookies } from "@/auth/cookies.ts";
 
 // ---------------------------------------------------------------------------
 // CSRF + verification (low-level; the full client adds retries/error mapping)

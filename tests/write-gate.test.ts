@@ -5,7 +5,7 @@ import {
   deriveConfirmToken,
   verifyConfirmToken,
   type CanonicalPayload,
-} from "../src/write-gate.ts";
+} from "@/write-gate.ts";
 
 const secret = new Uint8Array(32).fill(7);
 const other = new Uint8Array(32).fill(9);
