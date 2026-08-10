@@ -85,10 +85,23 @@ bun run auth --login --email you@co.com --password …   # or set FORKABLE_EMAIL
 
 The session is stored at `~/.forkable-mcp/session.json` and is never logged.
 
-## Config & development
+## Configuration
 
-Env (`.env`, see `.env.example`): `FORKABLE_COOKIE`, `FORKABLE_MAX_TOTAL` (hard spend cap),
-`FORKABLE_WRITE_SECRET`, `FORKABLE_MCP_HOME`.
+All settings are environment variables (`.env` is auto-loaded by Bun — see `.env.example`). Everything
+is optional; with none set you authenticate interactively and there's no spend cap.
+
+| Variable | Default | Description |
+|---|---|---|
+| `FORKABLE_EMAIL` | — | Email for headless password login. With `FORKABLE_PASSWORD`, also enables auto-relogin when the session expires. |
+| `FORKABLE_PASSWORD` | — | Password for headless login (pair with `FORKABLE_EMAIL`). |
+| `FORKABLE_MFA` | — | MFA code, if your account requires one for password login. |
+| `FORKABLE_COOKIE` | — | Headless auth for SSO-only accounts: a full forkable.com Cookie header. Provisioned on startup if no session exists. |
+| `FORKABLE_CSRF` | — | Pin a CSRF token instead of the auto-fetched one (rarely needed). |
+| `FORKABLE_MAX_TOTAL` | — | Hard spend cap in dollars: a write whose total exceeds it is refused (no confirm-token). Unset = no cap; the preview just notes when a meal is over your company's daily coverage. |
+| `FORKABLE_WRITE_SECRET` | per-install | HMAC key for write confirm-tokens. Auto-generated and stored in the session file if unset; set it to pin one across machines. |
+| `FORKABLE_MCP_HOME` | `~/.forkable-mcp` | Directory for the on-disk session (mode `0600`). |
+
+## Development
 
 ```bash
 bun test          # unit tests
