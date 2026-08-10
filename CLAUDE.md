@@ -93,6 +93,7 @@ calendar day (`todayLocal`) to avoid a UTC off-by-one near midnight.
 | `FORKABLE_MFA` | Optional MFA code for password login. |
 | `FORKABLE_COOKIE` | Headless auth: a full Cookie header, provisioned on startup if no session exists. |
 | `FORKABLE_CSRF` | Optional CSRF token to pin (otherwise fetched automatically). |
+| `FORKABLE_MAX_TOTAL` | Optional hard spend cap (dollars): a write over it is refused. Unset = no cap (preview just notes when over the company's daily limit, `delivery.copayAmount`). |
 | `FORKABLE_WRITE_SECRET` | Optional HMAC key for confirm-tokens (else a per-install key is generated and stored). |
 | `FORKABLE_MCP_HOME` | Session store directory (default `~/.forkable-mcp`). |
 

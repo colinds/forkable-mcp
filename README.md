@@ -87,7 +87,8 @@ The session is stored at `~/.forkable-mcp/session.json` and is never logged.
 
 ## Config & development
 
-Env (`.env`, see `.env.example`): `FORKABLE_COOKIE`, `FORKABLE_WRITE_SECRET`, `FORKABLE_MCP_HOME`.
+Env (`.env`, see `.env.example`): `FORKABLE_COOKIE`, `FORKABLE_MAX_TOTAL` (hard spend cap),
+`FORKABLE_WRITE_SECRET`, `FORKABLE_MCP_HOME`.
 
 ```bash
 bun test          # unit tests

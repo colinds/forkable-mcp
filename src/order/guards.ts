@@ -13,7 +13,8 @@ export type GuardCode =
   | "no_late_orders_remaining"
   | "no_late_removals_remaining"
   | "selection_invalid"
-  | "copay_due"
+  | "over_total_ceiling"
+  | "over_company_limit"
   | "no_credit_card"
   | "delivery_not_initial";
 
@@ -32,6 +33,9 @@ export interface GuardContext {
   violations?: SelectionViolation[];
   /** Account-level capability signals (from `me`), used to refuse hopeless orders early. */
   user?: { validCreditCard?: boolean; remainingLateOrdersMonthOf?: number };
+  /** Order total (dollars, base + add-ons) and an optional hard spend ceiling. */
+  total?: number;
+  maxTotal?: number;
 }
 
 /** Evaluate ordering guards; `block` guards prevent the write, `warn` are advisory. */
@@ -73,6 +77,35 @@ export function evaluateGuards(c: GuardContext): Guard[] {
         data: { ...v },
       });
     }
+    // Spend limits. A user-set FORKABLE_MAX_TOTAL is a HARD cap (block over it). Otherwise, if the meal
+    // exceeds the company's daily limit (delivery.copayAmount), just note the out-of-pocket amount.
+    // An unknown/non-finite total never blocks (hidePrices clubs report no total).
+    const total = c.total;
+    const companyLimit = d.copayAmount;
+    const overCompany =
+      typeof total === "number" &&
+      Number.isFinite(total) &&
+      typeof companyLimit === "number" &&
+      companyLimit > 0
+        ? total - companyLimit
+        : 0;
+    if (c.maxTotal != null) {
+      if (typeof total === "number" && Number.isFinite(total) && total > c.maxTotal) {
+        g.push({
+          code: "over_total_ceiling",
+          level: "block",
+          message: `This order totals ${formatMoney(total)}, over the ${formatMoney(c.maxTotal)} ceiling (FORKABLE_MAX_TOTAL).`,
+          data: { total, maxTotal: c.maxTotal },
+        });
+      }
+    } else if (overCompany > 0) {
+      g.push({
+        code: "over_company_limit",
+        level: "warn",
+        message: `This meal totals ${formatMoney(total)}, over your company's daily limit of ${formatMoney(companyLimit)} — about ${formatMoney(overCompany)} out of pocket.`,
+        data: { total, companyLimit, outOfPocket: overCompany },
+      });
+    }
     const noMonthlyLate = c.user?.remainingLateOrdersMonthOf === 0;
     if (pastDeadline) {
       if (o && o.changeRequestAllowed === false) {
@@ -100,19 +133,12 @@ export function evaluateGuards(c: GuardContext): Guard[] {
         });
       }
     }
-    if (d.copayAmount && d.copayAmount > 0) {
+    if (c.user?.validCreditCard === false && overCompany > 0) {
       g.push({
-        code: "copay_due",
+        code: "no_credit_card",
         level: "warn",
-        message: `This delivery has a copay of ${formatMoney(d.copayAmount)}.`,
+        message: "No credit card on file — the out-of-pocket amount may fail to charge.",
       });
-      if (c.user?.validCreditCard === false) {
-        g.push({
-          code: "no_credit_card",
-          level: "warn",
-          message: "No credit card on file — a copay charge may fail.",
-        });
-      }
     }
   }
 

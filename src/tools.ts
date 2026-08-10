@@ -172,6 +172,12 @@ function todayLocal(): string {
   return new Date().toLocaleDateString("en-CA"); // en-CA formats as YYYY-MM-DD
 }
 
+/** Hard spend ceiling (dollars) from FORKABLE_MAX_TOTAL, or undefined if unset/invalid. */
+function maxTotalCeiling(): number | undefined {
+  const n = Number(process.env.FORKABLE_MAX_TOTAL);
+  return Number.isFinite(n) && n > 0 ? n : undefined;
+}
+
 /** Load the user's deliveries (from a date; the app uses {from} only). */
 async function loadDeliveries(client: ForkableClient, from?: string): Promise<Delivery[]> {
   const args = { from: from ?? todayLocal() };
@@ -237,8 +243,14 @@ function fmtDelivery(d: Delivery): string {
     : "— nothing selected";
   const status = d.userConfirmed ? "confirmed" : d.state || "?";
   const cutoff = d.editingCutoffAt ? `  cutoff ${formatDate(d.editingCutoffAt)}` : "";
-  const copay = d.copayAmount ? `  copay ${formatMoney(d.copayAmount)}` : "";
-  return `#${d.id}  ${formatDate(d.forDeliveryAt)}  [${status}]${cutoff}${copay}\n    ${picked}`;
+  // copayAmount = what the company covers per day; userReceipt.due = your out-of-pocket over that.
+  const covers =
+    typeof d.copayAmount === "number" && d.copayAmount > 0
+      ? `  company covers ${formatMoney(d.copayAmount)}`
+      : "";
+  const due = d.userReceipt?.due;
+  const oop = typeof due === "number" && due > 0 ? `  you pay ${formatMoney(due)}` : "";
+  return `#${d.id}  ${formatDate(d.forDeliveryAt)}  [${status}]${cutoff}${covers}${oop}\n    ${picked}`;
 }
 
 // --- Compact projections (keep structuredContent small; full trees are opt-in) ---
@@ -252,7 +264,8 @@ function compactDelivery(d: Delivery) {
     status: d.userConfirmed ? "confirmed" : (d.state ?? null),
     needsOrder: pieces.length === 0,
     cutoff: d.editingCutoffAt ?? null,
-    copay: d.copayAmount ?? 0,
+    youPay: d.userReceipt?.due ?? 0, // your out-of-pocket for the current pick
+    companyLimit: d.copayAmount ?? null, // amount the company covers per day
     availableMenuIds: d.availableMenuIds ?? [],
     picked: pieces.map((p) => ({
       pieceId: p.id,
@@ -638,6 +651,7 @@ export function registerAllTools(server: McpServer): void {
           const existing: Piece | undefined = entry?.piece;
           const order: Order | undefined = entry?.order ?? d.orders?.[0];
           const me = await client.query<MeCap>("me", undefined, ME_CAP);
+          const total = (item.price ?? 0) + built.extra;
           const guards = evaluateGuards({
             intent: "select",
             delivery: d,
@@ -648,6 +662,8 @@ export function registerAllTools(server: McpServer): void {
               validCreditCard: me.validCreditCard,
               remainingLateOrdersMonthOf: me.remainingLateOrdersMonthOf,
             },
+            total,
+            maxTotal: maxTotalCeiling(),
           });
           const op = existing ? "replacePiece" : "addPiece";
           const input: Record<string, unknown> = {
@@ -670,7 +686,6 @@ export function registerAllTools(server: McpServer): void {
           const extras = built.summary.length
             ? ` (${built.summary.map((s) => s.options.join("/")).join(", ")})`
             : "";
-          const total = (item.price ?? 0) + built.extra;
           const summary =
             `${existing ? "Replace with" : "Add"} ${item.name}${extras} on delivery ${a.deliveryId}` +
             `${a.autoConfirm ? " and confirm" : ""} — ${formatMoney(total)}`;
@@ -742,6 +757,8 @@ export function registerAllTools(server: McpServer): void {
             choices: a.modifiers,
           });
           const me = await client.query<MeCap>("me", undefined, ME_CAP);
+          const total = (item.price ?? 0) + built.extra;
+          const maxTotal = maxTotalCeiling();
           // Guard each target day; prefix messages with the delivery id so blockers are attributable.
           const guards = targets.flatMap((d) =>
             evaluateGuards({
@@ -754,6 +771,8 @@ export function registerAllTools(server: McpServer): void {
                 validCreditCard: me.validCreditCard,
                 remainingLateOrdersMonthOf: me.remainingLateOrdersMonthOf,
               },
+              total,
+              maxTotal,
             }).map((gd) => ({ ...gd, message: `#${d.id}: ${gd.message}` })),
           );
           const newPiece = {

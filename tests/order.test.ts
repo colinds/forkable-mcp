@@ -203,6 +203,26 @@ describe("evaluateGuards", () => {
     });
     expect(blockers(g).some((x) => x.code === "selection_invalid")).toBe(true);
   });
+
+  test("maxTotal: blocks over the ceiling, allows at/under, ignores unknown total", () => {
+    const base = { intent: "select" as const, delivery: baseDelivery, menuId: 6290, maxTotal: 30 };
+    expect(
+      blockers(evaluateGuards({ ...base, total: 31 })).some((x) => x.code === "over_total_ceiling"),
+    ).toBe(true);
+    expect(blockers(evaluateGuards({ ...base, total: 30 })).length).toBe(0); // at ceiling is allowed
+    expect(blockers(evaluateGuards({ ...base })).length).toBe(0); // unknown total never blocks
+  });
+
+  test("no maxTotal: warns when over the company limit (copayAmount), silent when within", () => {
+    const del: Delivery = { ...baseDelivery, copayAmount: 20 };
+    const over = evaluateGuards({ intent: "select", delivery: del, menuId: 6290, total: 25 });
+    const w = over.find((x) => x.code === "over_company_limit");
+    expect(w?.level).toBe("warn");
+    expect((w?.data as { outOfPocket?: number } | undefined)?.outOfPocket).toBe(5);
+    expect(blockers(over).length).toBe(0); // it's a warning, never a block
+    const within = evaluateGuards({ intent: "select", delivery: del, menuId: 6290, total: 18 });
+    expect(within.some((x) => x.code === "over_company_limit")).toBe(false);
+  });
 });
 
 describe("formatMoney", () => {
