@@ -17,8 +17,8 @@ import { loginWithPassword, envLoginInput } from "@/auth/login.ts";
 import { buildMutation } from "@/net/gql.ts";
 import { withWriteGate, type GateCtx, type WritePlan, type ToolResultLike } from "./write-gate.ts";
 import { buildSelectionsHash, resolveItemModifiers } from "@/order/selections.ts";
-import { evaluateGuards } from "@/order/guards.ts";
-import { formatMoney, formatDate } from "@/order/format.ts";
+import { evaluateGuards, deliveryWindow } from "@/order/guards.ts";
+import { formatMoney, formatDate, formatDateTime, formatDay, weekdayOf } from "@/order/format.ts";
 import { type Delivery, type Menu, type MenuItem, type Order, type Piece } from "@/order/types.ts";
 
 // --- Result helpers (return the SDK's CallToolResult directly; it carries an index signature) ---
@@ -242,7 +242,12 @@ function fmtDelivery(d: Delivery): string {
     ? pieces.map((p) => p.name || `item ${p.itemId}`).join(", ")
     : "— nothing selected";
   const status = d.userConfirmed ? "confirmed" : d.state || "?";
-  const cutoff = d.editingCutoffAt ? `  cutoff ${formatDate(d.editingCutoffAt)}` : "";
+  const w = deliveryWindow(d);
+  // Label the gate, not just the timestamp: past the editing cutoff a delivery can still be
+  // changeable during the grace period, so "cutoff" alone reads as more final than it is.
+  const cutoff = w.editingCutoffAt
+    ? `  editing ${w.cutoffPassed ? "closed" : "closes"} ${formatDateTime(w.editingCutoffAt)} [${w.window}]`
+    : "";
   // copayAmount = what the company covers per day; userReceipt.due = your out-of-pocket over that.
   const covers =
     typeof d.copayAmount === "number" && d.copayAmount > 0
@@ -250,7 +255,10 @@ function fmtDelivery(d: Delivery): string {
       : "";
   const due = d.userReceipt?.due;
   const oop = typeof due === "number" && due > 0 ? `  you pay ${formatMoney(due)}` : "";
-  return `#${d.id}  ${formatDate(d.forDeliveryAt)}  [${status}]${cutoff}${covers}${oop}\n    ${picked}`;
+  return (
+    `#${d.id}  ${formatDay(d.forDeliveryAt)}  [${status}]${cutoff}${covers}${oop}\n` +
+    `    ${picked}\n    ${w.note}`
+  );
 }
 
 // --- Compact projections (keep structuredContent small; full trees are opt-in) ---
@@ -258,12 +266,19 @@ function fmtDelivery(d: Delivery): string {
 /** A lean delivery: keeps piece/menu ids callers need, drops the giant orders/receipt nesting. */
 function compactDelivery(d: Delivery) {
   const pieces = d.orders?.flatMap((o) => o.pieces ?? []) ?? [];
+  const w = deliveryWindow(d);
   return {
     id: d.id,
     date: formatDate(d.forDeliveryAt),
+    weekday: weekdayOf(d.forDeliveryAt),
     status: d.userConfirmed ? "confirmed" : (d.state ?? null),
     needsOrder: pieces.length === 0,
-    cutoff: d.editingCutoffAt ?? null,
+    // `editingCutoffAt` is when normal editing closes, NOT the last moment a change is possible —
+    // see deliveryWindow. `writeWindow` is the field to branch on.
+    editingCutoffAt: w.editingCutoffAt,
+    editingCutoffPassed: w.cutoffPassed,
+    pastLateOrderDeadline: w.pastLateOrderDeadline,
+    writeWindow: w.window,
     youPay: d.userReceipt?.due ?? 0, // your out-of-pocket for the current pick
     companyLimit: d.copayAmount ?? null, // amount the company covers per day
     availableMenuIds: d.availableMenuIds ?? [],
@@ -354,8 +369,10 @@ export function registerAllTools(server: McpServer): void {
     {
       title: "List deliveries",
       description:
-        "List upcoming lunch deliveries: date, status, what's selected, cutoff, copay. " +
-        "Start here to see the week and what still needs ordering.",
+        "List upcoming lunch deliveries: date, weekday, status, what's selected, editing cutoff, copay. " +
+        "Start here to see the week and what still needs ordering. " +
+        "Branch on `writeWindow`, not the cutoff: `open` = freely editable, `grace` = past the " +
+        "editing cutoff but a late change request is still accepted, `closed` = no further changes.",
       inputSchema: z.object({
         from: z
           .string()
@@ -861,7 +878,7 @@ export function registerAllTools(server: McpServer): void {
             op: "removeDelivery",
             selection: "errors",
             input: { deliveryId: a.deliveryId },
-            summary: `Skip delivery ${a.deliveryId} (${formatDate(d.forDeliveryAt)})`,
+            summary: `Skip delivery ${a.deliveryId} (${formatDay(d.forDeliveryAt)})`,
             guards,
           };
         };
@@ -895,7 +912,7 @@ export function registerAllTools(server: McpServer): void {
             op: "confirmDelivery",
             selection: "errors",
             input: { deliveryId: a.deliveryId, confirm, changeFrom: "dashboard" },
-            summary: `${confirm ? "Confirm" : "Unconfirm"} delivery ${a.deliveryId} (${formatDate(d.forDeliveryAt)})`,
+            summary: `${confirm ? "Confirm" : "Unconfirm"} delivery ${a.deliveryId} (${formatDay(d.forDeliveryAt)})`,
             guards,
           };
         };

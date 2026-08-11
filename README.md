@@ -57,7 +57,7 @@ Then ask your client things like *"what's for lunch this week?"* or *"set Tuesda
 
 | | Tool | Does |
 |---|---|---|
-| 📅 | `list_deliveries` | Upcoming deliveries: date, status, what's picked, cutoff, copay |
+| 📅 | `list_deliveries` | Upcoming deliveries: date, status, what's picked, editing cutoff, copay |
 | 🍱 | `get_menus` | Items for a delivery (pass `itemId` for one item's modifiers/options) |
 | 🔎 | `search_items` | Keyword search across a delivery's menus |
 | ✨ | `recommend_meals` / `explain_pick` | Personalized picks, and why the current meal was chosen |

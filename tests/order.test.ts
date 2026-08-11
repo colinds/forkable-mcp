@@ -1,7 +1,15 @@
-import { expect, test, describe } from "bun:test";
+import { expect, test, describe, beforeAll, afterAll } from "bun:test";
 import { buildSelectionsHash, resolveItemModifiers } from "@/order/selections.ts";
-import { evaluateGuards, blockers } from "@/order/guards.ts";
-import { formatMoney } from "@/order/format.ts";
+import { evaluateGuards, blockers, deliveryWindow } from "@/order/guards.ts";
+import {
+  formatMoney,
+  formatDate,
+  formatDay,
+  formatDateTime,
+  weekdayOf,
+  parseFloating,
+  isPast,
+} from "@/order/format.ts";
 import { type MenuItem, type MenuModifier, type Delivery } from "@/order/types.ts";
 
 // A protein single-select (required, max 1, >1 options) + a "extras" multi-select.
@@ -233,5 +241,172 @@ describe("formatMoney", () => {
     expect(formatMoney(18.5)).toBe("$18.50");
     expect(formatMoney(-5)).toBe("-$5.00");
     expect(formatMoney()).toBe("$0.00");
+  });
+});
+
+// Real payloads observed from the API on 2026-08-10. Note the inconsistency the parser has to
+// absorb: editingCutoffAt carries a true -07:00 offset, forDeliveryAt claims `Z` but is really a
+// floating local wall-clock time (lunch is not delivered at 5:01 AM Pacific).
+const FOR_DELIVERY = "2026-08-11T12:01:00.000Z";
+const CUTOFF = "2026-08-10T11:45:00-07:00";
+
+describe("weekdayOf", () => {
+  test("gets the weekday right for a known week", () => {
+    expect(weekdayOf("2026-08-09")).toBe("Sun");
+    expect(weekdayOf("2026-08-10")).toBe("Mon");
+    expect(weekdayOf("2026-08-11")).toBe("Tue");
+    expect(weekdayOf("2026-08-12")).toBe("Wed");
+    expect(weekdayOf("2026-08-13")).toBe("Thu");
+    expect(weekdayOf("2026-08-14")).toBe("Fri");
+  });
+
+  test("is not shifted by a UTC-tagged floating timestamp", () => {
+    // The bug this guards: forDeliveryAt says 12:01Z, which is the previous evening in UTC-12.
+    expect(weekdayOf(FOR_DELIVERY)).toBe("Tue");
+    expect(formatDay(FOR_DELIVERY)).toBe("Tue 2026-08-11");
+  });
+
+  test("returns empty for junk", () => {
+    expect(weekdayOf(undefined)).toBe("");
+    expect(weekdayOf("nope")).toBe("");
+  });
+});
+
+describe("parseFloating", () => {
+  test("honors a real UTC offset as a true instant", () => {
+    expect(parseFloating(CUTOFF)?.toISOString()).toBe("2026-08-10T18:45:00.000Z");
+  });
+
+  test("treats a mislabelled `Z` as local wall-clock time", () => {
+    const at = parseFloating(FOR_DELIVERY)!;
+    expect(at.getFullYear()).toBe(2026);
+    expect(at.getMonth()).toBe(7); // August
+    expect(at.getDate()).toBe(11);
+    expect(at.getHours()).toBe(12); // 12:01 local, NOT 5:01 after a UTC shift
+    expect(at.getMinutes()).toBe(1);
+  });
+
+  test("parses a date-only value as local midnight, not UTC", () => {
+    const at = parseFloating("2026-08-11")!;
+    expect(at.getDate()).toBe(11); // `new Date("2026-08-11")` alone lands on the 10th west of UTC
+    expect(at.getHours()).toBe(0);
+  });
+
+  test("returns undefined for missing/invalid input", () => {
+    expect(parseFloating(undefined)).toBeUndefined();
+    expect(parseFloating("not-a-date")).toBeUndefined();
+  });
+});
+
+describe("formatDateTime", () => {
+  // `bun test` runs at UTC, so pin a zone to make the rendered wall-clock deterministic.
+  const original = process.env.TZ;
+  beforeAll(() => {
+    process.env.TZ = "America/Los_Angeles";
+  });
+  afterAll(() => {
+    if (original === undefined) delete process.env.TZ;
+    else process.env.TZ = original;
+  });
+
+  test("renders an offset-carrying cutoff at its true local time", () => {
+    expect(formatDateTime(CUTOFF)).toBe("Mon 2026-08-10 11:45 AM");
+  });
+
+  test("renders a floating timestamp at its wall-clock time, not shifted", () => {
+    expect(formatDateTime(FOR_DELIVERY)).toBe("Tue 2026-08-11 12:01 PM");
+  });
+});
+
+describe("isPast", () => {
+  const now = new Date("2026-08-11T01:09:00.000Z"); // Mon Aug 10, 6:09 PM PDT
+  test("the Aug 11 delivery's cutoff has already passed", () => {
+    expect(isPast(CUTOFF, now)).toBe(true);
+  });
+  test("a later cutoff has not", () => {
+    expect(isPast("2026-08-11T11:45:00-07:00", now)).toBe(false);
+  });
+  test("undefined when there's nothing to compare", () => {
+    expect(isPast(undefined, now)).toBeUndefined();
+  });
+});
+
+describe("deliveryWindow", () => {
+  const now = new Date("2026-08-11T01:09:00.000Z"); // Mon Aug 10, 6:09 PM PDT
+
+  test("open before the editing cutoff", () => {
+    const d: Delivery = {
+      id: 1234200,
+      state: "initial",
+      editingCutoffAt: "2026-08-11T11:45:00-07:00",
+      isReadOnly: false,
+      pastLateOrderDeadline: false,
+      canRequestChanges: false,
+    };
+    const w = deliveryWindow(d, now);
+    expect(w.window).toBe("open");
+    expect(w.cutoffPassed).toBe(false);
+    expect(w.note).toContain("Editable until");
+  });
+
+  // The case that proves editingCutoffAt is NOT the last moment a change is possible: delivery
+  // #1234199 was read-only with its cutoff 6h in the past, yet still accepting change requests.
+  test("grace: past the editing cutoff but change requests still accepted", () => {
+    const d: Delivery = {
+      id: 1234199,
+      state: "grace_period",
+      editingCutoffAt: CUTOFF,
+      isReadOnly: true,
+      pastLateOrderDeadline: false,
+      canRequestChanges: true,
+    };
+    const w = deliveryWindow(d, now);
+    expect(w.window).toBe("grace");
+    expect(w.cutoffPassed).toBe(true);
+    expect(w.pastLateOrderDeadline).toBe(false);
+    expect(w.note).toContain("late change request is still accepted");
+  });
+
+  test("closed once past the late-order deadline", () => {
+    const d: Delivery = {
+      id: 1234197,
+      state: "receipt_sent",
+      editingCutoffAt: "2026-08-09T11:45:00-07:00",
+      isReadOnly: true,
+      pastLateOrderDeadline: true,
+      canRequestChanges: false,
+    };
+    const w = deliveryWindow(d, now);
+    expect(w.window).toBe("closed");
+    expect(w.pastLateOrderDeadline).toBe(true);
+  });
+
+  test("an order-level late deadline closes the window too", () => {
+    const d: Delivery = {
+      id: 9,
+      editingCutoffAt: CUTOFF,
+      isReadOnly: true,
+      orders: [{ id: 1, pastLateOrderDeadline: true }],
+    };
+    expect(deliveryWindow(d, now).window).toBe("closed");
+  });
+
+  test("reports the cutoff verbatim, never a reformatted guess", () => {
+    const d: Delivery = { id: 1, editingCutoffAt: CUTOFF };
+    expect(deliveryWindow(d, now).editingCutoffAt).toBe(CUTOFF);
+  });
+
+  test("no cutoff at all still yields a usable window", () => {
+    const w = deliveryWindow({ id: 1, isReadOnly: false }, now);
+    expect(w.window).toBe("open");
+    expect(w.editingCutoffAt).toBeNull();
+  });
+});
+
+describe("formatDate", () => {
+  test("keeps the calendar date the API named", () => {
+    expect(formatDate(FOR_DELIVERY)).toBe("2026-08-11");
+    expect(formatDate(CUTOFF)).toBe("2026-08-10");
+    expect(formatDate(undefined)).toBe("");
   });
 });

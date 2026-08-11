@@ -2,7 +2,66 @@
 
 import { type Delivery, type Order } from "./types.ts";
 import { type SelectionViolation } from "./selections.ts";
-import { formatMoney } from "./format.ts";
+import { formatMoney, formatDateTime, isPast } from "./format.ts";
+
+/**
+ * Forkable gates writes twice, and `editingCutoffAt` is only the FIRST gate:
+ *
+ *  - `editingCutoffAt` — when normal editing closes. Passing it flips `isReadOnly` to true.
+ *  - `pastLateOrderDeadline` — a strictly later gate, after which even a late order or change
+ *    request is refused. This is the one the guards below key off.
+ *
+ * Between the two sits a grace period (`state: "grace_period"`, `canRequestChanges: true`) where a
+ * delivery reads as locked but a change request still goes through. Reporting only the cutoff makes
+ * a still-editable delivery look shut, so callers get the window, not just the timestamp.
+ */
+export type WriteWindow = "open" | "grace" | "closed";
+
+export interface DeliveryWindow {
+  window: WriteWindow;
+  /** The editing cutoff, verbatim from the API (may already have passed). */
+  editingCutoffAt: string | null;
+  cutoffPassed: boolean;
+  pastLateOrderDeadline: boolean;
+  note: string;
+}
+
+export function deliveryWindow(d: Delivery, now: Date = new Date()): DeliveryWindow {
+  const orders = d.orders ?? [];
+  const pastLate = Boolean(d.pastLateOrderDeadline || orders.some((o) => o.pastLateOrderDeadline));
+  const cutoffPassed = isPast(d.editingCutoffAt, now) ?? false;
+  // `canRequestChanges` is the grace-period affordance: it's false on a normally-open delivery and
+  // true once editing has closed but a change request is still accepted.
+  const changeAllowed =
+    d.canRequestChanges === true || orders.some((o) => o.changeRequestAllowed === true);
+  const lateOrdersLeft = orders.some(
+    (o) => typeof o.lateOrdersRemaining === "number" && o.lateOrdersRemaining > 0,
+  );
+
+  const cutoff = d.editingCutoffAt ?? null;
+  const when = cutoff ? formatDateTime(cutoff) : "unknown";
+  let window: WriteWindow;
+  let note: string;
+  if (!cutoffPassed && !pastLate && !d.isReadOnly) {
+    window = "open";
+    note = cutoff ? `Editable until ${when}.` : "Editable.";
+  } else if (!pastLate && (changeAllowed || lateOrdersLeft)) {
+    window = "grace";
+    note = `Editing closed ${when}, but a late change request is still accepted.`;
+  } else {
+    window = "closed";
+    note = pastLate
+      ? `Past the late-order deadline (editing closed ${when}); no further changes.`
+      : `Locked (editing closed ${when}).`;
+  }
+  return {
+    window,
+    editingCutoffAt: cutoff,
+    cutoffPassed,
+    pastLateOrderDeadline: pastLate,
+    note,
+  };
+}
 
 export type GuardCode =
   | "delivery_read_only"

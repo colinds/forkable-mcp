@@ -94,6 +94,33 @@ resolved by `(menuId, itemId)`.
 API money is **dollars** (floats), rendered by `formatMoney`. The default `from` date uses the local
 calendar day (`todayLocal`) to avoid a UTC off-by-one near midnight.
 
+Forkable's timestamps are **inconsistently zoned**, so parse them through `parseFloating`, never bare
+`new Date()`:
+
+- `editingCutoffAt` carries a true offset — `"2026-08-10T11:45:00-07:00"`.
+- `forDeliveryAt` is a **floating local** wall-clock time mislabelled UTC — `"2026-08-11T12:01:00.000Z"`
+  means noon local, not 5:01 AM Pacific. Honoring that `Z` shifts the instant and, far enough east,
+  the calendar date.
+
+`parseFloating` passes a real `±HH:MM` straight to `Date` (whose offset-less date-time parsing is
+already local, per spec), strips a lying `Z`, and pins `T00:00:00` onto date-only strings, which would
+otherwise parse as UTC. `formatDay` / `weekdayOf` emit the weekday themselves because callers were
+re-deriving it from bare `YYYY-MM-DD` and getting it wrong.
+
+## Write windows (two gates, not one)
+
+`editingCutoffAt` is **not** the last moment a delivery can change. There are two gates:
+
+1. `editingCutoffAt` — when normal editing closes; passing it flips `isReadOnly` to true.
+2. `pastLateOrderDeadline` — strictly later, after which even a late order or change request is
+   refused. This is what `evaluateGuards` keys off, and the only one that should block a write.
+
+Between them sits a grace period (`state: "grace_period"`, `canRequestChanges: true`) where the
+delivery reads as locked but a change request still lands. Note `canRequestChanges` is *false* on a
+normally-open delivery — it's the grace-period affordance, not a general "can I edit" flag.
+`deliveryWindow()` folds all of this into `open` | `grace` | `closed`; tools should surface and branch
+on that rather than comparing the cutoff to the clock.
+
 ## Environment variables
 
 | Variable | Purpose |
