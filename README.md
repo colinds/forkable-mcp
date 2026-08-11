@@ -22,37 +22,35 @@ all from chat.
 
 ## Quick start
 
-**1. Clone and install**
+Requires [Bun](https://bun.sh) 1.3+ (`bunx` runs it — no clone needed).
+
+**1. Authenticate** (imports your logged-in browser session on macOS — see [Auth](#auth) for other options)
 
 ```bash
-git clone https://github.com/colinds/forkable-mcp.git
-cd forkable-mcp && bun install
+bunx forkable-mcp --auth --chrome
 ```
 
-**2. Authenticate** (imports your logged-in browser session on macOS — see [Auth](#auth) for other options)
-
-```bash
-bun run auth --chrome
-```
-
-**3. Add it to your MCP client** (replace `/path/to/forkable-mcp` with your clone):
+**2. Add it to your MCP client**
 
 | Client | Add it |
 |---|---|
-| Claude Code | `claude mcp add forkable -- bun run --cwd /path/to/forkable-mcp start` |
-| Codex | `codex mcp add forkable -- bun run --cwd /path/to/forkable-mcp start` |
+| Claude Code | `claude mcp add forkable -- bunx forkable-mcp` |
+| Codex | `codex mcp add forkable -- bunx forkable-mcp` |
 | Claude Desktop / Cursor | add the JSON below to the config (under `mcpServers`) |
 | VS Code | add the JSON below to `.vscode/mcp.json` (under `servers`) |
 
 ```json
 {
   "mcpServers": {
-    "forkable": { "command": "bun", "args": ["run", "--cwd", "/path/to/forkable-mcp", "start"] }
+    "forkable": { "command": "bunx", "args": ["forkable-mcp"] }
   }
 }
 ```
 
 Then ask your client things like *"what's for lunch this week?"* or *"set Tuesday to the chicken bowl."*
+
+> **From source instead?** `git clone` + `bun install`, authenticate with `bun run auth --chrome`, and
+> point your client at `bun run --cwd /path/to/forkable-mcp start`.
 
 ## Tools
 
@@ -74,14 +72,16 @@ There's no API key. Authenticate once (re-run when the session expires) one of t
 **Email / password** — works headless and **auto-refreshes** on expiry (for accounts that allow password login):
 
 ```bash
-bun run auth --login --email you@co.com --password …   # or set FORKABLE_EMAIL / FORKABLE_PASSWORD (+ FORKABLE_MFA)
+bunx forkable-mcp --auth --login --email you@co.com --password …   # or set FORKABLE_EMAIL / FORKABLE_PASSWORD (+ FORKABLE_MFA)
 ```
 
 **Browser cookie** — use this for SSO-only accounts:
 
-- `bun run auth --chrome` — from your logged-in browser on macOS (`--browser brave|edge|arc|…`)
+- `bunx forkable-mcp --auth --chrome` — from your logged-in browser on macOS (`--browser brave|edge|arc|…`)
 - `FORKABLE_COOKIE='_easyorder_session=…; …'` — headless (env)
-- `pbpaste | bun run auth` — paste a DevTools "Copy as cURL"
+- `pbpaste | bunx forkable-mcp --auth` — paste a DevTools "Copy as cURL"
+
+(From a clone, use `bun run auth …` in place of `bunx forkable-mcp --auth …`.)
 
 The session is stored at `~/.forkable-mcp/session.json` and is never logged.
 
