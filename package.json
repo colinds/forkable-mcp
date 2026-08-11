@@ -1,7 +1,7 @@
 {
   "name": "forkable-mcp",
   "type": "module",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Unofficial MCP server for Forkable — order and manage corporate lunches from any MCP client.",
   "license": "MIT",
   "author": "Colin D'Souza",

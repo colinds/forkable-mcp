@@ -41,10 +41,15 @@ export async function runAuthCli(argv: string[]): Promise<void> {
         process.exit(1);
       }
       const browser = browserArg as SupportedBrowser | undefined;
-      const cookie = await readForkableCookieHeader(browser ? { browser } : {});
+      const profileArg = flag("--profile");
+      const { cookie, profile } = await readForkableCookieHeader({
+        ...(browser ? { browser } : {}),
+        ...(profileArg ? { profile: profileArg } : {}),
+      });
       const { me } = await ingestCredentials({ cookie });
       console.error(
-        `✓ Imported ${browser ?? "chrome"} session for ${me.fullName || me.email || `user ${me.id}`}.`,
+        `✓ Imported ${browser ?? "chrome"} session (profile ${profile}) for ` +
+          `${me.fullName || me.email || `user ${me.id}`}.`,
       );
     } else if (fileIdx < 0 && process.env.FORKABLE_COOKIE) {
       // Headless: cookie provided via env (no browser, no terminal paste).
@@ -61,12 +66,31 @@ export async function runAuthCli(argv: string[]): Promise<void> {
           ? await Bun.file(argv[fileIdx + 1]!).text()
           : await Bun.stdin.text();
       if (!blob.trim()) {
+        // Lazy-load only for the browser list — this branch exits, so pulling in bun:sqlite is fine.
+        const { SUPPORTED_BROWSERS } = await import("./chrome.ts");
         console.error(
-          "Provide a session one of these ways:\n" +
-            "  • headless:   FORKABLE_COOKIE='_easyorder_session=…; …' bun run auth\n" +
-            "  • from a file: bun run auth --file ./forkable.curl\n" +
-            "  • paste cURL:  pbpaste | bun run auth   (DevTools → a graphql request → Copy as cURL)\n" +
-            "  • from Chrome: bun run auth --chrome",
+          "No session provided. Pick whichever is easiest:\n" +
+            "\n" +
+            "  1. Email + password (works headless, auto-refreshes):\n" +
+            "       bun run auth --login --email you@co.com --password '…'\n" +
+            "\n" +
+            "  2. Import from your logged-in browser (macOS only):\n" +
+            "       bun run auth --chrome\n" +
+            "       bun run auth --chrome --browser arc [--profile 'Profile 1']\n" +
+            `       --browser: ${SUPPORTED_BROWSERS.join(", ")}\n` +
+            "       all profiles are searched; the freshest session wins\n" +
+            "\n" +
+            "  3. Paste a cookie header (SSO accounts, or any non-macOS machine):\n" +
+            "       FORKABLE_COOKIE='_easyorder_session=…; …' bun run auth\n" +
+            "     Get it from forkable.com → DevTools (⌥⌘I) → Network → filter for\n" +
+            "     `graphql` → click a POST /api/v2/graphql request → Headers → Request Headers\n" +
+            "     → copy the whole `cookie:` value (must include _easyorder_session).\n" +
+            "\n" +
+            '  4. Paste a "Copy as cURL" blob — the whole curl command DevTools writes\n' +
+            "     for a request, cookies and all; we just parse the cookie out of it.\n" +
+            "     forkable.com → DevTools → Network → filter for `graphql` →\n" +
+            "     right-click a POST /api/v2/graphql request → Copy → Copy as cURL, then:\n" +
+            "       pbpaste | bun run auth          # or: bun run auth --file ./forkable.curl",
         );
         process.exit(1);
       }

@@ -50,8 +50,17 @@ a session one of:
   `FORKABLE_EMAIL`/`FORKABLE_PASSWORD` (+ `FORKABLE_MFA`) env. Logs in via the `createSession` mutation;
   works headless. A public `identities` pre-check fails fast on SSO-only accounts. Password-capable only.
 - **Browser cookie**: `bun run auth --chrome` (macOS Keychain-decrypts the local browser cookie; `--browser`
-  picks chrome / brave / edge / arc / vivaldi / opera / chromium / chrome-beta), `FORKABLE_COOKIE` env, or
-  `bun run auth --file <path>` / `pbpaste | bun run auth`.
+  picks any value in `SUPPORTED_BROWSERS`), `FORKABLE_COOKIE` env, or `bun run auth --file <path>` /
+  `pbpaste | bun run auth`.
+
+  `chrome.ts` searches **every** profile, not just `Default`: `discoverProfiles` unions `Default`, the
+  dirs in `Local State`'s `profile.info_cache`, any sibling dir holding a `Cookies` DB, and the
+  user-data root itself (Opera keeps `Cookies` there). Labels come from `info_cache` or the profile's
+  own `Preferences` (`profile.name`) — Arc doesn't keep `info_cache` current. `pickProfileJar` then
+  takes the profile whose `_easyorder_session` has the newest `last_access_utc`, so a logged-out
+  `Default` can't shadow a live `Profile 1`; `--profile <dir>` pins one. Note Arc nests profiles one
+  level deeper (`Arc/User Data/<Profile>`), and all Google Chrome channels share the single
+  `Chrome Safe Storage` Keychain account, so `BrowserSpec.label` carries the display name separately.
 
 On startup with no session, `provisionFromEnvIfNeeded` establishes one from env (cookie first, else
 email/password). The session is stored at `~/.forkable-mcp/session.json` (mode `0600`, never logged); the
