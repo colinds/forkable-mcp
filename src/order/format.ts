@@ -62,10 +62,9 @@ export function parseFloating(iso?: string): Date | undefined {
 /**
  * "2026-08-10T11:45:00-07:00" → "Mon 2026-08-10 11:45 AM".
  *
- * Shown in the offset Forkable sent, matching the dashboard (which parses with Luxon's
- * `{setZone: true}`). That's also the least work: the leading "YYYY-MM-DDTHH:MM" already *is* the
- * wall clock to display — true both for a real offset and for `forDeliveryAt`'s mislabelled `Z` —
- * so this is pure string slicing, with no `Date` and no host-zone dependence.
+ * Shown in the offset Forkable sent, which is also the least work: the leading "YYYY-MM-DDTHH:MM"
+ * already *is* the wall clock to display — true both for a real offset and for `forDeliveryAt`'s
+ * mislabelled `Z` — so this is pure string slicing, with no `Date` and no host-zone dependence.
  */
 export function formatDateTime(iso?: string): string {
   const m = /^(\d{4}-\d{2}-\d{2})T(\d{2}):(\d{2})/.exec(iso ?? "");
