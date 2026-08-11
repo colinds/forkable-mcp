@@ -15,3 +15,15 @@ jobs:
           bun-version: latest
       - run: bun install --frozen-lockfile
       - run: bun run check
+
+  # `check` only ever sees the source tree. This packs the tarball, installs it elsewhere, and drives
+  # the installed binary — the only way to catch a `files` allowlist or import-resolution regression.
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: bun install --frozen-lockfile
+      - run: bun run smoke

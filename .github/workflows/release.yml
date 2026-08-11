@@ -34,6 +34,8 @@ jobs:
 
       - run: bun install --frozen-lockfile
       - run: bun run check
+      # Last gate before an irreversible publish: prove the tarball actually installs and runs.
+      - run: bun run smoke
       - run: npm install -g npm@latest
 
       - name: Publish to npm

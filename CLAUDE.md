@@ -283,8 +283,15 @@ bun test          # unit tests (selectionsHash, confirm-token, guards, own-order
                   #   date/zone formatting, status renderer, serializer, crypto)
 bun run test:tz   # the same suite under TZ=Asia/Kolkata — display must be host-zone independent
 bun run check     # oxlint + oxfmt --check + tsc + both test runs
-bun run fmt       # oxfmt src tests
+bun run fmt       # oxfmt src tests scripts
+bun run smoke     # pack → install the tarball into a scratch project → drive the installed binary
 ```
+
+`check` only ever sees the source tree, so it can't catch a `files` allowlist gap or an import that
+stops resolving once installed — `scripts/smoke.ts` covers that, and CI runs it alongside `check` and
+again before publishing. It needs no credentials: the server starts without a session, and the client
+transport's default env excludes `FORKABLE_*`. Keep `scripts/` inside the tsconfig `include`, or the
+editor falls back to an inferred project and floods the file with resolution errors.
 
 Conventions: delivery-scoped tools take `deliveryId` first; reads are `get_/list_/search_/recommend_/
 explain_`, writes are `set_/remove_/skip_/confirm_`, and every write takes an optional `confirmToken`.
