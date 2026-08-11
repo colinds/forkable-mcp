@@ -10,7 +10,13 @@ import {
   forkableHeaders,
   type FetchImpl,
 } from "./endpoints.ts";
-import { ReauthRequiredError, MutationError, QueryError, type GqlResponse } from "./errors.ts";
+import {
+  ReauthRequiredError,
+  MutationError,
+  QueryError,
+  baseCodes,
+  type GqlResponse,
+} from "./errors.ts";
 import { buildQuery, buildMutation, type LiteralArgs } from "./gql.ts";
 import { type SessionRecord, patchSession, requireSession } from "@/auth/session.ts";
 import { mergeSetCookies } from "@/auth/cookies.ts";
@@ -212,7 +218,9 @@ export class ForkableClient {
     const payload = data[name];
     if (!payload) throw new MutationError(name, ["no payload returned"]);
     const errors = payload.errors ?? [];
-    if (errors.length) {
+    // A refusal can arrive with an EMPTY `errors` array and the reason only in `errorDetails.base`.
+    // Treating that as success reported "✓ Sent" on a write the server had rejected.
+    if (errors.length || baseCodes(payload.errorDetails).length) {
       let attrs: unknown = payload.errorAttributes;
       if (typeof attrs === "string") {
         try {
@@ -221,7 +229,7 @@ export class ForkableClient {
           /* leave as string */
         }
       }
-      throw new MutationError(name, errors, payload.errorDetails, attrs);
+      throw new MutationError(name, errors, payload.errorDetails, attrs, payload.warningDetails);
     }
     return payload;
   }
@@ -236,4 +244,5 @@ interface Payload {
   errors?: string[];
   errorDetails?: unknown;
   errorAttributes?: unknown;
+  warningDetails?: unknown;
 }

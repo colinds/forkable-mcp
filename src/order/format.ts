@@ -1,8 +1,9 @@
 // Formatters.
 
 /**
- * Money → "$12.34". The Forkable API returns money as DOLLARS (floats, e.g. 15.85, 22.0), not
- * integer cents (menu item `price` comes back as e.g. 15.85 / 18.5 / 22.0).
+ * Money → "$12.34", from DOLLARS. Units are MIXED on the wire: everything we render is dollars
+ * (item/option/piece price, copayAmount, userReceipt.*), but `Order.total`/`serviceFee`/`tally` are
+ * cents. Those are left unselected, so nothing cents-valued reaches here. See CLAUDE.md.
  */
 export function formatMoney(dollars?: number | null): string {
   if (dollars == null) return "$0.00";
@@ -38,14 +39,18 @@ export function formatDay(iso?: string): string {
 }
 
 const valid = (d: Date): Date | undefined => (Number.isNaN(d.getTime()) ? undefined : d);
+const pad2 = (n: number): string => String(n).padStart(2, "0");
 
 /**
  * Parse a Forkable timestamp to a real instant, for comparing against the clock.
  *
- * `editingCutoffAt` carries a true offset, but `forDeliveryAt`'s "…T12:01:00.000Z" is a floating
- * local time mislabelled UTC (lunch isn't delivered at 5:01 AM Pacific), so `new Date()` alone
- * would shift it. Two nudges on top of `Date`, whose offset-less date-time parsing is already
- * local: drop a lying `Z`, and pin a time onto a date-only string, since those parse as UTC.
+ * Handles the floating-local family only: `forDeliveryAt`'s "…T12:01:00.000Z" means noon local, so
+ * `new Date()` alone would shift it. Timestamps with a true offset need nothing, and honest-UTC ones
+ * (`dropoffCompletedAt`) must go through `formatInstantLike` instead. CLAUDE.md lists which is which
+ * — a `Z` alone can't tell you, so it's knowledge, not inference.
+ *
+ * Two nudges on top of `Date`, whose offset-less parsing is already local: drop a lying `Z`, and pin
+ * a time onto a date-only string, since those parse as UTC.
  */
 export function parseFloating(iso?: string): Date | undefined {
   if (!iso) return undefined;
@@ -68,6 +73,64 @@ export function formatDateTime(iso?: string): string {
   const [, date, hh, mm] = m;
   const h = Number(hh);
   return `${weekdayOf(date)} ${date} ${h % 12 === 0 ? 12 : h % 12}:${mm} ${h < 12 ? "AM" : "PM"}`;
+}
+
+/** Parse an honest-UTC instant. `undefined` unless it really carries a `Z`. */
+function utcInstant(utcIso?: string): Date | undefined {
+  // `new Date`, NOT parseFloating: this `Z` is honest, and parseFloating would strip it and reread
+  // the value as host-local — the floating-local rule, which is wrong for this family.
+  return utcIso && /Z$/i.test(utcIso) ? valid(new Date(utcIso)) : undefined;
+}
+
+/**
+ * Show an honest-UTC instant as a wall clock in a named IANA zone:
+ * `formatInstantIn(dropoffCompletedAt, "America/Los_Angeles", "PT")` → "Tue 2026-08-11 11:41 AM PT".
+ *
+ * Honest-UTC fields only — never `forDeliveryAt`. `""` when the instant or zone is missing: an
+ * omitted line beats a wrong clock.
+ *
+ * Host-independent because the zone is explicit; `formatToParts` (not `toLocaleString`) so the shape
+ * is ours rather than the locale's. Don't drop the explicit `timeZone` — without it this silently
+ * becomes host-dependent, which the TZ test run exists to catch.
+ */
+export function formatInstantIn(utcIso?: string, zone?: string, label?: string): string {
+  const at = utcInstant(utcIso);
+  if (!at || !zone) return "";
+  let parts: Intl.DateTimeFormatPart[];
+  try {
+    parts = new Intl.DateTimeFormat("en-US", {
+      timeZone: zone,
+      weekday: "short",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "numeric",
+      minute: "2-digit",
+      hour12: true,
+    }).formatToParts(at);
+  } catch {
+    return ""; // unknown zone name — omit rather than guess
+  }
+  const g = (t: string) => parts.find((x) => x.type === t)?.value ?? "";
+  const shown = `${g("weekday")} ${g("year")}-${g("month")}-${g("day")} ${g("hour")}:${g("minute")} ${g("dayPeriod")}`;
+  return label ? `${shown} ${label}` : shown;
+}
+
+/**
+ * Same, for clubs that expose no IANA zone: borrow the offset off a sibling timestamp that carries a
+ * real one (`etaStatus.start`). Prefer `formatInstantIn`; this is the fallback.
+ */
+export function formatInstantLike(utcIso?: string, zoneSource?: string, label?: string): string {
+  const off = /([+-])(\d{2}):?(\d{2})$/.exec(zoneSource ?? "");
+  const at = utcInstant(utcIso);
+  if (!off || !at) return "";
+  const offset = `${off[1]}${off[2]}:${off[3]}`;
+  const minutes = (off[1] === "-" ? -1 : 1) * (Number(off[2]) * 60 + Number(off[3]));
+  const shifted = new Date(at.getTime() + minutes * 60_000);
+  const wall =
+    `${shifted.getUTCFullYear()}-${pad2(shifted.getUTCMonth() + 1)}-${pad2(shifted.getUTCDate())}` +
+    `T${pad2(shifted.getUTCHours())}:${pad2(shifted.getUTCMinutes())}${offset}`;
+  return label ? `${formatDateTime(wall)} ${label}` : formatDateTime(wall);
 }
 
 /** Has this timestamp already passed? `undefined` when there's nothing to compare. */

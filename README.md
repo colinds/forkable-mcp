@@ -17,8 +17,9 @@ all from chat.
 ## Features
 
 - 📅 See upcoming deliveries — status, cutoff, copay, and what's already picked
+- 🚚 Track a delivery — courier ETA, when it actually landed, and the office access notes
 - 🍱 Browse and search menus, and get personalized meal recommendations
-- ✏️ Set, batch-set, remove, skip, and confirm meals
+- ✏️ Set, batch-set, remove, skip, and confirm meals — every write is dry-run until you confirm it
 - 🤖 Runs over stdio (your client launches it); headless-friendly for agents
 
 ## Quick start
@@ -28,22 +29,22 @@ Requires [Bun](https://bun.sh) 1.3+ (`bunx` runs it — no clone needed).
 **1. Authenticate** (imports your logged-in browser session on macOS; see [Auth](#auth) for other options)
 
 ```bash
-bunx forkable-mcp --auth --chrome
+bunx forkable-mcp@latest --auth --chrome
 ```
 
 **2. Add it to your MCP client**
 
 | Client | Add it |
 |---|---|
-| Claude Code | `claude mcp add forkable -- bunx forkable-mcp` |
-| Codex | `codex mcp add forkable -- bunx forkable-mcp` |
+| Claude Code | `claude mcp add forkable -- bunx forkable-mcp@latest` |
+| Codex | `codex mcp add forkable -- bunx forkable-mcp@latest` |
 | Claude Desktop / Cursor | add the JSON below to the config (under `mcpServers`) |
 | VS Code | add the JSON below to `.vscode/mcp.json` (under `servers`) |
 
 ```json
 {
   "mcpServers": {
-    "forkable": { "command": "bunx", "args": ["forkable-mcp"] }
+    "forkable": { "command": "bunx", "args": ["forkable-mcp@latest"] }
   }
 }
 ```
@@ -57,25 +58,26 @@ Then ask your client things like *"what's for lunch this week?"* or *"set Tuesda
 
 | | Tool | Does |
 |---|---|---|
-| 📅 | `list_deliveries` | Upcoming deliveries: date, status, what's picked, editing cutoff, copay |
+| 📅 | `list_deliveries` | Your week: date, status, what's picked, whether it's still editable, copay |
+| 🚚 | `get_delivery_status` | Where lunch is: scheduled window, courier ETA, arrival time, tracking link, access notes |
 | 🍱 | `get_menus` | Items for a delivery (pass `itemId` for one item's modifiers/options) |
 | 🔎 | `search_items` | Keyword search across a delivery's menus |
 | ✨ | `recommend_meals` / `explain_pick` | Personalized picks, and why the current meal was chosen |
 | 👤 | `get_profile` | The authenticated user |
 | ✅ | `set_meal` / `set_meal_all` | Set the meal for a day (or several days at once) |
-| ➖ | `remove_meal` / `skip_delivery` | Remove a meal, or skip a whole day |
+| ➖ | `remove_meal` / `skip_delivery` | Remove one meal by id, or decline a whole day |
 | 🔒 | `confirm_delivery` | Confirm (or unconfirm) a delivery |
 
 ## Auth
 
 There's no API key: the server reuses a real Forkable web session. Pick one of the four below. From a clone,
-use `bun run auth …` in place of `bunx forkable-mcp --auth …`.
+use `bun run auth …` in place of `bunx forkable-mcp@latest --auth …`.
 
 ### Email + password
 
 ```bash
-bunx forkable-mcp --auth --login --email you@co.com --password '…'
-# or set FORKABLE_EMAIL / FORKABLE_PASSWORD (+ FORKABLE_MFA), then: bunx forkable-mcp --auth --login
+bunx forkable-mcp@latest --auth --login --email you@co.com --password '…'
+# or set FORKABLE_EMAIL / FORKABLE_PASSWORD (+ FORKABLE_MFA), then: bunx forkable-mcp@latest --auth --login
 ```
 
 The only method that survives expiry: on a 401 the server logs back in and retries. SSO-only accounts
@@ -88,9 +90,9 @@ Log in at [forkable.com](https://forkable.com), then pull the cookie out of the 
 needs your login Keychain, so approve the macOS prompt when it appears.
 
 ```bash
-bunx forkable-mcp --auth --chrome
-bunx forkable-mcp --auth --chrome --browser arc    # brave, edge, vivaldi, opera, chromium,
-                                                   # chrome-beta, chrome-dev, chrome-canary
+bunx forkable-mcp@latest --auth --chrome
+bunx forkable-mcp@latest --auth --chrome --browser arc    # brave, edge, vivaldi, opera, chromium,
+                                                          # chrome-beta, chrome-dev, chrome-canary
 ```
 
 Every profile is searched and the most recently used Forkable session wins; the CLI prints which one
@@ -107,7 +109,7 @@ every header, cookie included. Paste the whole thing; only the `cookie:` header 
 2. Filter for `graphql`, right-click a `POST https://forkable.com/api/v2/graphql` row → **Copy → Copy
    as cURL**. Use a GraphQL request, since those are authenticated calls and always carry the session.
    (Windows: `Copy as cURL (bash)`. Firefox: `Copy Value → Copy as cURL`.)
-3. `pbpaste | bunx forkable-mcp --auth`, or save it and use `--file ./forkable.curl`.
+3. `pbpaste | bunx forkable-mcp@latest --auth`, or save it and use `--file ./forkable.curl`.
 
 What lands on your clipboard, truncated:
 
@@ -127,7 +129,7 @@ then copy the whole `cookie:` value under **Headers → Request Headers**. It's 
 `name=value; name=value; …` string and must contain `_easyorder_session`.
 
 ```bash
-FORKABLE_COOKIE='_easyorder_session=…; other=…' bunx forkable-mcp --auth
+FORKABLE_COOKIE='_easyorder_session=…; other=…' bunx forkable-mcp@latest --auth
 ```
 
 The session is stored at `~/.forkable-mcp/session.json` (mode `0600`) and is never logged.
@@ -152,7 +154,8 @@ is optional; with none set you authenticate interactively and there's no spend c
 
 ```bash
 bun test          # unit tests
-bun run check     # lint + format + typecheck + test
+bun run test:tz   # same suite under a non-UTC zone (date formatting must be host-independent)
+bun run check     # lint + format + typecheck + both test runs
 ```
 
 ## License

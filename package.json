@@ -1,7 +1,7 @@
 {
   "name": "forkable-mcp",
   "type": "module",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "description": "Unofficial MCP server for Forkable — order and manage corporate lunches from any MCP client.",
   "license": "MIT",
   "author": "Colin D'Souza",
@@ -26,12 +26,13 @@
     "dev": "bun --watch src/index.ts",
     "auth": "bun run src/index.ts --auth",
     "test": "bun test",
+    "test:tz": "TZ=Asia/Kolkata bun test",
     "typecheck": "tsc --noEmit",
     "lint": "oxlint",
     "lint:fix": "oxlint --fix",
     "fmt": "oxfmt src tests",
     "fmt:check": "oxfmt --check src tests",
-    "check": "oxlint && oxfmt --check src tests && tsc --noEmit && bun test"
+    "check": "oxlint && oxfmt --check src tests && tsc --noEmit && bun test && bun run test:tz"
   },
   "dependencies": {
     "@modelcontextprotocol/server": "^2.0.0",
