@@ -1,4 +1,4 @@
-import { expect, test, describe, beforeAll, afterAll } from "bun:test";
+import { expect, test, describe } from "bun:test";
 import { buildSelectionsHash, resolveItemModifiers } from "@/order/selections.ts";
 import { evaluateGuards, blockers, deliveryWindow } from "@/order/guards.ts";
 import {
@@ -299,22 +299,24 @@ describe("parseFloating", () => {
 });
 
 describe("formatDateTime", () => {
-  // `bun test` runs at UTC, so pin a zone to make the rendered wall-clock deterministic.
-  const original = process.env.TZ;
-  beforeAll(() => {
-    process.env.TZ = "America/Los_Angeles";
-  });
-  afterAll(() => {
-    if (original === undefined) delete process.env.TZ;
-    else process.env.TZ = original;
-  });
-
-  test("renders an offset-carrying cutoff at its true local time", () => {
+  // Rendered in the offset Forkable sent, like the dashboard. No Date involved, so no host-zone
+  // dependence and nothing to pin — `bun test` runs at UTC and these hold anyway.
+  test("shows the cutoff as the dashboard does", () => {
     expect(formatDateTime(CUTOFF)).toBe("Mon 2026-08-10 11:45 AM");
   });
 
-  test("renders a floating timestamp at its wall-clock time, not shifted", () => {
+  test("shows a floating timestamp's wall clock as written", () => {
     expect(formatDateTime(FOR_DELIVERY)).toBe("Tue 2026-08-11 12:01 PM");
+  });
+
+  test("handles midnight and noon without a 0:xx or 12 AM/PM mixup", () => {
+    expect(formatDateTime("2026-08-10T00:30:00-07:00")).toBe("Mon 2026-08-10 12:30 AM");
+    expect(formatDateTime("2026-08-10T12:00:00-07:00")).toBe("Mon 2026-08-10 12:00 PM");
+  });
+
+  test("falls back to the date when there's no time part", () => {
+    expect(formatDateTime("2026-08-10")).toBe("Mon 2026-08-10");
+    expect(formatDateTime(undefined)).toBe("");
   });
 });
 

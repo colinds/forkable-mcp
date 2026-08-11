@@ -104,8 +104,12 @@ Forkable's timestamps are **inconsistently zoned**, so parse them through `parse
 
 `parseFloating` passes a real `±HH:MM` straight to `Date` (whose offset-less date-time parsing is
 already local, per spec), strips a lying `Z`, and pins `T00:00:00` onto date-only strings, which would
-otherwise parse as UTC. `formatDay` / `weekdayOf` emit the weekday themselves because callers were
-re-deriving it from bare `YYYY-MM-DD` and getting it wrong.
+otherwise parse as UTC. It's only for comparing against the clock (`isPast`) — **display needs no
+`Date` at all**: `formatDateTime` slices the leading `YYYY-MM-DDTHH:MM`, which already is the wall
+clock to show, in the offset Forkable sent. That matches the dashboard, whose `cutoffDate` getter
+reads `editingCutoffAt` through Luxon's `{setZone: true}`, and keeps output identical on every host.
+`formatDay` / `weekdayOf` emit the weekday themselves because callers were re-deriving it from bare
+`YYYY-MM-DD` and getting it wrong.
 
 ## Write windows (two gates, not one)
 

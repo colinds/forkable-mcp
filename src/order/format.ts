@@ -40,16 +40,12 @@ export function formatDay(iso?: string): string {
 const valid = (d: Date): Date | undefined => (Number.isNaN(d.getTime()) ? undefined : d);
 
 /**
- * Parse a Forkable timestamp to a real instant.
+ * Parse a Forkable timestamp to a real instant, for comparing against the clock.
  *
- * Forkable is inconsistent: `editingCutoffAt` carries a true offset ("2026-08-10T11:45:00-07:00"),
- * but `forDeliveryAt` comes back as "2026-08-11T12:01:00.000Z" — a *floating local* wall-clock time
- * mislabelled UTC (lunch is not delivered at 5:01 AM Pacific). Taking that `Z` at face value shifts
- * the instant by the host's offset and, far enough east, moves the calendar date.
- *
- * `Date` does most of this already: per spec it parses an offset-less date-TIME as local, which is
- * what we want. Two nudges are all it needs — drop the lying `Z`, and pin a time onto a date-ONLY
- * string, since those parse as UTC instead.
+ * `editingCutoffAt` carries a true offset, but `forDeliveryAt`'s "…T12:01:00.000Z" is a floating
+ * local time mislabelled UTC (lunch isn't delivered at 5:01 AM Pacific), so `new Date()` alone
+ * would shift it. Two nudges on top of `Date`, whose offset-less date-time parsing is already
+ * local: drop a lying `Z`, and pin a time onto a date-only string, since those parse as UTC.
  */
 export function parseFloating(iso?: string): Date | undefined {
   if (!iso) return undefined;
@@ -58,17 +54,20 @@ export function parseFloating(iso?: string): Date | undefined {
   return valid(new Date(local));
 }
 
-/** "2026-08-10T11:45:00-07:00" → "Mon 2026-08-10 11:45 AM" in the host's timezone. */
+/**
+ * "2026-08-10T11:45:00-07:00" → "Mon 2026-08-10 11:45 AM".
+ *
+ * Shown in the offset Forkable sent, matching the dashboard (which parses with Luxon's
+ * `{setZone: true}`). That's also the least work: the leading "YYYY-MM-DDTHH:MM" already *is* the
+ * wall clock to display — true both for a real offset and for `forDeliveryAt`'s mislabelled `Z` —
+ * so this is pure string slicing, with no `Date` and no host-zone dependence.
+ */
 export function formatDateTime(iso?: string): string {
-  const at = parseFloating(iso);
-  if (!at) return formatDay(iso);
-  const y = at.getFullYear();
-  const mo = String(at.getMonth() + 1).padStart(2, "0");
-  const d = String(at.getDate()).padStart(2, "0");
-  const time = at
-    .toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })
-    .replace(/\s/g, " ");
-  return `${WEEKDAYS[at.getDay()]} ${y}-${mo}-${d} ${time}`;
+  const m = /^(\d{4}-\d{2}-\d{2})T(\d{2}):(\d{2})/.exec(iso ?? "");
+  if (!m) return formatDay(iso);
+  const [, date, hh, mm] = m;
+  const h = Number(hh);
+  return `${weekdayOf(date)} ${date} ${h % 12 === 0 ? 12 : h % 12}:${mm} ${h < 12 ? "AM" : "PM"}`;
 }
 
 /** Has this timestamp already passed? `undefined` when there's nothing to compare. */

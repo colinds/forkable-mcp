@@ -526,7 +526,9 @@ export function registerAllTools(server: McpServer): void {
         const enriched = top.map((t) => {
           const it = findItem(items, t.menuId, t.itemId)?.item;
           return {
-            ...t,
+            menuId: t.menuId,
+            itemId: t.itemId,
+            score: t.score,
             name: it?.name ?? `item ${t.itemId}`,
             price: it?.price ?? null,
             imageUrl: it?.imageUrl ?? null,
@@ -583,7 +585,12 @@ export function registerAllTools(server: McpServer): void {
             rank: idx >= 0 ? idx + 1 : null,
           };
         });
-        const top = ranked.slice(0, 5).map((s) => ({ ...s, name: nameOf(s.menuId, s.itemId) }));
+        const top = ranked.slice(0, 5).map((s) => ({
+          menuId: s.menuId,
+          itemId: s.itemId,
+          score: s.score,
+          name: nameOf(s.menuId, s.itemId),
+        }));
         const lines = [
           "Your pick:",
           ...picked.map((p) =>
@@ -790,7 +797,12 @@ export function registerAllTools(server: McpServer): void {
               },
               total,
               maxTotal,
-            }).map((gd) => ({ ...gd, message: `#${d.id}: ${gd.message}` })),
+            }).map((gd) => ({
+              code: gd.code,
+              level: gd.level,
+              message: `#${d.id}: ${gd.message}`,
+              data: gd.data,
+            })),
           );
           const newPiece = {
             itemId: a.itemId,
