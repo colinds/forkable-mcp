@@ -171,9 +171,6 @@ export interface Delivery {
   club?: {
     id: number;
     name?: string;
-    hidePrices?: boolean;
-    hiddenPriceLimit?: number;
-    hideOverPriceLimit?: boolean;
     allowanceMealLimit?: boolean;
     isLateRemovalEnabled?: boolean;
     market?: { timezone?: string; currencySettings?: { currency?: string } };

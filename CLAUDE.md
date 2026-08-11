@@ -184,6 +184,12 @@ Two consequences worth holding onto:
 Per-order counters really do diverge: on one day `orders[0]` reported `lateOrdersRemaining: 0` while
 the user's own order reported `6`.
 
+`club.hidePrices` is a display preference for Forkable's own dashboard, not an access control — the API
+returns prices to the member either way. We deliberately do **not** honor it: the caller *is* the member,
+and suppressing prices would also have to suppress the `over_company_limit` warn and the
+`FORKABLE_MAX_TOTAL` cap, which are the parts of the write gate worth having. `get_profile` reports the
+flag so you know the dashboard hides them.
+
 `Menu.modifiers[].free` is a **boolean** mirroring "all of this modifier's options cost $0" — not an
 included-selections allowance. Checked across 233 modifiers on four menus: `free: true` never coexists
 with a priced option, so summing every chosen option's price is correct.

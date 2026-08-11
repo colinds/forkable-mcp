@@ -40,8 +40,6 @@ export interface DeliveryStatus {
   reportMissingItemCutoffRaw: string | null;
   youPay: number;
   companyLimit: number | null;
-  /** Club hides prices from members — suppress every money figure rather than leaking one. */
-  hidePrices: boolean;
   writeWindow: DeliveryWindow;
   ambiguousOwnOrder: boolean;
 }
@@ -107,7 +105,6 @@ export function deliveryStatus(d: Delivery): DeliveryStatus {
     address: { formatted: d.address?.formatted ?? null, notes: d.address?.notes ?? null },
     reportMissingItemCutoff: at(d.reportMissingItemCutoff),
     reportMissingItemCutoffRaw: d.reportMissingItemCutoff ?? null,
-    hidePrices: d.club?.hidePrices === true,
     youPay: d.userReceipt?.due ?? 0,
     companyLimit: d.copayAmount ?? null,
     writeWindow: deliveryWindow(d),
@@ -123,7 +120,7 @@ export function formatDeliveryStatus(s: DeliveryStatus): string {
   };
 
   for (const m of s.meal) {
-    const bits = [m.name, m.price != null && !s.hidePrices ? formatMoney(m.price) : ""];
+    const bits = [m.name, m.price != null ? formatMoney(m.price) : ""];
     const opts = m.options.length ? ` (${m.options.join(", ")})` : "";
     add("Your meal", `${bits.filter(Boolean).join(" ")}${opts}${m.venue ? ` — ${m.venue}` : ""}`);
   }
@@ -138,7 +135,7 @@ export function formatDeliveryStatus(s: DeliveryStatus): string {
   // Only worth showing while a change is still possible; after delivery it's noise.
   // The window's note, never a timestamp: editingCutoffAt is a buffet field (see guards.ts).
   if (s.writeWindow.window !== "closed") add("Editing", s.writeWindow.note);
-  if (s.youPay !== 0 && !s.hidePrices) add("You pay", formatMoney(s.youPay));
+  if (s.youPay !== 0) add("You pay", formatMoney(s.youPay));
   const notes = s.address.notes?.replace(/\s*\n\s*/g, " ");
   add("Access", [s.address.formatted, notes].filter(Boolean).join(" — ") || null);
   if (s.ambiguousOwnOrder)

@@ -174,7 +174,7 @@ function fmtClubPolicy(c: ClubPolicy): string {
     days ? `    delivery days: ${days}` : "",
     `    late meals ${c.allowLateMeals ? "allowed" : "not allowed"}; late removals ${c.isLateRemovalEnabled ? "allowed" : "not allowed"}`,
     typeof c.allowanceMealLimit === "number" ? `    meals per day: ${c.allowanceMealLimit}` : "",
-    c.hidePrices ? "    prices hidden by this club" : "",
+    c.hidePrices ? "    (this club hides prices in the Forkable dashboard)" : "",
   ]
     .filter(Boolean)
     .join("\n");
@@ -201,8 +201,8 @@ const DELIVERY_CORE =
   "id state simpleState forDeliveryAt isReadOnly userConfirmed copayAmount availableMenuIds " +
   "pastLateOrderDeadline canRequestChanges weeklyAllowanceAvailable " +
   "deliveryWindow " +
-  "club { id name hidePrices hiddenPriceLimit hideOverPriceLimit allowanceMealLimit " +
-  "isLateRemovalEnabled market { timezone currencySettings { currency } } }";
+  "club { id name allowanceMealLimit isLateRemovalEnabled " +
+  "market { timezone currencySettings { currency } } }";
 
 // `replaces` is the venue-replacement predecessor: its presence both UNLOCKS a late order at that
 // venue and FREEZES every sibling meal on the delivery, so both guards need it.
