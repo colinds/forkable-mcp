@@ -1,5 +1,6 @@
 # forkable-mcp
 
+[![npm](https://img.shields.io/npm/v/forkable-mcp.svg)](https://www.npmjs.com/package/forkable-mcp)
 [![CI](https://github.com/colinds/forkable-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/colinds/forkable-mcp/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
 [![MCP](https://img.shields.io/badge/MCP-server-black.svg)](https://modelcontextprotocol.io)
