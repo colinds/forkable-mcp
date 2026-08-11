@@ -78,7 +78,7 @@ describe("redact", () => {
       csrf: "tok",
       writeSecret: "deadbeef",
       updatedAt: "2026-08-10T00:00:00Z",
-      meta: { userId: 42, email: "colin@gamma.app" },
+      meta: { userId: 42, email: "user@example.com" },
     };
     const r = redact(s);
     expect(JSON.stringify(r)).not.toContain("supersecret");
