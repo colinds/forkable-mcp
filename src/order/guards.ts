@@ -163,7 +163,8 @@ export type GuardCode =
   | "no_monthly_late_orders"
   | "late_removal_disabled"
   | "change_request_pending"
-  | "diet_conflict";
+  | "diet_conflict"
+  | "diet_check_unavailable";
 
 export interface Guard {
   code: GuardCode;

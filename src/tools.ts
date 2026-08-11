@@ -315,16 +315,18 @@ async function dietConflicts(
   menuId: number,
   itemId: number,
   selectionsHash: Record<string, number[]>,
-): Promise<string[]> {
+): Promise<{ conflicts: string[]; checked: boolean }> {
   try {
     const r = await client.query<{ conflicts?: string[] | null }>(
       "mealRestrictions",
       { userId, menuId, itemId, customization: JSON.stringify(selectionsHash) },
       "conflicts",
     );
-    return r?.conflicts ?? [];
+    return { conflicts: r?.conflicts ?? [], checked: true };
   } catch {
-    return [];
+    // Fails OPEN — an advisory check must never be why a legal write can't proceed — but the caller
+    // surfaces `checked: false` as a warn so the preview never implies a check that didn't happen.
+    return { conflicts: [], checked: false };
   }
 }
 
@@ -381,7 +383,9 @@ async function loadDietLabels(client: ForkableClient): Promise<Map<number, strin
       ),
     );
   } catch {
-    dietLabels = new Map();
+    // Deliberately NOT cached: caching the failure would disable labels for the whole process life,
+    // and an MCP server is spawned once and lives for the session.
+    return new Map();
   }
   return dietLabels;
 }
@@ -938,13 +942,7 @@ export function registerAllTools(server: McpServer): void {
           // replacePiece touches two venue orders; gate on both.
           const order: Order | undefined = orderForGuards(d, menu.id);
           const total = (item.price ?? 0) + built.extra;
-          const conflicts = await dietConflicts(
-            client,
-            me.id,
-            menu.id,
-            a.itemId,
-            built.selectionsHash,
-          );
+          const diet = await dietConflicts(client, me.id, menu.id, a.itemId, built.selectionsHash);
           const guards = evaluateGuards({
             intent: "select",
             delivery: d,
@@ -960,12 +958,20 @@ export function registerAllTools(server: McpServer): void {
             total,
             maxTotal: maxTotalCeiling(),
           });
-          for (const c of conflicts) {
+          for (const c of diet.conflicts) {
             guards.push({
               code: "diet_conflict",
               level: "block",
               message: `Conflicts with your dietary preferences: ${c}.`,
               data: { conflict: c },
+            });
+          }
+          if (!diet.checked) {
+            guards.push({
+              code: "diet_check_unavailable",
+              level: "warn",
+              message:
+                "Couldn't check this against your dietary preferences — proceeding unchecked.",
             });
           }
           const op = existing ? "replacePiece" : "addPiece";
