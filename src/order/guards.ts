@@ -1,4 +1,13 @@
-// Ordering guards. `block` guards prevent a write; `warn` guards are advisory.
+// Ordering guards: what to TELL the caller before a write, not a second copy of the server's rules.
+//
+// Forkable enforces its own policy and reports refusals with structured codes, so almost everything
+// here is a `warn` — context the agent can act on, attached to a preview it still has to confirm.
+// Blocking on our reading of someone else's policy is how you refuse a write the server would have
+// accepted, and our model is only ever as good as the one club it was written against.
+//
+// Exactly two things still `block`, and neither is Forkable's call:
+//   • over_total_ceiling — the operator's own FORKABLE_MAX_TOTAL spend cap
+//   • selection_invalid  — the selectionsHash WE build is malformed; that's our bug to catch
 
 import { type Delivery, type Order, type Piece } from "./types.ts";
 import { type SelectionViolation } from "./selections.ts";
@@ -18,46 +27,34 @@ export interface OwnMeal {
   orders: OwnOrder[];
   /** Meals at more than one venue today. Not an error — the member may genuinely hold several. */
   ambiguous: boolean;
-  /** True when pieces were matched by `userId`. False means these may belong to someone else. */
+  /** These pieces are known to be the member's. False = "whoever ordered", so don't call them theirs. */
   byIdentity: boolean;
 }
 
 /**
  * The member's meal(s) on a delivery. One order per venue, and a member may hold pieces on SEVERAL of
- * them (an extra meal is allowed unless the club caps it), at indexes that move day to day — so never
- * index into `orders`.
+ * them, at indexes that move day to day — so never index into `orders`.
  *
- * Pass `userId` on any path that will WRITE: without it this is just "orders that have pieces", which
- * on a delivery carrying a guest order can resolve to someone else's meal and hand `replacePiece` the
- * wrong `oldPieceId`.
+ * **Always pass `userId`.** Without it this is merely "orders that have pieces": a delivery carrying a
+ * colleague's order then resolves to their meal, which misreports whose lunch it is and would hand
+ * `replacePiece` the wrong `oldPieceId`. With it, no match means the member genuinely has no meal —
+ * `undefined`, never a stranger's. Every piece selection carries `userId`, and `loadDeliveries` returns
+ * the id alongside the deliveries, so there is no path that legitimately lacks one.
  */
 export function findOwnMeal(d: Delivery, userId?: number): OwnMeal | undefined {
-  const orders = d.orders ?? [];
-  const mine: OwnOrder[] =
-    userId == null
-      ? orders.flatMap((o) =>
-          (o.pieces?.length ?? 0) > 0 ? [{ order: o, pieces: o.pieces ?? [] }] : [],
-        )
-      : orders.flatMap((o) => {
-          const ps = (o.pieces ?? []).filter((p) => p.userId === userId);
-          return ps.length ? [{ order: o, pieces: ps }] : [];
-        });
-  // A userId that matched nothing means the field wasn't selected (or is an older payload); fall back
-  // to "any order with pieces" rather than reporting the member has no meal.
-  const resolved =
-    mine.length || userId == null
-      ? mine
-      : orders.flatMap((o) =>
-          (o.pieces?.length ?? 0) > 0 ? [{ order: o, pieces: o.pieces ?? [] }] : [],
-        );
-  const first = resolved[0];
+  const mine: OwnOrder[] = (d.orders ?? []).flatMap((o) => {
+    const all = o.pieces ?? [];
+    const ps = userId == null ? all : all.filter((p) => p.userId === userId);
+    return ps.length ? [{ order: o, pieces: ps }] : [];
+  });
+  const first = mine[0];
   if (!first) return undefined;
   return {
     order: first.order,
     pieces: first.pieces,
-    orders: resolved,
-    ambiguous: resolved.length > 1,
-    byIdentity: userId != null && mine.length > 0,
+    orders: mine,
+    ambiguous: mine.length > 1,
+    byIdentity: userId != null,
   };
 }
 
@@ -81,11 +78,55 @@ export function allPieces(d: Delivery): Piece[] {
  * Deliberately `undefined` rather than `orders[0]` in a multi-order club with no match: an arbitrary
  * venue's `lateOrdersRemaining` is worse than none, since delivery-level gates still apply.
  */
-export function orderForGuards(d: Delivery, menuId?: number): Order | undefined {
+export function orderForGuards(d: Delivery, menuId?: number, userId?: number): Order | undefined {
   const orders = d.orders ?? [];
   const selling = menuId != null ? orders.find((o) => o.menu?.id === menuId) : undefined;
-  const own = findOwnMeal(d)?.order;
+  // Identity matters on branch 2: without it, a delivery carrying someone else's order can hand a
+  // remove/skip/confirm the wrong venue's counters.
+  const own = findOwnMeal(d, userId)?.order;
   return selling ?? own ?? (orders.length === 1 ? orders[0] : undefined);
+}
+
+/**
+ * What the company actually covers, and what to call it.
+ *
+ * `copayAmount` is the DAILY figure and is only the answer on a daily club; a weekly club's budget
+ * lives in the weekly fields. Never say "daily" unless `allowanceType` says so.
+ *
+ * A null limit means "we don't know" and must stay silent — callers already skip the warning unless
+ * the limit is a positive number. `weeklyAllowanceAvailable` in particular reads 0 on a daily club,
+ * so it's only consulted when the club really is weekly.
+ */
+export interface Allowance {
+  kind: string;
+  limit: number | null;
+  label: string;
+}
+
+const positive = (n?: number | null): number | null =>
+  typeof n === "number" && Number.isFinite(n) && n > 0 ? n : null;
+
+export function allowanceFor(d: Delivery): Allowance {
+  const kind = d.allowanceType ?? d.club?.allowanceType ?? "";
+  if (kind === "weekly" || kind === "weekly_by_day") {
+    const left = positive(d.weeklyAllowanceAvailable);
+    return left != null
+      ? { kind, limit: left, label: "remaining weekly allowance" }
+      : { kind, limit: positive(d.weeklyAllowance), label: "weekly allowance" };
+  }
+  if (kind === "daily") return { kind, limit: positive(d.copayAmount), label: "daily limit" };
+  // Unknown allowance type: the daily field is the best guess, but don't name it "daily".
+  return { kind: kind || "unknown", limit: positive(d.copayAmount), label: "company coverage" };
+}
+
+/** Family-style service — the meal is shared, so a per-member change request never applies. */
+export function isFamilyStyle(d: Delivery): boolean {
+  return Boolean(
+    d.forFamily ||
+    d.forBuffet ||
+    d.club?.familyHub ||
+    (d.orders ?? []).some((o) => o.venue?.familyHub),
+  );
 }
 
 /**
@@ -120,8 +161,11 @@ export function deliveryWindow(d: Delivery): DeliveryWindow {
   const pastLate = Boolean(d.pastLateOrderDeadline || orders.some((o) => o.pastLateOrderDeadline));
   // `canRequestChanges` is the grace-period affordance: it's false on a normally-open delivery and
   // true once editing has closed but a change request is still accepted.
+  // Family-style days never offer one, so the affordance doesn't apply there — only this source of
+  // `grace` is suppressed; a remaining late-order budget is a separate affordance and still counts.
   const changeAllowed =
-    d.canRequestChanges === true || orders.some((o) => o.changeRequestAllowed === true);
+    !isFamilyStyle(d) &&
+    (d.canRequestChanges === true || orders.some((o) => o.changeRequestAllowed === true));
   const lateOrdersLeft = orders.some(
     (o) => typeof o.lateOrdersRemaining === "number" && o.lateOrdersRemaining > 0,
   );
@@ -164,7 +208,8 @@ export type GuardCode =
   | "late_removal_disabled"
   | "change_request_pending"
   | "diet_conflict"
-  | "diet_check_unavailable";
+  | "diet_check_unavailable"
+  | "instructions_not_supported";
 
 export interface Guard {
   code: GuardCode;
@@ -222,8 +267,8 @@ export function evaluateGuards(c: GuardContext): Guard[] {
   if (d.isReadOnly && !replacementOpen) {
     g.push({
       code: "delivery_read_only",
-      level: "block",
-      message: "This delivery is read-only (locked).",
+      level: "warn",
+      message: "This delivery reads as locked; the server may refuse the write.",
     });
   }
 
@@ -261,8 +306,8 @@ export function evaluateGuards(c: GuardContext): Guard[] {
     if (c.menuId != null && d.availableMenuIds && !d.availableMenuIds.includes(c.menuId)) {
       g.push({
         code: "menu_not_available",
-        level: "block",
-        message: `Menu ${c.menuId} is not available for this delivery.`,
+        level: "warn",
+        message: `Menu ${c.menuId} isn't listed as available for this delivery; the server may refuse it.`,
         data: { availableMenuIds: d.availableMenuIds },
       });
     }
@@ -277,8 +322,8 @@ export function evaluateGuards(c: GuardContext): Guard[] {
     if (o?.isOverVenueCapacity && !stayingPut) {
       g.push({
         code: "over_venue_capacity",
-        level: "block",
-        message: "The venue is over capacity; changes are blocked.",
+        level: "warn",
+        message: "The venue reads as over capacity; the server may refuse the write.",
       });
     }
     for (const v of c.violations ?? []) {
@@ -289,33 +334,32 @@ export function evaluateGuards(c: GuardContext): Guard[] {
         data: { ...v },
       });
     }
-    // Spend limits. A user-set FORKABLE_MAX_TOTAL is a HARD cap (block over it). Otherwise, if the meal
-    // exceeds the company's daily limit (delivery.copayAmount), just note the out-of-pocket amount.
-    // An unknown/non-finite total never blocks (hidePrices clubs report no total).
+    // Spend limits. A user-set FORKABLE_MAX_TOTAL is a HARD cap (block over it); the company-limit
+    // note is independent of it and fires on its own.
+    // An unknown/non-finite total never blocks (hidePrices clubs report no total), and an unknown
+    // limit says nothing at all rather than guessing.
+    // `allowanceMealLimit` (the company covers one meal a day) deliberately does NOT feed this: every
+    // set_meal REPLACES a piece rather than adding one, so a write never turns a first meal into a
+    // second. get_profile reports the policy instead.
     const total = c.total;
-    const companyLimit = d.copayAmount;
-    const overCompany =
-      typeof total === "number" &&
-      Number.isFinite(total) &&
-      typeof companyLimit === "number" &&
-      companyLimit > 0
-        ? total - companyLimit
-        : 0;
-    if (c.maxTotal != null) {
-      if (typeof total === "number" && Number.isFinite(total) && total > c.maxTotal) {
-        g.push({
-          code: "over_total_ceiling",
-          level: "block",
-          message: `This order totals ${formatMoney(total)}, over the ${formatMoney(c.maxTotal)} ceiling (FORKABLE_MAX_TOTAL).`,
-          data: { total, maxTotal: c.maxTotal },
-        });
-      }
-    } else if (overCompany > 0) {
+    const allowance = allowanceFor(d);
+    const companyLimit = allowance.limit;
+    const known = typeof total === "number" && Number.isFinite(total);
+    const overCompany = known && companyLimit != null ? Math.max(total - companyLimit, 0) : 0;
+    if (c.maxTotal != null && known && total > c.maxTotal) {
+      g.push({
+        code: "over_total_ceiling",
+        level: "block",
+        message: `This order totals ${formatMoney(total)}, over the ${formatMoney(c.maxTotal)} ceiling (FORKABLE_MAX_TOTAL).`,
+        data: { total, maxTotal: c.maxTotal },
+      });
+    }
+    if (overCompany > 0) {
       g.push({
         code: "over_company_limit",
         level: "warn",
-        message: `This meal totals ${formatMoney(total)}, over your company's daily limit of ${formatMoney(companyLimit)} — about ${formatMoney(overCompany)} out of pocket.`,
-        data: { total, companyLimit, outOfPocket: overCompany },
+        message: `This meal totals ${formatMoney(total)}, over your company's ${allowance.label} of ${formatMoney(companyLimit)} — about ${formatMoney(overCompany)} out of pocket.`,
+        data: { total, companyLimit, outOfPocket: overCompany, allowanceType: allowance.kind },
       });
     }
     // Advisory only: the monthly counter is a display figure, and the real budget is the order-level
@@ -331,9 +375,10 @@ export function evaluateGuards(c: GuardContext): Guard[] {
       if (changeRefused) {
         g.push({
           code: "change_request_not_allowed",
-          level: "block",
+          level: "warn",
           message:
-            "Past the ordering deadline and change requests aren't allowed for this delivery.",
+            "Past the ordering deadline, and this delivery doesn't report a change-request " +
+            "affordance — the server will likely refuse.",
         });
       } else if (
         !replacementOpen &&
@@ -343,8 +388,8 @@ export function evaluateGuards(c: GuardContext): Guard[] {
       ) {
         g.push({
           code: "no_late_orders_remaining",
-          level: "block",
-          message: "Past the deadline and you have no late orders remaining this month.",
+          level: "warn",
+          message: "Past the deadline and this venue reports no late orders remaining.",
         });
       } else {
         g.push({
@@ -368,8 +413,8 @@ export function evaluateGuards(c: GuardContext): Guard[] {
     if (d.club?.isLateRemovalEnabled === false && pastDeadline) {
       g.push({
         code: "late_removal_disabled",
-        level: "block",
-        message: "This club doesn't allow late removals.",
+        level: "warn",
+        message: "This club reports late removals as disabled; the server may refuse.",
       });
     }
     if (o?.hasChangeRequest) {
@@ -384,8 +429,8 @@ export function evaluateGuards(c: GuardContext): Guard[] {
       if (o && typeof o.lateRemovalsRemaining === "number" && o.lateRemovalsRemaining <= 0) {
         g.push({
           code: "no_late_removals_remaining",
-          level: "block",
-          message: "Past the deadline and you have no late removals remaining.",
+          level: "warn",
+          message: "Past the deadline and this order reports no late removals remaining.",
         });
       } else {
         g.push({

@@ -8,6 +8,8 @@ import {
   allPieces,
   orderForGuards,
   ownPieces,
+  allowanceFor,
+  isFamilyStyle,
 } from "@/order/guards.ts";
 import { deliveryStatus, formatDeliveryStatus } from "@/order/status.ts";
 import {
@@ -20,6 +22,7 @@ import {
   isPast,
   formatInstantLike,
 } from "@/order/format.ts";
+import { fmtDelivery, compactDelivery } from "@/tools.ts";
 import { type MenuItem, type MenuModifier, type Delivery } from "@/order/types.ts";
 
 // A protein single-select (required, max 1, >1 options) + a "extras" multi-select.
@@ -173,12 +176,12 @@ describe("evaluateGuards", () => {
       delivery: { ...baseDelivery, isReadOnly: true },
       menuId: 6290,
     });
-    expect(blockers(g).some((x) => x.code === "delivery_read_only")).toBe(true);
+    expect(g.some((x) => x.code === "delivery_read_only")).toBe(true);
   });
 
   test("blocks a menu not in availableMenuIds", () => {
     const g = evaluateGuards({ intent: "select", delivery: baseDelivery, menuId: 999 });
-    expect(blockers(g).some((x) => x.code === "menu_not_available")).toBe(true);
+    expect(g.some((x) => x.code === "menu_not_available")).toBe(true);
   });
 
   test("blocks over-capacity venue", () => {
@@ -188,17 +191,19 @@ describe("evaluateGuards", () => {
       menuId: 6290,
       order: { id: 1, isOverVenueCapacity: true },
     });
-    expect(blockers(g).some((x) => x.code === "over_venue_capacity")).toBe(true);
+    expect(g.some((x) => x.code === "over_venue_capacity")).toBe(true);
   });
 
-  test("past deadline + no late orders → block; with late orders → warn", () => {
-    const blocked = evaluateGuards({
+  test("past deadline warns either way: no late orders left, or a late order still available", () => {
+    const exhausted = evaluateGuards({
       intent: "select",
       delivery: { ...baseDelivery, pastLateOrderDeadline: true },
       menuId: 6290,
       order: { id: 1, changeRequestAllowed: true, lateOrdersRemaining: 0 },
     });
-    expect(blockers(blocked).some((x) => x.code === "no_late_orders_remaining")).toBe(true);
+    // Advisory, not a refusal: the server owns this policy and reports it authoritatively.
+    expect(exhausted.some((x) => x.code === "no_late_orders_remaining")).toBe(true);
+    expect(blockers(exhausted).length).toBe(0);
 
     const warned = evaluateGuards({
       intent: "select",
@@ -530,7 +535,7 @@ describe("evaluateGuards on a multi-order delivery", () => {
       order: orderForGuards(d, 4),
       menuId: 4,
     });
-    expect(blockers(g).some((x) => x.code === "over_venue_capacity")).toBe(true);
+    expect(g.some((x) => x.code === "over_venue_capacity")).toBe(true);
 
     // ...and the clean venue does NOT inherit the other one's capacity problem.
     const clean = evaluateGuards({
@@ -558,7 +563,7 @@ describe("evaluateGuards on a multi-order delivery", () => {
       menuId: 4,
       user: { id: ME },
     });
-    expect(blockers(g).some((x) => x.code === "over_venue_capacity")).toBe(false);
+    expect(g.some((x) => x.code === "over_venue_capacity")).toBe(false);
   });
 
   test("a GUEST's meal at that venue does not make it 'yours' — capacity still blocks", () => {
@@ -578,7 +583,7 @@ describe("evaluateGuards on a multi-order delivery", () => {
       menuId: 4,
       user: { id: 501 },
     });
-    expect(blockers(g).some((x) => x.code === "over_venue_capacity")).toBe(true);
+    expect(g.some((x) => x.code === "over_venue_capacity")).toBe(true);
   });
 
   test("late-order budget comes from your order, so a stale orders[0] can't block", () => {
@@ -589,7 +594,7 @@ describe("evaluateGuards on a multi-order delivery", () => {
       order: orderForGuards(d, 3),
       menuId: 3,
     });
-    expect(blockers(g).some((x) => x.code === "no_late_orders_remaining")).toBe(false);
+    expect(g.some((x) => x.code === "no_late_orders_remaining")).toBe(false);
     expect(g.some((x) => x.code === "past_late_order_deadline" && x.level === "warn")).toBe(true);
   });
 
@@ -795,7 +800,7 @@ describe("cross-venue select gates both orders", () => {
       sourceOrder: findOwnMeal(sourceRefuses)?.order, // source: order 4, refuses
       menuId: 1,
     });
-    expect(blockers(g).some((x) => x.code === "change_request_not_allowed")).toBe(true);
+    expect(g.some((x) => x.code === "change_request_not_allowed")).toBe(true);
   });
 
   test("the deadline rolls up across all orders, so it survives an unresolved target", () => {
@@ -871,8 +876,12 @@ describe("findOwnMeal with a guest order", () => {
     expect(findOwnMeal(reversed, ME)?.pieces[0]?.id).toBe("mine-1");
   });
 
-  test("falls back to first-with-pieces when no piece carries a userId", () => {
-    expect(findOwnMeal(fourOrders, ME)?.order.id).toBe(4);
+  test("pieces with no userId are not claimed for anyone", () => {
+    // fourOrders' piece carries no owner, so an identified lookup finds no meal rather than
+    // guessing — guessing is what handed replacePiece a stranger's oldPieceId.
+    expect(findOwnMeal(fourOrders, ME)).toBeUndefined();
+    // Without an id there's no claim being made, so the day's meal is still shown.
+    expect(findOwnMeal(fourOrders)?.order.id).toBe(4);
   });
 });
 
@@ -892,7 +901,7 @@ describe("replacement-driven gates", () => {
       order: orderForGuards(d, 1),
       menuId: 1,
     });
-    expect(blockers(g).some((x) => x.code === "delivery_read_only")).toBe(false);
+    expect(g.some((x) => x.code === "delivery_read_only")).toBe(false);
   });
 
   test("...and bypasses an exhausted late-order budget", () => {
@@ -910,7 +919,7 @@ describe("replacement-driven gates", () => {
       order: orderForGuards(d, 1),
       menuId: 1,
     });
-    expect(blockers(g).some((x) => x.code === "no_late_orders_remaining")).toBe(false);
+    expect(g.some((x) => x.code === "no_late_orders_remaining")).toBe(false);
   });
 
   test("a sibling order's pending replacement warns that the day may be frozen", () => {
@@ -961,7 +970,7 @@ describe("removal gates", () => {
       orders: [{ id: 1, lateRemovalsRemaining: 0, pieces: [myPiece] }],
     };
     const g = evaluateGuards({ intent: "remove", delivery: d, order: orderForGuards(d) });
-    expect(blockers(g).some((x) => x.code === "no_late_removals_remaining")).toBe(false);
+    expect(g.some((x) => x.code === "no_late_removals_remaining")).toBe(false);
   });
 
   test("a club with late removal disabled blocks past the deadline", () => {
@@ -973,7 +982,7 @@ describe("removal gates", () => {
       orders: [{ id: 1, lateRemovalsRemaining: 6, pieces: [myPiece] }],
     };
     const g = evaluateGuards({ intent: "remove", delivery: d, order: orderForGuards(d) });
-    expect(blockers(g).some((x) => x.code === "late_removal_disabled")).toBe(true);
+    expect(g.some((x) => x.code === "late_removal_disabled")).toBe(true);
   });
 
   test("a pending change request warns rather than blocks", () => {
@@ -1047,7 +1056,7 @@ describe("the replacement escape hatch is venue-scoped", () => {
       order: orderForGuards(d, 1),
       menuId: 1,
     });
-    expect(blockers(g).some((x) => x.code === "delivery_read_only")).toBe(false);
+    expect(g.some((x) => x.code === "delivery_read_only")).toBe(false);
   });
 
   test("does NOT unlock a different venue", () => {
@@ -1057,12 +1066,12 @@ describe("the replacement escape hatch is venue-scoped", () => {
       order: orderForGuards(d, 2),
       menuId: 2,
     });
-    expect(blockers(g).some((x) => x.code === "delivery_read_only")).toBe(true);
+    expect(g.some((x) => x.code === "delivery_read_only")).toBe(true);
   });
 
   test("does NOT unlock a remove/skip, which names no target venue", () => {
     const g = evaluateGuards({ intent: "remove", delivery: d, order: orderForGuards(d) });
-    expect(blockers(g).some((x) => x.code === "delivery_read_only")).toBe(true);
+    expect(g.some((x) => x.code === "delivery_read_only")).toBe(true);
   });
 });
 
@@ -1087,10 +1096,221 @@ describe("multi-venue writes target the right meal", () => {
     expect(own.byIdentity).toBe(true);
   });
 
-  test("byIdentity is false when nothing matched the user", () => {
-    const guestOnly: Delivery = { id: 9, orders: [{ id: 1, pieces: [myPiece] }] };
-    expect(findOwnMeal(guestOnly, ME)?.byIdentity).toBe(false);
-    // ...and without a userId at all, there was no identity claim to begin with.
-    expect(findOwnMeal(guestOnly)?.byIdentity).toBe(false);
+  test("someone else's meal is never returned as the member's", () => {
+    const theirsOnly: Delivery = {
+      id: 9,
+      orders: [{ id: 1, pieces: [{ ...myPiece, userId: 999 }] }],
+    };
+    expect(findOwnMeal(theirsOnly, ME)).toBeUndefined();
+    // Without an id there is no identity claim, so the result is flagged unattributed.
+    expect(findOwnMeal(theirsOnly)?.byIdentity).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Club configurations this account can't reach: weekly allowances, family-style
+// service, and deliveries carrying other members' orders.
+// ---------------------------------------------------------------------------
+
+describe("allowanceFor", () => {
+  test("a daily club reads the daily copay and names it that", () => {
+    const a = allowanceFor({ id: 1, allowanceType: "daily", copayAmount: 20 });
+    expect(a).toEqual({ kind: "daily", limit: 20, label: "daily limit" });
+  });
+
+  test("a weekly club reads what's LEFT this week, not the daily copay", () => {
+    const a = allowanceFor({
+      id: 1,
+      allowanceType: "weekly",
+      copayAmount: 20,
+      weeklyAllowance: 100,
+      weeklyAllowanceAvailable: 35,
+    });
+    expect(a.limit).toBe(35);
+    expect(a.label).toBe("remaining weekly allowance");
+  });
+
+  test("weekly with nothing left falls back to the weekly cap rather than reporting 0", () => {
+    const a = allowanceFor({
+      id: 1,
+      allowanceType: "weekly_by_day",
+      weeklyAllowance: 100,
+      weeklyAllowanceAvailable: 0,
+    });
+    expect(a.limit).toBe(100);
+    expect(a.label).toBe("weekly allowance");
+  });
+
+  test("an unknown allowance type never claims to be daily", () => {
+    const a = allowanceFor({ id: 1, copayAmount: 20 });
+    expect(a.label).toBe("company coverage");
+    expect(a.label).not.toContain("daily");
+  });
+
+  test("a missing limit stays null so nothing is warned about", () => {
+    expect(allowanceFor({ id: 1, allowanceType: "weekly" }).limit).toBeNull();
+    expect(allowanceFor({ id: 1, allowanceType: "daily", copayAmount: 0 }).limit).toBeNull();
+  });
+});
+
+describe("the over-company-limit warning follows the club's allowance type", () => {
+  test("a weekly club is measured against the weekly remainder, and says so", () => {
+    const g = evaluateGuards({
+      intent: "select",
+      delivery: {
+        id: 1,
+        allowanceType: "weekly",
+        copayAmount: 20,
+        weeklyAllowance: 100,
+        weeklyAllowanceAvailable: 12,
+      },
+      total: 18,
+    });
+    const w = g.find((x) => x.code === "over_company_limit");
+    expect(w?.message).toContain("remaining weekly allowance");
+    expect(w?.message).not.toContain("daily");
+    expect(w?.data?.outOfPocket).toBe(6); // 18 - 12, not 18 - 20
+  });
+
+  test("an unknown limit warns about nothing", () => {
+    const g = evaluateGuards({ intent: "select", delivery: { id: 1 }, total: 99 });
+    expect(g.some((x) => x.code === "over_company_limit")).toBe(false);
+  });
+
+  test("a spend ceiling no longer suppresses the company-limit note", () => {
+    const g = evaluateGuards({
+      intent: "select",
+      delivery: { id: 1, allowanceType: "daily", copayAmount: 20 },
+      total: 25,
+      maxTotal: 100,
+    });
+    expect(g.some((x) => x.code === "over_company_limit")).toBe(true);
+    expect(blockers(g).length).toBe(0);
+  });
+});
+
+describe("family-style deliveries", () => {
+  const familyDay: Delivery = {
+    id: 7,
+    isReadOnly: true,
+    canRequestChanges: true,
+    forFamily: true,
+    orders: [{ id: 1, menu: { id: 1 } }],
+  };
+
+  test("isFamilyStyle sees each of the four signals", () => {
+    expect(isFamilyStyle(familyDay)).toBe(true);
+    expect(isFamilyStyle({ id: 7, forBuffet: true })).toBe(true);
+    expect(isFamilyStyle({ id: 7, club: { id: 1, familyHub: true } })).toBe(true);
+    expect(isFamilyStyle({ id: 7, orders: [{ id: 1, venue: { id: 2, familyHub: true } }] })).toBe(
+      true,
+    );
+    expect(isFamilyStyle({ id: 7, forFamily: null })).toBe(false);
+  });
+
+  test("a locked family day does not claim a change request is still accepted", () => {
+    expect(deliveryWindow(familyDay).window).not.toBe("grace");
+    expect(deliveryWindow(familyDay).note).not.toContain("change request");
+  });
+
+  test("the same day WITHOUT the family flag still reports grace", () => {
+    expect(deliveryWindow({ ...familyDay, forFamily: false }).window).toBe("grace");
+  });
+
+  test("a remaining late-order budget still opens grace on a family day", () => {
+    const w = deliveryWindow({ ...familyDay, orders: [{ id: 1, lateOrdersRemaining: 2 }] });
+    expect(w.window).toBe("grace");
+  });
+});
+
+describe("a delivery carrying another member's order", () => {
+  const ME = 501;
+  const THEM = 999;
+  /** Their venue is listed first and is the only one with tracking — the shape that misattributes. */
+  const shared: Delivery = {
+    id: 9,
+    forDeliveryAt: "2026-08-11T12:01:00.000Z",
+    copayAmount: 20,
+    allowanceType: "daily",
+    orders: [
+      {
+        id: 1,
+        menu: { id: 1, name: "Their Venue" },
+        pieces: [{ id: "theirs", itemId: 1, menuId: 1, userId: THEM, name: "Their Burrito" }],
+        dropoffCompletedAt: "2026-08-11T18:41:44.000Z",
+        etaStatus: { start: "2026-08-11T11:35:00-07:00", status: "delivered", shortTz: "PT" },
+      },
+      {
+        id: 2,
+        menu: { id: 2, name: "My Venue" },
+        pieces: [{ id: "mine", itemId: 2, menuId: 2, userId: ME, name: "My Noodles" }],
+      },
+    ],
+  };
+
+  test("get_delivery_status reports MY meal, not the first one ordered", () => {
+    const s = deliveryStatus(shared, ME);
+    expect(s.meal.map((m) => m.name)).toEqual(["My Noodles"]);
+    expect(s.attributed).toBe(true);
+  });
+
+  test("their courier tracking is not reported as mine", () => {
+    const s = deliveryStatus(shared, ME);
+    expect(s.arrivedAt).toBeNull();
+    expect(s.fulfillment).toBe("not yet dispatched");
+    // Without an id it silently takes theirs — which is exactly the bug.
+    expect(deliveryStatus(shared).fulfillment).toBe("delivered");
+  });
+
+  test("an unattributable meal is not called 'Your meal'", () => {
+    const out = formatDeliveryStatus(deliveryStatus(shared));
+    expect(out).toContain("couldn't tell which meal is yours");
+    expect(out).not.toContain("Your meal");
+  });
+
+  test("the list shows only my pick, and counts the rest", () => {
+    const line = fmtDelivery(shared, undefined, ME);
+    expect(line).toContain("My Noodles");
+    expect(line).not.toContain("Their Burrito");
+    expect(line).toContain("+1 other meal");
+  });
+
+  test("someone else ordering does not make the day look ordered for me", () => {
+    const theirsOnly: Delivery = { id: 9, orders: [shared.orders![0]!] };
+    expect(compactDelivery(theirsOnly, undefined, ME).needsOrder).toBe(true);
+    expect(compactDelivery(theirsOnly, undefined, ME).otherMeals).toBe(1);
+  });
+
+  test("a remove/skip resolves MY order, not the first with pieces", () => {
+    expect(orderForGuards(shared, undefined, ME)?.id).toBe(2);
+    expect(orderForGuards(shared)?.id).toBe(1); // the old, identity-free answer
+  });
+});
+
+describe("two deliveries on one date", () => {
+  const base: Delivery = { id: 1, forDeliveryAt: "2026-08-11T12:01:00.000Z", orders: [] };
+  const lunch: Delivery = {
+    ...base,
+    id: 100,
+    serviceWindow: { name: "lunch" },
+    club: { id: 1, name: "HQ" },
+  };
+  const dinner: Delivery = {
+    ...base,
+    id: 101,
+    serviceWindow: { name: "afternoon" },
+    club: { id: 1, name: "HQ" },
+  };
+
+  test("the service window distinguishes them, with 'afternoon' shown as dinner", () => {
+    expect(fmtDelivery(lunch)).toContain("lunch");
+    expect(fmtDelivery(dinner)).toContain("dinner");
+    expect(fmtDelivery(dinner)).not.toContain("afternoon");
+  });
+
+  test("the club name is rendered, so two clubs on one day are tellable apart", () => {
+    expect(fmtDelivery(lunch)).toContain("HQ");
+    expect(compactDelivery(dinner).service).toBe("dinner");
+    expect(compactDelivery(lunch).club).toBe("HQ");
   });
 });

@@ -75,8 +75,11 @@ otherwise it returns a re-auth message (a pasted cookie can't be refreshed witho
 Write tools are dry-run by default. A call returns the exact mutation, the resolved variables, a summary,
 and an HMAC `confirmToken` bound to a canonical serialization of the payload — **nothing is sent**.
 Calling the tool again with that token re-derives the HMAC over the payload rebuilt from live data and
-sends only on a match, so any drift (price, cutoff, the piece being replaced) invalidates it. Blocking
-guards (past cutoff, over capacity, a required modifier missing, no late orders left) never mint a token.
+sends only on a match, so any drift (the piece being replaced, the menu, the selection) invalidates it.
+
+Guards attached to a preview are advisory — Forkable enforces its own policy and reports refusals with
+structured codes. Only two things refuse to mint a token, and neither is Forkable's rule: the operator's
+own `FORKABLE_MAX_TOTAL` ceiling, and a malformed `selectionsHash` (our bug). See Guards below.
 
 ## selectionsHash
 
@@ -184,6 +187,47 @@ Two consequences worth holding onto:
 Per-order counters really do diverge: on one day `orders[0]` reported `lateOrdersRemaining: 0` while
 the user's own order reported `6`.
 
+## Allowances (the limit is not always daily)
+
+`allowanceType` is one of `daily` | `weekly` | `weekly_by_day`, and it decides which field carries the
+company's coverage. `delivery.copayAmount` is the **daily** figure and is only the answer on a daily
+club; a weekly club's budget is `weeklyAllowance` (the cap) and `weeklyAllowanceAvailable` (what's
+left). `allowanceFor(delivery)` folds this into `{kind, limit, label}` and everything that renders or
+compares money goes through it — never read `copayAmount` directly, and never print the word "daily"
+unless `allowanceType` says so.
+
+`weeklyAllowanceAvailable` reads **0 on a daily club**, so it is only consulted when the club really is
+weekly. A null/zero limit means "unknown" and must stay silent rather than warn.
+
+`club.allowanceMealLimit` is a **boolean** — "the company covers one meal a day", not a count. It
+deliberately does not feed the spend guard: every `set_meal` REPLACES a piece rather than adding one,
+so a write never turns a first meal into a second. `get_profile` reports the policy instead.
+
+Auto-order has **no user-level override** — `User.disableAutoOrder` doesn't exist. The effective state
+is `me.mealClubAutoOrder && !clubs.some(c => c.disableAutoOrder)`; a club that forbids auto-order means
+the member must confirm every delivery or receive nothing, whatever their own flag says.
+
+## Family-style service
+
+`forFamily` / `forBuffet` on the delivery, `familyHub` on the club and on any order's venue: any of
+them means the meal is shared, and a per-member change request is never offered. `isFamilyStyle()`
+folds the four, and `deliveryWindow()` suppresses **only** the change-request source of `grace` — a
+remaining late-order budget is a separate affordance and still counts. `forFamily` is nullable, so test
+truthiness rather than `=== false`.
+
+## Identity travels with deliveries
+
+A delivery carries one order per venue and may carry **other members'** orders. `loadDeliveries`
+therefore returns `{deliveries, userId}`, taking `me { id }` as a second root in the same document —
+identity costs no extra request. Every renderer takes that `userId`.
+
+`findOwnMeal(d, userId)` matches pieces by owner and returns **`undefined`** when none match — it
+never falls back to "first order with pieces", because that fallback is exactly how a colleague's meal
+became the member's: it supplied the courier ETA, arrival time and tracking link, and would hand
+`replacePiece` the wrong `oldPieceId`. Called without a `userId` it still means "whoever ordered", and
+`byIdentity` (surfaced as `attributed`) records which of the two you got — when false, don't call the
+meal "yours". `remove_meal` also refuses a piece owned by someone else.
+
 `club.hidePrices` is a display preference for Forkable's own dashboard, not an access control — the API
 returns prices to the member either way. We deliberately do **not** honor it: the caller *is* the member,
 and suppressing prices would also have to suppress the `over_company_limit` warn and the
@@ -227,13 +271,18 @@ orders until 9am on the day. The monthly late-order allowance appears to be 6 (t
 No per-venue or per-weekday lead time exists — the odd Friday value is just buffet semantics leaking
 onto every Delivery.
 
-Careful: gate 1 blocks too. `evaluateGuards` pushes `delivery_read_only` at `level: "block"` whenever
-`isReadOnly` is set, so a delivery `deliveryWindow()` classifies as `grace` can still be hard-blocked.
-Other blocking codes: `menu_not_available`, `selection_invalid`, `over_total_ceiling`,
+**Guards advise; they don't re-enforce.** Forkable owns this policy and reports refusals with
+structured codes, so nearly every guard is a `warn` attached to a preview the caller still has to
+confirm. Blocking on our reading of another company's rules is how you refuse a write the server would
+have accepted — and the model is only ever as good as the one club it was written against.
+
+Exactly two codes still `block`, and neither is Forkable's call: `over_total_ceiling` (the operator's
+own `FORKABLE_MAX_TOTAL`) and `selection_invalid` (the `selectionsHash` *we* build is malformed —
+our bug). Everything else — `delivery_read_only`, `menu_not_available`, `over_venue_capacity`,
 `change_request_not_allowed`, `no_late_orders_remaining`, `no_late_removals_remaining`,
-`late_removal_disabled`. Warn-only: `past_late_order_deadline`, `over_company_limit`, `no_credit_card`,
-`multiple_own_orders`, `no_monthly_late_orders`, `change_request_pending`,
-`sibling_replacement_pending`.
+`late_removal_disabled`, `diet_conflict`, `past_late_order_deadline`, `over_company_limit`,
+`no_credit_card`, `multiple_own_orders`, `no_monthly_late_orders`, `change_request_pending`,
+`sibling_replacement_pending`, `instructions_not_supported` — is advisory.
 
 Three gates are deliberately *looser* than they look:
 

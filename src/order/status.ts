@@ -2,7 +2,7 @@
 // Pure, so the layout is testable without standing up a server.
 
 import { type Delivery } from "./types.ts";
-import { deliveryWindow, findOwnMeal, type DeliveryWindow } from "./guards.ts";
+import { allowanceFor, deliveryWindow, findOwnMeal, type DeliveryWindow } from "./guards.ts";
 import {
   formatDate,
   formatDay,
@@ -40,8 +40,12 @@ export interface DeliveryStatus {
   reportMissingItemCutoffRaw: string | null;
   youPay: number;
   companyLimit: number | null;
+  /** What `companyLimit` means here — "daily limit", "remaining weekly allowance", … */
+  companyLimitLabel: string;
   writeWindow: DeliveryWindow;
   ambiguousOwnOrder: boolean;
+  /** The meal was matched by owner. False means it's whoever ordered first — don't call it "yours". */
+  attributed: boolean;
 }
 
 /** The service window is named "afternoon" on the wire but reads as dinner to a member. */
@@ -64,8 +68,10 @@ function rangeOf(start?: string, end?: string, tz?: string): string | null {
   return `${left}–${b[0]} ${b[1]}${tz ? ` ${tz}` : ""}`;
 }
 
-export function deliveryStatus(d: Delivery): DeliveryStatus {
-  const own = findOwnMeal(d);
+export function deliveryStatus(d: Delivery, userId?: number): DeliveryStatus {
+  // Pass `userId`: without it this is "first order with pieces", so on a delivery carrying anyone
+  // else's order their ETA, arrival time and tracking link would render as the member's own.
+  const own = findOwnMeal(d, userId);
   const order = own?.order;
   const eta = order?.etaStatus;
   const tz = eta?.shortTz ?? undefined;
@@ -79,21 +85,25 @@ export function deliveryStatus(d: Delivery): DeliveryStatus {
     (zone ? formatInstantIn(iso, zone, tz) : "") || formatInstantLike(iso, zoneSource, tz) || null;
 
   const window = d.deliveryWindow ?? [];
+  const allowance = allowanceFor(d);
 
   return {
     id: d.id,
     date: formatDate(d.forDeliveryAt),
     day: formatDay(d.forDeliveryAt),
     fulfillment: eta?.status ?? d.simpleState ?? "not yet dispatched",
-    meal: (own?.pieces ?? []).map((p) => ({
-      name: p.name ?? `item ${p.itemId}`,
-      price: p.price ?? null,
-      venue: order?.venue?.displayName ?? order?.menu?.name ?? null,
-      autoOrder: p.autoOrder ?? null,
-      options: (p.nonHiddenAttributes ?? [])
-        .map((x) => [x.label, x.value].filter(Boolean).join(": "))
-        .filter(Boolean),
-    })),
+    // Every venue the member holds a meal at, not just the primary — they may legitimately have two.
+    meal: (own?.orders ?? []).flatMap((x) =>
+      x.pieces.map((p) => ({
+        name: p.name ?? `item ${p.itemId}`,
+        price: p.price ?? null,
+        venue: x.order.venue?.displayName ?? x.order.menu?.name ?? null,
+        autoOrder: p.autoOrder ?? null,
+        options: (p.nonHiddenAttributes ?? [])
+          .map((y) => [y.label, y.value].filter(Boolean).join(": "))
+          .filter(Boolean),
+      })),
+    ),
     arrivalWindow: window.length === 2 ? `${window[0]}–${window[1]}` : null,
     service: d.serviceWindow?.name
       ? `${serviceName(d.serviceWindow.name)}${d.serviceWindow.baseTime ? `, base ${d.serviceWindow.baseTime.slice(0, 5)}` : ""}`
@@ -106,9 +116,11 @@ export function deliveryStatus(d: Delivery): DeliveryStatus {
     reportMissingItemCutoff: at(d.reportMissingItemCutoff),
     reportMissingItemCutoffRaw: d.reportMissingItemCutoff ?? null,
     youPay: d.userReceipt?.due ?? 0,
-    companyLimit: d.copayAmount ?? null,
+    companyLimit: allowance.limit,
+    companyLimitLabel: allowance.label,
     writeWindow: deliveryWindow(d),
     ambiguousOwnOrder: own?.ambiguous === true,
+    attributed: own?.byIdentity === true,
   };
 }
 
@@ -119,10 +131,12 @@ export function formatDeliveryStatus(s: DeliveryStatus): string {
     if (value) lines.push(`  ${label.padEnd(11)}: ${value}`);
   };
 
+  // Only claim the meal when it was matched by owner; otherwise it's just whoever ordered first.
+  const label = s.attributed ? "Your meal" : "Meal";
   for (const m of s.meal) {
     const bits = [m.name, m.price != null ? formatMoney(m.price) : ""];
     const opts = m.options.length ? ` (${m.options.join(", ")})` : "";
-    add("Your meal", `${bits.filter(Boolean).join(" ")}${opts}${m.venue ? ` — ${m.venue}` : ""}`);
+    add(label, `${bits.filter(Boolean).join(" ")}${opts}${m.venue ? ` — ${m.venue}` : ""}`);
   }
   if (!s.meal.length) add("Your meal", "— nothing selected");
 
@@ -138,8 +152,9 @@ export function formatDeliveryStatus(s: DeliveryStatus): string {
   if (s.youPay !== 0) add("You pay", formatMoney(s.youPay));
   const notes = s.address.notes?.replace(/\s*\n\s*/g, " ");
   add("Access", [s.address.formatted, notes].filter(Boolean).join(" — ") || null);
-  if (s.ambiguousOwnOrder)
-    lines.push("  (more than one order here has pieces — showing the first)");
+  if (!s.attributed && s.meal.length)
+    lines.push("  (couldn't tell which meal is yours — showing the first ordered)");
+  else if (s.ambiguousOwnOrder) lines.push("  (you have meals at more than one venue today)");
 
   return lines.join("\n");
 }

@@ -46,7 +46,9 @@ export interface Menu {
   sections: MenuSection[];
   /** Option price fallback. Unit UNVERIFIED — never seen populated; assumed dollars. */
   optionSets?: { id: number; price?: number | null }[];
-  venue?: { id: number; name?: string; capacity?: number };
+  /** This venue takes no custom notes; `instructions` sent anyway are dropped. */
+  disableSpecialInstructions?: boolean;
+  venue?: { id: number; name?: string; capacity?: number; familyHub?: boolean };
 }
 
 export interface Piece {
@@ -86,6 +88,8 @@ export interface OrderVenue {
   name?: string;
   displayName?: string;
   capacity?: number;
+  /** Family-style venue: meals are shared, so a per-member change request never applies. */
+  familyHub?: boolean;
 }
 
 export interface PieceAttribute {
@@ -157,11 +161,18 @@ export interface Delivery {
   forDeliveryAt?: string; // floating local mislabelled UTC — see parseFloating
   isReadOnly?: boolean;
   userConfirmed?: boolean;
+  /** The DAILY company limit. Only meaningful when `allowanceType` is "daily" — see allowanceFor. */
   copayAmount?: number; // dollars
   availableMenuIds?: number[];
   pastLateOrderDeadline?: boolean;
   canRequestChanges?: boolean;
-  weeklyAllowanceAvailable?: number;
+  /** "daily" | "weekly" | "weekly_by_day" — which of the allowance fields actually applies. */
+  allowanceType?: string;
+  weeklyAllowance?: number; // dollars; the weekly cap
+  weeklyAllowanceAvailable?: number; // dollars; what's left of it. Reads 0 on a daily club.
+  /** Family-style service: meals are shared, so per-member change requests don't apply. Nullable. */
+  forFamily?: boolean | null;
+  forBuffet?: boolean | null;
   deliveryWindow?: string[]; // ["11:45","12:15"] — wall clock, no date, no zone
   serviceWindow?: ServiceWindow;
   /** Missing-item deadline. Read as honest UTC (inferred, not proven) — rendered, but never gated on. */
@@ -171,7 +182,10 @@ export interface Delivery {
   club?: {
     id: number;
     name?: string;
+    /** Boolean: the company covers ONE meal a day. Not a count. */
     allowanceMealLimit?: boolean;
+    allowanceType?: string;
+    familyHub?: boolean;
     isLateRemovalEnabled?: boolean;
     market?: { timezone?: string; currencySettings?: { currency?: string } };
   };
