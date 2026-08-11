@@ -11,8 +11,8 @@ client. See your week, browse and search menus, get personalized picks, and set 
 all from chat.
 
 > [!WARNING]
-> Unofficial, not affiliated with Forkable. It acts on your behalf using your own Forkable session — use
-> your own account, at your own risk.
+> Unofficial, not affiliated with Forkable. It acts on your behalf using your own Forkable session.
+> Use your own account, at your own risk.
 
 ## Features
 
@@ -25,7 +25,7 @@ all from chat.
 
 Requires [Bun](https://bun.sh) 1.3+ (`bunx` runs it — no clone needed).
 
-**1. Authenticate** (imports your logged-in browser session on macOS — see [Auth](#auth) for other options)
+**1. Authenticate** (imports your logged-in browser session on macOS; see [Auth](#auth) for other options)
 
 ```bash
 bunx forkable-mcp --auth --chrome
@@ -68,80 +68,48 @@ Then ask your client things like *"what's for lunch this week?"* or *"set Tuesda
 
 ## Auth
 
-There's no API key — the server reuses a real Forkable web session. Authenticate once (re-run when
-it expires) using **any one** of the four methods below. Pick 1 if your account has a password,
-otherwise 2; 3 and 4 are the manual fallbacks.
+There's no API key: the server reuses a real Forkable web session. Pick one of the four below. From a clone,
+use `bun run auth …` in place of `bunx forkable-mcp --auth …`.
 
-*(From a clone, use `bun run auth …` in place of `bunx forkable-mcp --auth …` everywhere below.)*
-
-### 1. Email + password — best if it works
-
-Works headless, and it's the only method that **auto-refreshes**: on a 401 the server logs back in
-and retries. Not available on SSO-only accounts (it fails fast and tells you).
+### Email + password
 
 ```bash
 bunx forkable-mcp --auth --login --email you@co.com --password '…'
-# or set FORKABLE_EMAIL / FORKABLE_PASSWORD (+ FORKABLE_MFA) and run: bunx forkable-mcp --auth --login
+# or set FORKABLE_EMAIL / FORKABLE_PASSWORD (+ FORKABLE_MFA), then: bunx forkable-mcp --auth --login
 ```
 
-### 2. Import from your browser — best for SSO (macOS only)
+The only method that survives expiry: on a 401 the server logs back in and retries. SSO-only accounts
+can't use it and fail fast with a message saying so. The cookie methods below cover those, but you have
+to re-run them whenever the session expires.
 
-Log in to [forkable.com](https://forkable.com) in your browser, then let the CLI lift the session
-cookie out of it. It decrypts the cookie via your login Keychain, so **macOS will prompt you to allow
-access** — approve it.
+### Import from your browser (macOS)
+
+Log in at [forkable.com](https://forkable.com), then pull the cookie out of the browser. Decrypting it
+needs your login Keychain, so approve the macOS prompt when it appears.
 
 ```bash
-bunx forkable-mcp --auth --chrome                      # Chrome
-bunx forkable-mcp --auth --chrome --browser arc        # or brave, edge, vivaldi, opera, chromium,
-                                                       # chrome-beta, chrome-dev, chrome-canary
+bunx forkable-mcp --auth --chrome
+bunx forkable-mcp --auth --chrome --browser arc    # brave, edge, vivaldi, opera, chromium,
+                                                   # chrome-beta, chrome-dev, chrome-canary
 ```
 
-**Multiple browser profiles?** All of them are searched and the one with the most recently used
-Forkable session wins — the CLI prints which profile it picked. To pin one explicitly, pass the
-profile *directory* name (not its display name):
+Every profile is searched and the most recently used Forkable session wins; the CLI prints which one
+it picked. Pin a specific profile with its *directory* name, not its display name:
+`--profile "Profile 1"`.
 
-```bash
-bunx forkable-mcp --auth --chrome --browser arc --profile "Profile 1"
-```
+### Copy as cURL
 
-### 3. Paste the cookie header — works anywhere
+"Copy as cURL" is a DevTools command: right-click a request in the Network tab, pick **Copy → Copy as
+cURL**, and DevTools puts that entire request on your clipboard as a runnable `curl` — URL, body, and
+every header, cookie included. Paste the whole thing; only the `cookie:` header is read.
 
-Use this on Linux/Windows, or when method 2 can't find your profile.
+1. forkable.com → DevTools (<kbd>⌥⌘I</kbd> / <kbd>F12</kbd>) → **Network**, reload the page.
+2. Filter for `graphql`, right-click a `POST https://forkable.com/api/v2/graphql` row → **Copy → Copy
+   as cURL**. Use a GraphQL request, since those are authenticated calls and always carry the session.
+   (Windows: `Copy as cURL (bash)`. Firefox: `Copy Value → Copy as cURL`.)
+3. `pbpaste | bunx forkable-mcp --auth`, or save it and use `--file ./forkable.curl`.
 
-1. Open [forkable.com](https://forkable.com) and log in.
-2. Open DevTools (<kbd>⌥⌘I</kbd> / <kbd>F12</kbd>) → **Network** tab.
-3. Reload the page, then click a request to the **GraphQL endpoint** — filter the list for `graphql`
-   and pick one of the `POST https://forkable.com/api/v2/graphql` rows. (Those are the authenticated
-   API calls, so they always carry the session cookie; a static asset or image request may not.)
-4. In **Headers → Request Headers**, find the `cookie:` line and copy its whole value — it's a long
-   `name=value; name=value; …` string, and it must include `_easyorder_session`.
-
-```bash
-FORKABLE_COOKIE='_easyorder_session=…; other=…' bunx forkable-mcp --auth
-```
-
-### 4. Paste a "Copy as cURL" blob — same thing, less clicking
-
-**"Copy as cURL" is a built-in DevTools command.** Right-click any request in the Network tab and
-choose **Copy → Copy as cURL**, and DevTools writes the entire request to your clipboard as a
-ready-to-run `curl` command — URL, method, body, and every header, *including* the `cookie:` header.
-That's the part we want; instead of hunting for the cookie line yourself, paste the whole blob and
-the CLI parses the cookie out of it (everything else is ignored).
-
-1. forkable.com → DevTools → **Network**, reload the page.
-2. Filter for `graphql` and right-click a **`POST https://forkable.com/api/v2/graphql`** request →
-   **Copy** → **Copy as cURL**. Use a GraphQL request specifically — it's an authenticated API call,
-   so it's guaranteed to carry the session cookie.
-   - Chrome/Edge/Arc: `Copy as cURL`; on Windows pick `Copy as cURL (bash)`.
-   - Safari: `Copy as cURL`. Firefox: `Copy Value → Copy as cURL`.
-3. Pipe the clipboard in:
-
-```bash
-pbpaste | bunx forkable-mcp --auth              # macOS
-bunx forkable-mcp --auth --file ./forkable.curl  # or save it to a file first
-```
-
-What you paste looks like this (truncated) — the `-H 'cookie: …'` header is all that's read:
+What lands on your clipboard, truncated:
 
 ```
 curl 'https://forkable.com/api/v2/graphql' \
@@ -151,9 +119,16 @@ curl 'https://forkable.com/api/v2/graphql' \
   --data-raw '{"query":"…"}'
 ```
 
-> [!NOTE]
-> Methods 2–4 give a cookie that **can't be refreshed** — when it expires (or you log out in the
-> browser) you'll get a re-auth message and need to re-run the import. Only method 1 self-heals.
+### Paste the cookie header
+
+Same idea, one header instead of the whole blob. Useful on Linux/Windows, or when the browser import
+can't find your profile. Follow steps 1–2 above, but click the request instead of right-clicking it,
+then copy the whole `cookie:` value under **Headers → Request Headers**. It's a long
+`name=value; name=value; …` string and must contain `_easyorder_session`.
+
+```bash
+FORKABLE_COOKIE='_easyorder_session=…; other=…' bunx forkable-mcp --auth
+```
 
 The session is stored at `~/.forkable-mcp/session.json` (mode `0600`) and is never logged.
 
@@ -167,7 +142,7 @@ is optional; with none set you authenticate interactively and there's no spend c
 | `FORKABLE_EMAIL` | — | Email for headless password login. With `FORKABLE_PASSWORD`, also enables auto-relogin when the session expires. |
 | `FORKABLE_PASSWORD` | — | Password for headless login (pair with `FORKABLE_EMAIL`). |
 | `FORKABLE_MFA` | — | MFA code, if your account requires one for password login. |
-| `FORKABLE_COOKIE` | — | Headless auth for SSO-only accounts: a full forkable.com Cookie header (see [Auth](#3-paste-the-cookie-header--works-anywhere)). Provisioned on startup if no session exists. |
+| `FORKABLE_COOKIE` | — | Headless auth for SSO-only accounts: a full forkable.com Cookie header (see [Auth](#paste-the-cookie-header)). Provisioned on startup if no session exists. |
 | `FORKABLE_CSRF` | — | Pin a CSRF token instead of the auto-fetched one (rarely needed). |
 | `FORKABLE_MAX_TOTAL` | — | Hard spend cap in dollars: a write whose total exceeds it is refused (no confirm-token). Unset = no cap; the preview just notes when a meal is over your company's daily coverage. |
 | `FORKABLE_WRITE_SECRET` | per-install | HMAC key for write confirm-tokens. Auto-generated and stored in the session file if unset; set it to pin one across machines. |

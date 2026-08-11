@@ -356,7 +356,7 @@ export async function readForkableCookieHeader(
   if (!chosen) {
     throw new Error(
       `Found forkable.com cookies in ${who} (${withRows.map((p) => p.profile.label).join(", ")}) ` +
-        `but no ${SESSION_COOKIE} — you're probably logged out. Log in to forkable.com in ${who} and try again.`,
+        `but no ${SESSION_COOKIE}, so you're probably logged out. Log in to forkable.com in ${who} and try again.`,
     );
   }
   return {
