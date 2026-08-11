@@ -195,6 +195,15 @@ which `get_profile` reports directly — that's the field to trust. With auto-or
 confirm each delivery or it isn't ordered, which is what makes `confirm_delivery` load-bearing.
 `Piece.autoOrder` is passed through raw; nothing renders it, and nothing should infer who chose a meal.
 
+Write payloads differ per mutation. `addPiece`/`replacePiece` return `errors errorDetails
+warningDetails`, and the structured codes there (`venue_capacity_overage`, `exceeded_allowance`,
+`below_event_order_minimum_cents`) are what `MutationError` turns into a readable message — a refusal
+can arrive with an EMPTY `errors` array and the reason only in `errorDetails`, so both are checked.
+
+`removePiece` must stay on plain `errors`: `errorDetails`/`warningDetails` exist on its payload (an
+unknown field there returns a clean validation error; these don't) but requesting them returns a **503**.
+`confirmDelivery` accepts `errorDetails` and returns it empty. Don't widen either.
+
 ## Write windows (two gates, not one)
 
 **There is no member-facing deadline field.** `editingCutoffAt` looks like one and isn't — it carries

@@ -181,8 +181,12 @@ function fmtClubPolicy(c: ClubPolicy): string {
 }
 
 /**
- * Write selections. `errorDetails`/`warningDetails` exist on the PIECE mutations only — capacity and
- * allowance refusals only arise when adding — so asking for them elsewhere fails the whole mutation.
+ * Write selection for add/replace. Those carry the structured refusal codes (capacity, allowance).
+ *
+ * Do NOT copy this to `removePiece`: the fields exist on its payload — an unknown field there returns
+ * a clean validation error, these don't — but requesting them makes the server 503. Measured, twice.
+ * `confirmDelivery` accepts `errorDetails` and returns it empty, so there's nothing to gain there
+ * either. Both stay on plain `errors`.
  */
 const PIECE_WRITE_SEL = "errors errorDetails warningDetails";
 interface MeCap {
