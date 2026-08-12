@@ -9,6 +9,7 @@ import {
   formatInstantIn,
   formatInstantLike,
   formatMoney,
+  groupSuffix,
 } from "./format.ts";
 
 export interface DeliveryStatus {
@@ -26,6 +27,8 @@ export interface DeliveryStatus {
     autoOrder: boolean | null;
     /** Pre-rendered customization labels, e.g. "Choose Bread: Dutch Crunch". */
     options: string[];
+    /** Dropoff group, e.g. "A1" — "this meal is in Group A1". Null until the delivery is grouped. */
+    group: string | null;
   }[];
   /** The club's scheduled window, "11:45–12:15". Named for arrival, NOT the write window. */
   arrivalWindow: string | null;
@@ -93,6 +96,8 @@ export function deliveryStatus(d: Delivery, userId?: number): DeliveryStatus {
     day: formatDay(d.forDeliveryAt),
     fulfillment: eta?.status ?? d.simpleState ?? "not yet dispatched",
     // Every venue the member holds a meal at, not just the primary — they may legitimately have two.
+    // The group is read per PIECE, not per delivery: two meals can sit in different groups, which is
+    // also how the app reads it for a member (`pieces.map(p => p.group)`).
     meal: (own?.orders ?? []).flatMap((x) =>
       x.pieces.map((p) => ({
         name: p.name ?? `item ${p.itemId}`,
@@ -102,6 +107,7 @@ export function deliveryStatus(d: Delivery, userId?: number): DeliveryStatus {
         options: (p.nonHiddenAttributes ?? [])
           .map((y) => [y.label, y.value].filter(Boolean).join(": "))
           .filter(Boolean),
+        group: p.group ?? null,
       })),
     ),
     arrivalWindow: window.length === 2 ? `${window[0]}–${window[1]}` : null,
@@ -134,9 +140,12 @@ export function formatDeliveryStatus(s: DeliveryStatus): string {
   // Only claim the meal when it was matched by owner; otherwise it's just whoever ordered first.
   const label = s.attributed ? "Your meal" : "Meal";
   for (const m of s.meal) {
-    const bits = [m.name, m.price != null ? formatMoney(m.price) : ""];
+    const dish = [m.name, m.price != null ? formatMoney(m.price) : ""].filter(Boolean).join(" ");
     const opts = m.options.length ? ` (${m.options.join(", ")})` : "";
-    add(label, `${bits.filter(Boolean).join(" ")}${opts}${m.venue ? ` — ${m.venue}` : ""}`);
+    // Em-dash segments, each dropping out when absent. The group goes through `groupSuffix`, shared
+    // with the delivery list so the two renderings can't drift.
+    const segments = [dish + opts, m.venue].filter(Boolean).join(" — ");
+    add(label, segments + groupSuffix(m.group));
   }
   if (!s.meal.length) add("Your meal", "— nothing selected");
 

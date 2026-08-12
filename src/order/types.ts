@@ -64,6 +64,15 @@ export interface Piece {
   /** Pre-rendered customization labels — cheaper than decoding `selections`. */
   nonHiddenAttributes?: PieceAttribute[];
   instructions?: string;
+  /**
+   * The dropoff group this meal is bagged into, e.g. `"A1"` — a String, badged in the app as
+   * "This meal is in Group A1". Assigned when the delivery is grouped, so it's null on a future
+   * delivery (measured: today's piece carries `"A1"`, tomorrow's carries `null`).
+   *
+   * This is the ONLY member-facing source of the group. The order also carries a `mealGroups`
+   * roster, which is the ADMIN view and deliberately unselected — see CLAUDE.md.
+   */
+  group?: string | null;
   price?: number; // dollars
   selections?: SelectionsHash | null; // stored hash on an existing piece
 }

@@ -5,3 +5,4 @@ node_modules/
 .claude/
 .mcp.json
 *.tgz
+private/

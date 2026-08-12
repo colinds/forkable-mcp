@@ -215,6 +215,33 @@ folds the four, and `deliveryWindow()` suppresses **only** the change-request so
 remaining late-order budget is a separate affordance and still counts. `forFamily` is nullable, so test
 truthiness rather than `=== false`.
 
+## Meal groups (dropoff groups)
+
+`Piece.group` is the dropoff group a meal is bagged into — a **String** like `"A1"`, which the app
+badges as *"This meal is in Group A1"*. It's assigned when the delivery is grouped, so it's null on
+a future delivery (measured: today's piece carried `"A1"`, tomorrow's `null`), and the app only
+shows the badge on an ordered-or-delivered, read-only meal. It's in the shared `PIECE_CORE`, so both
+`get_delivery_status` and `list_deliveries` render it — a member scanning the list wants to know
+where to collect lunch, and it costs one scalar. The label alone is rendered; that's all the app
+shows, and all a member needs to find their food.
+
+The group is per **piece**, not per delivery: a member can hold two meals in different groups, so it
+hangs off each dish rather than the delivery line. That matches the app, whose member path is
+literally `pieces.map(p => p.group)`.
+
+`Order.mealGroups` (`{label, value}[]`) is the **admin** roster of every group at that venue, and is
+deliberately **not selected**:
+
+- It's gated on `order.isSplitted` in the app's admin branch — and `isSplitted` was `false` on all
+  four venues of every observed delivery, while pieces still carried groups. The member branch
+  ignores `mealGroups` entirely and rebuilds it from its own pieces.
+- **`value` has no established meaning.** Nothing in the app ever reads it — only `label`, via
+  `formatMealGroupRange`. The member branch even fabricates `{label: g, value: 1}` from a piece and
+  throws the real value away. Observed values (12, 11, 7, 1…) *look* like meal counts, but that's a
+  guess; don't render it without confirming, and don't assume it's money either.
+
+Labels observed run `A1`–`A8`, plus a starred `A8*` whose meaning is unknown.
+
 ## Identity travels with deliveries
 
 A delivery carries one order per venue and may carry **other members'** orders. `loadDeliveries`

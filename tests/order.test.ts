@@ -21,6 +21,7 @@ import {
   parseFloating,
   isPast,
   formatInstantLike,
+  groupSuffix,
 } from "@/order/format.ts";
 import { fmtDelivery, compactDelivery } from "@/tools.ts";
 import { type MenuItem, type MenuModifier, type Delivery } from "@/order/types.ts";
@@ -423,7 +424,7 @@ const myPiece = {
   id: "p1",
   itemId: 9,
   menuId: 3,
-  name: "Shan Noodle",
+  name: "Nebula Noodles",
   price: 18.99,
   autoOrder: true,
 };
@@ -433,10 +434,15 @@ const fourOrders: Delivery = {
   id: 1234199,
   availableMenuIds: [1, 2, 3, 4],
   orders: [
-    { id: 1, menu: { id: 1, name: "United Dumplings" }, lateOrdersRemaining: 0 },
+    { id: 1, menu: { id: 1, name: "Fixture Diner" }, lateOrdersRemaining: 0 },
     { id: 2, menu: { id: 2, name: "Taqueria Los Altos" }, lateOrdersRemaining: 6 },
     { id: 3, menu: { id: 3, name: "Kitava" }, lateOrdersRemaining: 6 },
-    { id: 4, menu: { id: 4, name: "Burma Classic" }, lateOrdersRemaining: 6, pieces: [myPiece] },
+    {
+      id: 4,
+      menu: { id: 4, name: "Placeholder Kitchen" },
+      lateOrdersRemaining: 6,
+      pieces: [myPiece],
+    },
   ],
 };
 
@@ -672,11 +678,11 @@ const DELIVERED: Delivery = {
   address: { formatted: "350 Rhode Island St, San Francisco, CA", notes: "Gate code #1234" },
   copayAmount: 20,
   orders: [
-    { id: 1, menu: { id: 1, name: "United Dumplings" } },
+    { id: 1, menu: { id: 1, name: "Fixture Diner" } },
     {
       id: 4,
-      menu: { id: 4, name: "Burma Classic" },
-      venue: { id: 3, displayName: "Burma Classic" },
+      menu: { id: 4, name: "Placeholder Kitchen" },
+      venue: { id: 3, displayName: "Placeholder Kitchen" },
       dropoffCompletedAt: "2026-08-11T18:41:44.000Z",
       etaStatus: {
         start: ETA_START,
@@ -699,7 +705,7 @@ describe("deliveryStatus", () => {
     expect(s.arrivalWindow).toBe("11:45–12:15");
     expect(s.service).toBe("lunch, base 12:00");
     expect(s.trackingUrl).toBe("https://onf.lt/cfa6b0a0c0");
-    expect(s.meal[0]?.venue).toBe("Burma Classic");
+    expect(s.meal[0]?.venue).toBe("Placeholder Kitchen");
     expect(s.meal[0]?.autoOrder).toBe(true);
   });
 
@@ -743,7 +749,7 @@ describe("formatDeliveryStatus", () => {
   test("renders the delivered shape", () => {
     const out = formatDeliveryStatus(deliveryStatus(DELIVERED));
     expect(out).toContain("Delivery 1234199 — Tue 2026-08-11 — delivered");
-    expect(out).toContain("Shan Noodle $18.99 — Burma Classic");
+    expect(out).toContain("Nebula Noodles $18.99 — Placeholder Kitchen");
     expect(out).toContain("Arrived    : Tue 2026-08-11 11:41 AM PT");
     expect(out).toContain("Tracking   : https://onf.lt/cfa6b0a0c0");
     expect(out).toContain("Gate code #1234");
@@ -767,6 +773,170 @@ describe("formatDeliveryStatus", () => {
     expect(out).not.toContain("Arrived");
     expect(out).not.toContain("Access");
     expect(out).toContain("— nothing selected");
+  });
+});
+
+// --- Dropoff meal groups ----------------------------------------------------------------------
+
+describe("meal groups", () => {
+  const ME = 501;
+
+  /** The observed single-meal shape: one piece, bagged into group A1. */
+  const grouped: Delivery = {
+    id: 1234200,
+    forDeliveryAt: FOR_DELIVERY,
+    orders: [
+      {
+        id: 1,
+        venue: { id: 1, displayName: "Stub Street Cafe" },
+        pieces: [{ ...myPiece, userId: ME, name: "Comet Curry", group: "A1" }],
+      },
+    ],
+  };
+
+  test("the piece's group comes through — the label, and only the label", () => {
+    const s = deliveryStatus(grouped, ME);
+    expect(s.meal[0]?.group).toBe("A1");
+    expect(formatDeliveryStatus(s)).toContain("Comet Curry $18.99 — Stub Street Cafe — group A1");
+  });
+
+  test("each of several meals carries its OWN group, across venues", () => {
+    const d: Delivery = {
+      id: 3,
+      forDeliveryAt: FOR_DELIVERY,
+      orders: [
+        {
+          ...grouped.orders![0]!,
+          pieces: [
+            { ...myPiece, id: "a", userId: ME, name: "Comet Curry", group: "A1" },
+            // Same venue, DIFFERENT group — a per-delivery group field would flatten these.
+            { ...myPiece, id: "b", userId: ME, name: "Meteor Melt", group: "A3" },
+          ],
+        },
+        {
+          id: 2,
+          venue: { id: 2, displayName: "Mock Market Kitchen" },
+          pieces: [{ ...myPiece, id: "c", userId: ME, name: "Quasar Bowl", group: "A5" }],
+        },
+      ],
+    };
+    const s = deliveryStatus(d, ME);
+    expect(s.meal.map((m) => [m.name, m.group])).toEqual([
+      ["Comet Curry", "A1"],
+      ["Meteor Melt", "A3"],
+      ["Quasar Bowl", "A5"],
+    ]);
+    const out = formatDeliveryStatus(s);
+    expect(out).toContain("Meteor Melt $18.99 — Stub Street Cafe — group A3");
+    expect(out).toContain("Quasar Bowl $18.99 — Mock Market Kitchen — group A5");
+  });
+
+  test("an ungrouped future delivery shows no group at all", () => {
+    const d: Delivery = {
+      id: 4,
+      forDeliveryAt: FOR_DELIVERY,
+      // Measured on a next-day delivery: the piece exists, grouping hasn't happened.
+      orders: [{ id: 1, pieces: [{ ...myPiece, userId: ME, group: null }] }],
+    };
+    const s = deliveryStatus(d, ME);
+    expect(s.meal[0]?.group).toBeNull();
+    expect(formatDeliveryStatus(s)).not.toContain("group");
+  });
+
+  test("an absent group field is as good as null", () => {
+    const d: Delivery = {
+      id: 5,
+      forDeliveryAt: FOR_DELIVERY,
+      orders: [{ id: 1, pieces: [{ ...myPiece, userId: ME }] }],
+    };
+    expect(deliveryStatus(d, ME).meal[0]?.group).toBeNull();
+    expect(formatDeliveryStatus(deliveryStatus(d, ME))).not.toContain("group");
+  });
+
+  test("a colleague's group is never reported as mine", () => {
+    const d: Delivery = {
+      id: 6,
+      forDeliveryAt: FOR_DELIVERY,
+      orders: [
+        {
+          id: 1,
+          pieces: [
+            { ...myPiece, id: "theirs", userId: ME + 1, name: "Their Burrito", group: "A7" },
+            { ...myPiece, id: "mine", userId: ME, name: "Comet Curry", group: "A1" },
+          ],
+        },
+      ],
+    };
+    const s = deliveryStatus(d, ME);
+    expect(s.meal.map((m) => m.group)).toEqual(["A1"]);
+    expect(formatDeliveryStatus(s)).not.toContain("A7");
+  });
+
+  test("one shared suffix, so the list and the status view can't drift", () => {
+    expect(groupSuffix("A1")).toBe(" — group A1");
+    expect(groupSuffix(null)).toBe("");
+    expect(groupSuffix(undefined)).toBe("");
+    // Both renderers spell it identically because both go through groupSuffix.
+    const suffix = groupSuffix("A1");
+    expect(fmtDelivery(grouped, undefined, ME)).toContain(`Comet Curry${suffix}`);
+    expect(formatDeliveryStatus(deliveryStatus(grouped, ME))).toContain(
+      `Stub Street Cafe${suffix}`,
+    );
+  });
+
+  test("the list carries the group too — it's where to collect lunch", () => {
+    expect(fmtDelivery(grouped, undefined, ME)).toContain("Comet Curry — group A1");
+    expect(compactDelivery(grouped, undefined, ME).picked[0]?.group).toBe("A1");
+  });
+
+  test("the list omits an ungrouped meal's group rather than blanking it", () => {
+    const d: Delivery = {
+      id: 9,
+      forDeliveryAt: FOR_DELIVERY,
+      orders: [{ id: 1, pieces: [{ ...myPiece, userId: ME, name: "Comet Curry" }] }],
+    };
+    expect(fmtDelivery(d, undefined, ME)).toContain("Comet Curry\n");
+    expect(fmtDelivery(d, undefined, ME)).not.toContain("group");
+    expect(compactDelivery(d, undefined, ME).picked[0]?.group).toBeNull();
+  });
+
+  test("two meals in different groups are each labelled in the list", () => {
+    const d: Delivery = {
+      id: 10,
+      forDeliveryAt: FOR_DELIVERY,
+      orders: [
+        {
+          id: 1,
+          pieces: [
+            { ...myPiece, id: "a", userId: ME, name: "Comet Curry", group: "A1" },
+            { ...myPiece, id: "b", userId: ME, name: "Meteor Melt", group: "A3" },
+          ],
+        },
+      ],
+    };
+    expect(fmtDelivery(d, undefined, ME)).toContain(
+      "Comet Curry — group A1, Meteor Melt — group A3",
+    );
+  });
+
+  test("the list never labels a colleague's meal with its group", () => {
+    const d: Delivery = {
+      id: 11,
+      forDeliveryAt: FOR_DELIVERY,
+      orders: [
+        {
+          id: 1,
+          pieces: [
+            { ...myPiece, id: "theirs", userId: ME + 1, name: "Their Burrito", group: "A7" },
+            { ...myPiece, id: "mine", userId: ME, name: "Comet Curry", group: "A1" },
+          ],
+        },
+      ],
+    };
+    const line = fmtDelivery(d, undefined, ME);
+    expect(line).toContain("Comet Curry — group A1");
+    expect(line).not.toContain("A7");
+    expect(line).toContain("+1 other meal");
   });
 });
 

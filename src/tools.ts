@@ -34,6 +34,7 @@ import {
   formatDay,
   formatInstantIn,
   formatInstantLike,
+  groupSuffix,
   weekdayOf,
 } from "@/order/format.ts";
 import { type Delivery, type Menu, type MenuItem, type Order, type Piece } from "@/order/types.ts";
@@ -225,8 +226,13 @@ const DELIVERY_CORE =
 
 // `replaces` is the venue-replacement predecessor: its presence both UNLOCKS a late order at that
 // venue and FREEZES every sibling meal on the delivery, so both guards need it.
+//
+// `group` is the dropoff group ("A1"). It rides in the SHARED selection rather than the detail one
+// because a member checking the list wants to know where to collect lunch, and it's one scalar. The
+// order-level `mealGroups` roster stays unselected: admin view, and its `value` has no established
+// meaning (CLAUDE.md).
 const PIECE_CORE =
-  "id itemId menuId userId name state instructions price selections autoOrder flowType";
+  "id itemId menuId userId name state instructions price selections autoOrder flowType group";
 
 // No `pieces` here — each selection appends its own, so neither document repeats the field.
 const ORDER_CORE =
@@ -506,8 +512,10 @@ function deliveryTag(d: Delivery): string {
 export function fmtDelivery(d: Delivery, inFlight?: Set<number>, userId?: number): string {
   const own = findOwnMeal(d, userId)?.orders.flatMap((o) => o.pieces) ?? [];
   const others = allPieces(d).length - own.length;
+  // The dropoff group is per piece, so it hangs off the dish rather than the line — two meals can
+  // sit in different groups. Same `groupSuffix` the status view uses, so the two never diverge.
   const picked = own.length
-    ? own.map((p) => p.name || `item ${p.itemId}`).join(", ")
+    ? own.map((p) => `${p.name || `item ${p.itemId}`}${groupSuffix(p.group)}`).join(", ")
     : "— nothing selected";
   // Other people's meals are real and worth knowing about, but they are not the member's pick.
   const alsoHere = others > 0 ? `  (+${others} other ${others === 1 ? "meal" : "meals"})` : "";
@@ -568,6 +576,8 @@ export function compactDelivery(d: Delivery, inFlight?: Set<number>, userId?: nu
       itemId: p.itemId,
       menuId: p.menuId,
       name: p.name,
+      /** Dropoff group, e.g. "A1" — where to collect it. Null until the delivery is grouped. */
+      group: p.group ?? null,
       // The MEMBER's account is on auto-order (meals order without per-meal confirmation) — not
       // "Forkable picked this dish". Mirrors user.mealClubAutoOrder; true even on a hand-set piece.
       autoOrder: p.autoOrder ?? null,

@@ -137,3 +137,13 @@ export function isPast(iso?: string, now: Date = new Date()): boolean | undefine
   const at = parseFloating(iso);
   return at ? at.getTime() < now.getTime() : undefined;
 }
+
+/**
+ * The dropoff group as a trailing segment: `" — group A1"`, or `""` before the delivery is grouped.
+ * Every renderer goes through this so the list and the status view can't drift apart — the group is
+ * per PIECE, so it attaches to a dish, and the em dash separates a dish's attributes while a comma
+ * separates the dishes themselves.
+ */
+export function groupSuffix(group?: string | null): string {
+  return group ? ` — group ${group}` : "";
+}
