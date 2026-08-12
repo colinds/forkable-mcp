@@ -199,6 +199,24 @@ unless `allowanceType` says so.
 `weeklyAllowanceAvailable` reads **0 on a daily club**, so it is only consulted when the club really is
 weekly. A null/zero limit means "unknown" and must stay silent rather than warn.
 
+**The entitlement lives on the receipt.** `userReceipt.clubCopay` is *this member's* allowance for
+*this delivery*, and `allowanceFor` prefers it over the club-level `copayAmount` in the daily and
+unknown branches. A **present** `clubCopay` wins outright, `0` included: zero means "unknown, stay
+silent" for a club-wide field, but a per-member receipt reporting 0 is a real answer (this member
+isn't covered today), and falling back to the club's figure would promise coverage they don't have —
+the exact per-member case the field exists to get right. Zero still resolves to a null limit, so we
+say nothing rather than claiming $0.00. The app does the same, only falling
+back to a club lookup keyed by user and weekday — so `clubCopay` is the field that survives per-member
+and per-weekday allowances a single club field can't express. On the club this was measured against
+the two agree ($20), so it changed no output there; the fallback matters because `userReceipt.id` is
+null before a receipt exists (the figures are still populated).
+
+**`userReceipt.copayAmount` is the copay APPLIED, not the cap** — measured 14.95 / 18.99 / 20 against
+a `clubCopay` of 20, i.e. `min(subtotal, entitlement)`. Reading it as the limit would silently shrink
+the allowance to whatever was last ordered. Nothing renders it; it stays selected only so the two
+can't be confused. `isCopay`, `clubCoversAllFees`, `subtotal`, `feesTotal` and `fees` are also
+unrendered — a member doesn't need the spend breakdown.
+
 `club.allowanceMealLimit` is a **boolean** — "the company covers one meal a day", not a count. It
 deliberately does not feed the spend guard: every `set_meal` REPLACES a piece rather than adding one,
 so a write never turns a first meal into a second. `get_profile` reports the policy instead.
@@ -241,6 +259,106 @@ deliberately **not selected**:
   guess; don't render it without confirming, and don't assume it's money either.
 
 Labels observed run `A1`–`A8`, plus a starred `A8*` whose meaning is unknown.
+
+## Per-piece state (modelled from the app, not observed)
+
+Five per-meal fields the delivery-level flags can't express. All are in `PIECE_CORE` and render as
+trailing badges through the shared `pieceBadges()` in `format.ts`, beside `groupSuffix`:
+
+| field | badge | meaning |
+|---|---|---|
+| `isConfirmed` | `not confirmed` | Per-MEAL confirmation, finer than `delivery.userConfirmed`. |
+| `isRemoval` + `requestStatus: "pending"` | `cancellation requested` | Both must agree; the app shows "PENDING". |
+| `isLateSwappable` | `still swappable` | The app offers "Choose Another Meal" **even on a read-only delivery**. |
+| `isLateOrder` | `late order` | Placed after the cutoff, against the monthly budget. |
+
+They render as **one bracketed group**, `·`-separated — `Maki — Nara Sushi — group A2 [not confirmed ·
+still swappable]` — not as more em-dash segments. The dash is already the structural separator for a
+dish's parts, so stacking state onto it produced one flat run with no visible boundary between fact
+and state, and it collapsed entirely against the list's comma-joined dishes. Keep badges terse: the
+consequence of `not confirmed` is a **footnote** under the status view (`an unconfirmed meal is not
+ordered — confirm_delivery to lock it in`), in the same style as the attribution notes.
+
+Every one is **nullable**, and `null` means "not reported" — never false. `pieceBadges` therefore
+tests `=== false` / `=== true` rather than falsiness: a `null` `isConfirmed` rendering as "not
+confirmed" would tell a member their lunch isn't coming when we simply don't know. On the account
+these were modelled against, all of them read null/false except `isConfirmed: true`, so **the
+rendering is unobserved** — same footing as `sibling_replacement_pending`. Verify against a real
+pending cancellation before trusting a combination.
+
+`cancellationPending()` folds the `isRemoval`/`requestStatus` pair, and `pieceBadges` accepts either
+that folded flag or the raw pair, so the view models and a raw `Piece` share one code path.
+
+## Fulfillment progress
+
+`etaStatus.status` is a **closed three-value enum** — `delayed` | `ontime` | `delivered` — not free
+text. `delayed` is the only value worth acting on, so both renderers shout `⚠ DELAYED` rather than
+passing the lowercase word through, and the list line hands over `etaStatus.trackingUrl` (which is why
+that field is in the lean selection too). The app does the same, promoting "Track Order" on a delay.
+
+`Order.replacementCutoffTs` means *the restaurant cancelled and your meal is being replaced; re-pick
+before this*. `formatCountdown` renders the time left ("2h 14m", rounded up so a 30-second window
+still reads "1m") and nothing once elapsed — which is where the app lands too, since it flips the
+delivery to read-only the moment its own timer hits zero. `replacementCutoffRaw` still reports the
+cutoff after it elapses, so a caller can tell "the window closed" from "no replacement at all".
+
+It is read across **every** order the member holds, soonest open window first and sorted by instant
+rather than lexically (`…T20:14:00Z` and `…T13:30:00-07:00` are the same moment but sort differently as
+strings). Reading `orders[0]` would render a second venue's dish and say nothing about its cancellation
+— the same trap `group` avoids by being per piece.
+
+**Its timestamp family is unproven** — it read null on every delivery observed, so there was nothing to
+measure. The app does `DateTime.fromISO(ts).diffNow()`, i.e. treats it as a true instant and honours a
+`Z`, and we follow the app: `new Date`, never `parseFloating` (which would strip the `Z` and re-read it
+as host-local). That reading **requires** an explicit `Z` or `±HH:MM`, like `utcInstant`: an offset-less
+value has no instant to count down to, and `new Date` would silently make the same wire value render
+differently per host — a break `bun run test:tz` can't catch, since every fixture we can write carries
+an offset. An unexpected format omits the line instead.
+
+Two adjacent surfaces are deliberately **not** selected. `dropoff.onfleetPhotoUploadUrls` is verified
+live (5–6 courier drop-off photos per order, and the same URLs repeat across orders sharing a route)
+but isn't wanted. `venueUsage(ids:, from:, to:)` — a root query returning JSON,
+`usage[venueId][date] = {am, pm}`, keyed `am`/`pm` by `delivery.afternoon` — gives per-venue seats
+taken to compare against `venue.capacity`; `get_menus` instead marks `[venue at capacity]` from the
+`isOverVenueCapacity` we already fetch, which needs no extra round trip. That render copies both of
+the guard's rules: only the order actually SELLING the menu counts (never the `orderForGuards`
+fallback, which would blame one menu for another venue's crowd), and a venue you already hold a meal
+at is never full. `atCapacity` is `boolean | null` and a menu with no order on the delivery is
+**null, not false** — claiming a seat is free on the strength of a missing order is the one wrong
+answer available there.
+
+Known wrinkle, not from that render: `evaluateGuards` reads capacity off `orderForGuards(d, menuId,
+userId)`, whose fallback is the member's OWN order when nothing sells `menuId`. So for a menu with no
+order yet, `get_menus` correctly marks nothing while a later `set_meal` preview can warn
+`over_venue_capacity` about a different venue's crowd. It's a warn on a preview the caller still
+confirms, and the guard's fallback — not the new render — is the side to tighten.
+
+`order.state` (`initial` → `preordered` observed) is a **different lifecycle** from `delivery.state`
+(`initial` → `grace_period` → `receipt_sent`) and is read nowhere in `src/`. Related: the app
+substitutes `order.replaces` whenever `order.state === "hidden"`, so mid-replacement it shows a
+different order than the raw list does. `findOwnMeal` does **not** model that — no hidden order has
+been observed, and every write path depends on that resolution, so it stays as-is until there's
+something real to test against.
+
+## Late orders: the constants are the app's, not the API's
+
+There is no deadline field (see Write windows), and the numbers in those messages come from the app's
+**build-time env**, proved in the shipped bundle: `VUE_APP_LATE_ORDERS_CUTOFF_TIME: "09:00"` and
+`VUE_APP_LATE_ORDERS_MAX_PER_MONTH: "6"`. That upgrades "the monthly allowance appears to be 6" to the
+product's actual constant — though it's a client build value, so a different deployment could differ.
+`me.remainingLateOrdersMonthOf` (6, matching) is what `get_profile` reports; the app calls them
+"Last-Call Passes".
+
+`me.roles` is **not** a list of roles: it's a JSON scalar carrying the app's ~60 internal feature flags
+(`{features: ["late_removal", "disable_auto_order", "mc/report_issue", …]}`). It was selected and typed
+`string[]`, so `me.roles?.length` was always undefined and `get_profile`'s roles line never rendered
+once. Deliberately dropped rather than fixed — none of it is member-facing, and the capabilities that
+matter come from the club/user flags. Don't reintroduce it expecting role names.
+
+`warningDetails[].amount` is **CENTS** — the app renders `amount / 100` on `exceeded_allowance` — while
+every other money field we touch is dollars. Nothing renders it today (`MutationError` only maps
+`errorDetails.base[].error` codes to help text), so this is a trap for later, not a live bug. Note the
+asymmetry: the code lives in `errorDetails`, the amount in `warningDetails`.
 
 ## Identity travels with deliveries
 

@@ -132,6 +132,34 @@ export function formatInstantLike(utcIso?: string, zoneSource?: string, label?: 
   return label ? `${formatDateTime(wall)} ${label}` : formatDateTime(wall);
 }
 
+/**
+ * Time left until an instant, as "2h 14m" / "14m". `""` when the value is missing, unreadable, or
+ * already past — an expired countdown is not news, it's just closed.
+ *
+ * Used for `order.replacementCutoffTs`, whose timestamp family is UNPROVEN: it reads null on every
+ * delivery observed, so there is nothing to measure. The app does `DateTime.fromISO(ts).diffNow()`,
+ * i.e. treats it as a real instant and honours a `Z`, and this follows the app — hence `new Date`
+ * rather than `parseFloating`, which would strip a `Z` and reread it as host-local. Callers keep the
+ * raw ISO alongside so the reading can be redone if this turns out wrong.
+ *
+ * That reading REQUIRES an explicit `Z` or `±HH:MM`, the same discipline as `utcInstant`. An
+ * offset-less value has no instant to count down to: `new Date` would read it as host-local, so the
+ * identical wire value would produce "2h 14m" on one host and "" on another. Since the family is
+ * unproven, an unexpected format must omit the line rather than invent a clock — and `bun run
+ * test:tz` could never catch it, because every fixture we can write carries an offset.
+ *
+ * Rounds UP, so a window with 30 seconds left reads "1m" rather than vanishing.
+ */
+export function formatCountdown(iso?: string, now: Date = new Date()): string {
+  const zoned = iso && /(Z|[+-]\d{2}:?\d{2})$/i.test(iso);
+  const at = zoned ? valid(new Date(iso)) : undefined;
+  if (!at) return "";
+  const minutes = Math.ceil((at.getTime() - now.getTime()) / 60_000);
+  if (minutes <= 0) return "";
+  const h = Math.floor(minutes / 60);
+  return h > 0 ? `${h}h ${minutes % 60}m` : `${minutes}m`;
+}
+
 /** Has this timestamp already passed? `undefined` when there's nothing to compare. */
 export function isPast(iso?: string, now: Date = new Date()): boolean | undefined {
   const at = parseFloating(iso);
@@ -146,4 +174,53 @@ export function isPast(iso?: string, now: Date = new Date()): boolean | undefine
  */
 export function groupSuffix(group?: string | null): string {
   return group ? ` — group ${group}` : "";
+}
+
+/**
+ * A cancellation was requested for this meal and Forkable hasn't acted on it yet. Two fields have to
+ * agree, so the fold lives here and every caller reuses it rather than re-deriving the pair.
+ */
+export function cancellationPending(p: {
+  isRemoval?: boolean | null;
+  requestStatus?: string | null;
+}): boolean {
+  return p.isRemoval === true && p.requestStatus === "pending";
+}
+
+/**
+ * The per-piece state a badge can report. Structural, so this module needs no domain imports, and
+ * deliberately accepting both shapes: a raw `Piece` (the `isRemoval`/`requestStatus` pair) and a
+ * view model that already folded them into `cancellationPending`.
+ */
+interface Badgeable {
+  isConfirmed?: boolean | null;
+  isLateSwappable?: boolean | null;
+  isLateOrder?: boolean | null;
+  isRemoval?: boolean | null;
+  requestStatus?: string | null;
+  cancellationPending?: boolean | null;
+}
+
+/**
+ * Per-meal state as ONE bracketed group, ordered the way a member cares: whether the meal is
+ * happening at all, then what they can still do about it.
+ *
+ * Bracketed, and `·`-separated inside, because the em dash is already the structural separator for a
+ * dish's parts — stacking states onto it made "dish — venue — group — state — state" one flat run
+ * with no way to see where the facts ended and the state began. The bracket also survives the list's
+ * comma-joined dishes: "A [state], B [state]" stays readable where the dashes didn't.
+ *
+ * Shared by the list and the status view so neither spells these differently. Every clause tests a
+ * definite value rather than falsiness — these fields are nullable, and `null` means "not reported",
+ * which must render nothing rather than "not confirmed". The consequence of `not confirmed` is a
+ * footnote at the bottom of the status view, not more words here.
+ */
+export function pieceBadges(p: Badgeable): string {
+  const badges = [
+    p.isConfirmed === false ? "not confirmed" : "",
+    p.cancellationPending === true || cancellationPending(p) ? "cancellation requested" : "",
+    p.isLateSwappable === true ? "still swappable" : "",
+    p.isLateOrder === true ? "late order" : "",
+  ].filter(Boolean);
+  return badges.length ? ` [${badges.join(" · ")}]` : "";
 }

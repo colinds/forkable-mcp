@@ -29,12 +29,14 @@ import {
 } from "@/order/guards.ts";
 import { deliveryStatus, formatDeliveryStatus } from "@/order/status.ts";
 import {
+  cancellationPending,
   formatMoney,
   formatDate,
   formatDay,
   formatInstantIn,
   formatInstantLike,
   groupSuffix,
+  pieceBadges,
   weekdayOf,
 } from "@/order/format.ts";
 import { type Delivery, type Menu, type MenuItem, type Order, type Piece } from "@/order/types.ts";
@@ -128,8 +130,11 @@ const WRITE_NOTE =
 
 // --- GraphQL selection fragments (fields requested per query) ---
 
+// No `roles`: it's a JSON scalar carrying the app's ~60 internal build/feature flags
+// (`{features: [...]}`), not a list of member roles — see CLAUDE.md. Nothing member-facing lives
+// there, and the capabilities that matter come from the club/user flags below.
 const ME_SELECTION =
-  "id firstName lastName fullName email phone active isGuest roles mfaEnabled validCreditCard " +
+  "id firstName lastName fullName email phone active isGuest mfaEnabled validCreditCard " +
   "remainingLateOrdersMonthOf mealClubAutoOrder";
 
 // Account capability signals used by write guards (card on file, monthly late-order budget).
@@ -231,8 +236,13 @@ const DELIVERY_CORE =
 // because a member checking the list wants to know where to collect lunch, and it's one scalar. The
 // order-level `mealGroups` roster stays unselected: admin view, and its `value` has no established
 // meaning (CLAUDE.md).
+//
+// The per-piece state flags are what the app itself renders per meal (`isConfirmed` gates "will this
+// be ordered", `isLateSwappable` offers a swap on a locked delivery, `isRemoval`+`requestStatus`
+// report a pending cancellation) — all of it member-facing, so it belongs in the shared selection.
 const PIECE_CORE =
-  "id itemId menuId userId name state instructions price selections autoOrder flowType group";
+  "id itemId menuId userId name state instructions price selections autoOrder flowType group " +
+  "isConfirmed isLateSwappable isRemoval requestStatus isLateOrder";
 
 // No `pieces` here — each selection appends its own, so neither document repeats the field.
 const ORDER_CORE =
@@ -248,8 +258,12 @@ const DELIVERY_SEL =
   // `familyHub` so a single family venue is caught here too, `displayName` so the multi-venue
   // guard message can name it rather than falling back to the menu.
   "venue { id displayName familyHub } " +
-  "dropoffCompletedAt etaStatus { start end status shortTz } } " +
-  "userReceipt { id due copayAmount }";
+  // `trackingUrl` so a DELAYED list line can hand over the courier link, which is what a member
+  // reaches for next — the one status worth acting on from the list.
+  "dropoffCompletedAt etaStatus { start end status shortTz trackingUrl } } " +
+  // `clubCopay` is the member's own entitlement and the allowance source; `copayAmount` here is the
+  // amount APPLIED, kept only so the two can't be confused by a future reader.
+  "userReceipt { id due copayAmount clubCopay }";
 
 /** Tracking extras — fetched by get_delivery_status alone. (serviceWindow is in CORE.) */
 const DELIVERY_DETAIL_SEL =
@@ -261,7 +275,7 @@ const DELIVERY_DETAIL_SEL =
   "etaStatus { start end shortTz status trackingUrl } " +
   "venue { id name displayName capacity familyHub } " +
   "dropoff { id route { courierId date } pickupWindowInfo { windowStart windowEnd } } } " +
-  "userReceipt { id due copayAmount subtotal feesTotal fees { type fee } } " +
+  "userReceipt { id due copayAmount clubCopay subtotal feesTotal fees { type fee } } " +
   "myReportedIssues { id type resolution requestReOrder requestRefund requestGiftCard " +
   "orders { id } pieces { id } }";
 
@@ -280,7 +294,6 @@ interface Me {
   lastName?: string;
   fullName?: string;
   email?: string;
-  roles?: string[];
   mfaEnabled?: boolean;
   validCreditCard?: boolean;
   isGuest?: boolean;
@@ -310,7 +323,6 @@ function fmtProfile(me: Me, clubs: ClubPolicy[] = []): string {
   return [
     `${name}  (id ${me.id})`,
     me.email ? `  email: ${me.email}` : "",
-    me.roles?.length ? `  roles: ${me.roles.join(", ")}` : "",
     `  MFA: ${me.mfaEnabled ? "on" : "off"}   card on file: ${me.validCreditCard ? "yes" : "no"}` +
       (me.isGuest ? "   (guest)" : ""),
     me.remainingLateOrdersMonthOf != null
@@ -494,7 +506,12 @@ function arrivalNote(d: Delivery, userId?: number): string {
     (iana ? formatInstantIn(order?.dropoffCompletedAt, iana, eta?.shortTz) : "") ||
     formatInstantLike(order?.dropoffCompletedAt, eta?.start ?? eta?.end, eta?.shortTz);
   if (at) return `\n    arrived ${at}`;
-  return eta?.status ? `\n    ${eta.status}` : "";
+  if (!eta?.status) return "";
+  // `status` is a closed enum (delayed | ontime | delivered). A late courier is the one value worth
+  // shouting about, and the app promotes the tracking link alongside it.
+  if (eta.status === "delayed")
+    return `\n    ⚠ DELAYED${eta.trackingUrl ? ` — track: ${eta.trackingUrl}` : ""}`;
+  return `\n    ${eta.status}`;
 }
 
 /** "lunch" / "dinner", so two deliveries on one date are tellable apart. */
@@ -512,10 +529,13 @@ function deliveryTag(d: Delivery): string {
 export function fmtDelivery(d: Delivery, inFlight?: Set<number>, userId?: number): string {
   const own = findOwnMeal(d, userId)?.orders.flatMap((o) => o.pieces) ?? [];
   const others = allPieces(d).length - own.length;
-  // The dropoff group is per piece, so it hangs off the dish rather than the line — two meals can
-  // sit in different groups. Same `groupSuffix` the status view uses, so the two never diverge.
+  // Group and state are per piece, so they hang off the dish rather than the line — two meals can
+  // sit in different groups, or one be confirmed and the other not. Both suffixes are shared with
+  // the status view, so the two renderings never diverge.
   const picked = own.length
-    ? own.map((p) => `${p.name || `item ${p.itemId}`}${groupSuffix(p.group)}`).join(", ")
+    ? own
+        .map((p) => `${p.name || `item ${p.itemId}`}${groupSuffix(p.group)}${pieceBadges(p)}`)
+        .join(", ")
     : "— nothing selected";
   // Other people's meals are real and worth knowing about, but they are not the member's pick.
   const alsoHere = others > 0 ? `  (+${others} other ${others === 1 ? "meal" : "meals"})` : "";
@@ -565,7 +585,14 @@ export function compactDelivery(d: Delivery, inFlight?: Set<number>, userId?: nu
     pastLateOrderDeadline: w.pastLateOrderDeadline,
     writeWindow: w.window,
     arrivalWindow: d.deliveryWindow ?? null, // scheduled ["11:45","12:15"], NOT the write window
+    /** Closed enum: "delayed" | "ontime" | "delivered". Null before the courier is assigned. */
     etaState: own?.order?.etaStatus?.status ?? null,
+    /**
+     * Broken out of `etaState` because it's the one value a caller should act on. Arrival outranks a
+     * stale `delayed`, matching `arrivalNote` and the status view.
+     */
+    delayed: own?.order?.etaStatus?.status === "delayed" && !own?.order?.dropoffCompletedAt,
+    trackingUrl: own?.order?.etaStatus?.trackingUrl ?? null,
     arrivedAtRaw: own?.order?.dropoffCompletedAt ?? null,
     youPay: d.userReceipt?.due ?? 0, // your out-of-pocket for the current pick
     companyLimit: a.limit, // what the company covers; see companyLimitLabel for the period
@@ -578,6 +605,12 @@ export function compactDelivery(d: Delivery, inFlight?: Set<number>, userId?: nu
       name: p.name,
       /** Dropoff group, e.g. "A1" — where to collect it. Null until the delivery is grouped. */
       group: p.group ?? null,
+      /** Will this meal actually be ordered? Finer-grained than the delivery's `userConfirmed`. */
+      isConfirmed: p.isConfirmed ?? null,
+      /** Swappable even on a locked delivery; a pending cancellation hasn't landed yet. */
+      isLateSwappable: p.isLateSwappable ?? null,
+      cancellationPending: cancellationPending(p),
+      isLateOrder: p.isLateOrder ?? null,
       // The MEMBER's account is on auto-order (meals order without per-meal confirmation) — not
       // "Forkable picked this dish". Mirrors user.mealClubAutoOrder; true even on a hand-set piece.
       autoOrder: p.autoOrder ?? null,
@@ -585,11 +618,48 @@ export function compactDelivery(d: Delivery, inFlight?: Set<number>, userId?: nu
   };
 }
 
+/**
+ * Menu ids whose venue reads as full, so a member planning lunch can see where a seat is still
+ * going. Reuses `isOverVenueCapacity` — already fetched for the `over_venue_capacity` guard — rather
+ * than the app's separate `venueUsage` query, which would cost another round trip for a count.
+ *
+ * Two rules copied from the guard: the order must be the one actually SELLING that menu (never the
+ * `orderForGuards` fallback, which would blame this menu for another venue's crowd), and the venue
+ * you already hold a meal at is never full — re-customizing doesn't consume a new seat.
+ */
+function atCapacityMenuIds(d: Delivery, userId?: number): Map<number, boolean> {
+  const own = findOwnMeal(d, userId);
+  const held = new Set(
+    own?.byIdentity === true
+      ? own.orders.map((x) => x.order.menu?.id).filter((id): id is number => id != null)
+      : [],
+  );
+  // Keyed by menu, so a menu with NO order on this delivery is absent rather than reported as having
+  // room: `undefined` there means "no data", the same distinction the per-piece flags keep. Claiming
+  // a seat is free on the strength of a missing order is the one wrong answer available here.
+  const seats = new Map<number, boolean>();
+  for (const o of d.orders ?? []) {
+    const id = o.menu?.id;
+    if (id == null || o.isOverVenueCapacity == null) continue;
+    seats.set(id, o.isOverVenueCapacity === true && !held.has(id));
+  }
+  return seats;
+}
+
 /** Menus with just id/name/price/diet per item + a modifier count (no option trees). */
-function compactMenus(menus: Menu[], diets?: Map<number, string>) {
+function compactMenus(
+  menus: Menu[],
+  diets?: Map<number, string>,
+  atCapacity?: Map<number, boolean>,
+) {
   return menus.map((m) => ({
     id: m.id,
     name: m.displayName || m.name || `menu ${m.id}`,
+    /**
+     * The venue reads as full. Advisory — Forkable decides, and a venue you already hold is never
+     * full. **Null means unknown**, not "there's room".
+     */
+    atCapacity: atCapacity?.get(m.id) ?? null,
     items: m.sections
       .flatMap((s) => s.items)
       .map((it) => ({
@@ -648,8 +718,8 @@ export function registerAllTools(server: McpServer): void {
     {
       title: "Get profile",
       description:
-        "Show the authenticated Forkable user (name, email, roles, MFA/credit-card status). " +
-        "Also the quickest way to confirm auth is working.",
+        "Show the authenticated Forkable user (name, email, MFA/credit-card status, auto-order) " +
+        "and each club's spend policy. Also the quickest way to confirm auth is working.",
       annotations: { readOnlyHint: true, openWorldHint: true },
     },
     async () =>
@@ -728,16 +798,24 @@ export function registerAllTools(server: McpServer): void {
     },
     async ({ deliveryId, itemId, menuId }) =>
       guard(async (client) => {
-        const d = findDelivery((await loadDeliveries(client)).deliveries, deliveryId);
+        const { deliveries, userId } = await loadDeliveries(client);
+        const d = findDelivery(deliveries, deliveryId);
         if (!d) return errResult(`Delivery ${deliveryId} not found in your upcoming deliveries.`);
         const menus = await loadMenus(client, d);
         if (!menus.length) return ok(`Delivery ${deliveryId} has no available menus.`);
+        // `userId` so a venue the MEMBER already holds isn't reported as full to them.
+        const full = atCapacityMenuIds(d, userId);
 
-        // Detail mode: one item's modifiers/options.
+        // Detail mode: one item's modifiers/options. Carries the capacity marker too — a member
+        // customizing an item deserves the same warning the list gives them.
         if (itemId != null) {
           const { item, menu } = resolveOneItem(menus, itemId, menuId, deliveryId);
           const detail = itemDetail(item, menu);
-          return ok(fmtItemDetail(detail) + imageMd(item), { item: detail });
+          const cap = full.get(menu.id) === true ? "\n  (this venue reads as at capacity)" : "";
+          return ok(fmtItemDetail(detail) + imageMd(item) + cap, {
+            item: detail,
+            atCapacity: full.get(menu.id) ?? null,
+          });
         }
 
         // Compact list mode.
@@ -747,11 +825,13 @@ export function registerAllTools(server: McpServer): void {
             const lines = items.map(
               (it) => `    ${it.id}  ${it.name}  ${formatMoney(it.price)}${imageMd(it)}`,
             );
-            return `${m.displayName || m.name || `menu ${m.id}`} (${items.length} items):\n${lines.join("\n")}`;
+            // Advisory, like the guard: Forkable decides, and a seat can free up when someone cancels.
+            const cap = full.get(m.id) === true ? "  [venue at capacity]" : "";
+            return `${m.displayName || m.name || `menu ${m.id}`} (${items.length} items)${cap}:\n${lines.join("\n")}`;
           })
           .join("\n\n");
         return ok(summary || "No items.", {
-          menus: compactMenus(menus, await loadDietLabels(client)),
+          menus: compactMenus(menus, await loadDietLabels(client), full),
         });
       }),
   );

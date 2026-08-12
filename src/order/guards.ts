@@ -106,6 +106,28 @@ export interface Allowance {
 const positive = (n?: number | null): number | null =>
   typeof n === "number" && Number.isFinite(n) && n > 0 ? n : null;
 
+/**
+ * The member's own entitlement for this delivery, preferred over the club-level `copayAmount`.
+ *
+ * `userReceipt.clubCopay` is what the app treats as "this member's allowance here" (it only falls
+ * back to a club-level lookup keyed by user and weekday), so it survives per-user and per-weekday
+ * allowances that a single club field cannot express. On the club this was measured against the two
+ * agree ($20), so this changes nothing observable there — it's the field that stays right elsewhere.
+ *
+ * NOT `userReceipt.copayAmount`: that's the amount actually APPLIED (14.95 against a $20
+ * entitlement), so reading it as the limit would shrink the allowance to whatever was last ordered.
+ *
+ * A PRESENT `clubCopay` wins outright, including `0`. Elsewhere zero means "unknown, stay silent",
+ * but that rule is safe for a club-wide field and wrong for a per-member one: a member excluded from
+ * coverage on this delivery reads 0, and falling back to the club's $20 would promise coverage they
+ * don't have — the exact per-member case this field exists to get right. Zero still resolves to a
+ * null limit, so we say nothing rather than claiming $0.00.
+ */
+const entitlement = (d: Delivery): number | null => {
+  const own = d.userReceipt?.clubCopay;
+  return own != null ? positive(own) : positive(d.copayAmount);
+};
+
 export function allowanceFor(d: Delivery): Allowance {
   const kind = d.allowanceType ?? d.club?.allowanceType ?? "";
   if (kind === "weekly" || kind === "weekly_by_day") {
@@ -114,9 +136,9 @@ export function allowanceFor(d: Delivery): Allowance {
       ? { kind, limit: left, label: "remaining weekly allowance" }
       : { kind, limit: positive(d.weeklyAllowance), label: "weekly allowance" };
   }
-  if (kind === "daily") return { kind, limit: positive(d.copayAmount), label: "daily limit" };
+  if (kind === "daily") return { kind, limit: entitlement(d), label: "daily limit" };
   // Unknown allowance type: the daily field is the best guess, but don't name it "daily".
-  return { kind: kind || "unknown", limit: positive(d.copayAmount), label: "company coverage" };
+  return { kind: kind || "unknown", limit: entitlement(d), label: "company coverage" };
 }
 
 /** Family-style service — the meal is shared, so a per-member change request never applies. */

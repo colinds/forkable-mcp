@@ -21,7 +21,9 @@ import {
   parseFloating,
   isPast,
   formatInstantLike,
+  formatCountdown,
   groupSuffix,
+  pieceBadges,
 } from "@/order/format.ts";
 import { fmtDelivery, compactDelivery } from "@/tools.ts";
 import { type MenuItem, type MenuModifier, type Delivery } from "@/order/types.ts";
@@ -1320,6 +1322,459 @@ describe("allowanceFor", () => {
   test("a missing limit stays null so nothing is warned about", () => {
     expect(allowanceFor({ id: 1, allowanceType: "weekly" }).limit).toBeNull();
     expect(allowanceFor({ id: 1, allowanceType: "daily", copayAmount: 0 }).limit).toBeNull();
+  });
+
+  test("the receipt's clubCopay is the member's entitlement, beating the club-level copay", () => {
+    // A club-level 20 with a member entitled to 35 — the club field can't express a per-member or
+    // per-weekday allowance, so the receipt wins.
+    const a = allowanceFor({
+      id: 1,
+      allowanceType: "daily",
+      copayAmount: 20,
+      userReceipt: { id: 1, clubCopay: 35 },
+    });
+    expect(a).toEqual({ kind: "daily", limit: 35, label: "daily limit" });
+  });
+
+  test("clubCopay wins for an unknown allowance type too, still without saying 'daily'", () => {
+    const a = allowanceFor({ id: 1, copayAmount: 20, userReceipt: { id: 1, clubCopay: 31 } });
+    expect(a.limit).toBe(31);
+    expect(a.label).toBe("company coverage");
+  });
+
+  test("copayAmount is the fallback only when the receipt reports no entitlement at all", () => {
+    const base = { id: 1, allowanceType: "daily", copayAmount: 20 };
+    // No receipt yet, and a receipt that simply doesn't carry the field.
+    expect(allowanceFor(base).limit).toBe(20);
+    expect(allowanceFor({ ...base, userReceipt: { id: null, due: 0 } }).limit).toBe(20);
+  });
+
+  test("a member entitled to ZERO is not handed the club's figure", () => {
+    // Zero means "unknown, stay silent" for a club-wide field, but a per-member receipt reporting 0
+    // is a real answer: this member isn't covered on this delivery. Falling back to the club's $20
+    // would promise coverage they don't have — so the limit goes null and nothing is claimed.
+    const d: Delivery = {
+      id: 1,
+      forDeliveryAt: FOR_DELIVERY,
+      allowanceType: "daily",
+      copayAmount: 20,
+      userReceipt: { id: 1, clubCopay: 0 },
+      orders: [],
+    };
+    expect(allowanceFor(d).limit).toBeNull();
+    // And nothing is rendered — silence, not "$0.00" and not the club's $20.
+    expect(fmtDelivery(d)).not.toContain("company covers");
+    expect(fmtDelivery(d)).not.toContain("$0.00");
+  });
+
+  test("the APPLIED copay is never mistaken for the limit", () => {
+    // Measured live: clubCopay 20 (entitlement) alongside copayAmount 14.95 (what was applied).
+    // Reading the receipt's copayAmount would shrink the allowance to the last thing ordered.
+    const a = allowanceFor({
+      id: 1,
+      allowanceType: "daily",
+      copayAmount: 20,
+      userReceipt: { id: 1, clubCopay: 20, copayAmount: 14.95, subtotal: 14.95, due: 0 },
+    });
+    expect(a.limit).toBe(20);
+  });
+
+  test("a weekly club ignores clubCopay — the weekly pair still decides", () => {
+    const a = allowanceFor({
+      id: 1,
+      allowanceType: "weekly",
+      weeklyAllowance: 100,
+      weeklyAllowanceAvailable: 35,
+      userReceipt: { id: 1, clubCopay: 20 },
+    });
+    expect(a.limit).toBe(35);
+    expect(a.label).toBe("remaining weekly allowance");
+  });
+});
+
+describe("per-piece state badges", () => {
+  const ME = 501;
+  const deliveryWith = (piece: object): Delivery => ({
+    id: 1234200,
+    forDeliveryAt: FOR_DELIVERY,
+    orders: [
+      {
+        id: 1,
+        venue: { id: 1, displayName: "Stub Street Cafe" },
+        pieces: [{ ...myPiece, userId: ME, name: "Comet Curry", ...piece }],
+      },
+    ],
+  });
+
+  test("an unconfirmed meal says so — it isn't going to be ordered", () => {
+    const d = deliveryWith({ isConfirmed: false });
+    expect(pieceBadges({ isConfirmed: false })).toBe(" [not confirmed]");
+    expect(fmtDelivery(d, undefined, ME)).toContain("Comet Curry [not confirmed]");
+    expect(formatDeliveryStatus(deliveryStatus(d, ME))).toContain("not confirmed");
+  });
+
+  test("a confirmed meal is not badged — the normal case stays quiet", () => {
+    const d = deliveryWith({ isConfirmed: true });
+    expect(pieceBadges({ isConfirmed: true })).toBe("");
+    expect(fmtDelivery(d, undefined, ME)).toContain("Comet Curry\n");
+    expect(fmtDelivery(d, undefined, ME)).not.toContain("confirmed");
+  });
+
+  test("null is 'not reported', NOT false — it must never read as unconfirmed", () => {
+    expect(pieceBadges({ isConfirmed: null })).toBe("");
+    expect(pieceBadges({})).toBe("");
+    const d = deliveryWith({});
+    expect(fmtDelivery(d, undefined, ME)).not.toContain("not confirmed");
+    expect(deliveryStatus(d, ME).meal[0]?.isConfirmed).toBeNull();
+  });
+
+  test("a pending cancellation needs BOTH fields to agree", () => {
+    expect(pieceBadges({ isRemoval: true, requestStatus: "pending" })).toBe(
+      " [cancellation requested]",
+    );
+    // Either half alone means nothing landed.
+    expect(pieceBadges({ isRemoval: true, requestStatus: "confirmed" })).toBe("");
+    expect(pieceBadges({ isRemoval: null, requestStatus: "pending" })).toBe("");
+    const d = deliveryWith({ isRemoval: true, requestStatus: "pending" });
+    expect(fmtDelivery(d, undefined, ME)).toContain("cancellation requested");
+    expect(deliveryStatus(d, ME).meal[0]?.cancellationPending).toBe(true);
+  });
+
+  test("the view model's folded flag renders the same as the raw pair", () => {
+    expect(pieceBadges({ cancellationPending: true })).toBe(" [cancellation requested]");
+  });
+
+  test("a swappable meal and a late order are both flagged", () => {
+    expect(pieceBadges({ isLateSwappable: true })).toBe(" [still swappable]");
+    expect(pieceBadges({ isLateOrder: true })).toBe(" [late order]");
+  });
+
+  test("several states stack inside ONE bracket, worst news first", () => {
+    // A bracketed group, not more em dashes: the dash already separates dish/venue/group, so
+    // stacking states onto it left no way to see where the facts ended and the state began.
+    expect(
+      pieceBadges({
+        isConfirmed: false,
+        isRemoval: true,
+        requestStatus: "pending",
+        isLateSwappable: true,
+        isLateOrder: true,
+      }),
+    ).toBe(" [not confirmed · cancellation requested · still swappable · late order]");
+  });
+
+  test("the bracket survives the list's comma-joined dishes", () => {
+    const d: Delivery = {
+      id: 12,
+      forDeliveryAt: FOR_DELIVERY,
+      orders: [
+        {
+          id: 1,
+          pieces: [
+            {
+              ...myPiece,
+              id: "a",
+              userId: ME,
+              name: "Comet Curry",
+              group: "A5",
+              isRemoval: true,
+              requestStatus: "pending",
+            },
+            {
+              ...myPiece,
+              id: "b",
+              userId: ME,
+              name: "Meteor Melt",
+              group: "A6",
+              isLateOrder: true,
+            },
+          ],
+        },
+      ],
+    };
+    expect(fmtDelivery(d, undefined, ME)).toContain(
+      "Comet Curry — group A5 [cancellation requested], Meteor Melt — group A6 [late order]",
+    );
+  });
+
+  test("the unconfirmed consequence is a footnote, not more badge words", () => {
+    const out = formatDeliveryStatus(deliveryStatus(deliveryWith({ isConfirmed: false }), ME));
+    expect(out).toContain("[not confirmed]");
+    expect(out).toContain("(an unconfirmed meal is not ordered — confirm_delivery to lock it in)");
+    // The badge itself stays terse.
+    expect(out).not.toContain("[not confirmed — won't be ordered]");
+  });
+
+  test("no footnote when every meal is confirmed or unreported", () => {
+    for (const piece of [{ isConfirmed: true }, {}]) {
+      const out = formatDeliveryStatus(deliveryStatus(deliveryWith(piece), ME));
+      expect(out).not.toContain("unconfirmed meal");
+    }
+  });
+
+  test("group and state coexist on one dish", () => {
+    const d = deliveryWith({ group: "A1", isLateSwappable: true });
+    expect(fmtDelivery(d, undefined, ME)).toContain("Comet Curry — group A1 [still swappable]");
+  });
+
+  test("a colleague's state is never badged onto my line", () => {
+    const d: Delivery = {
+      id: 5,
+      forDeliveryAt: FOR_DELIVERY,
+      orders: [
+        {
+          id: 1,
+          pieces: [
+            { ...myPiece, id: "theirs", userId: ME + 1, name: "Their Burrito", isConfirmed: false },
+            { ...myPiece, id: "mine", userId: ME, name: "Comet Curry", isConfirmed: true },
+          ],
+        },
+      ],
+    };
+    expect(fmtDelivery(d, undefined, ME)).not.toContain("not confirmed");
+  });
+
+  test("compactDelivery carries the state for a caller to branch on", () => {
+    const p = compactDelivery(
+      deliveryWith({ isConfirmed: false, isRemoval: true, requestStatus: "pending" }),
+      undefined,
+      ME,
+    ).picked[0];
+    expect(p?.isConfirmed).toBe(false);
+    expect(p?.cancellationPending).toBe(true);
+    expect(p?.isLateSwappable).toBeNull();
+  });
+});
+
+describe("a delayed courier is loud", () => {
+  const ME = 501;
+  const withEta = (status: string, trackingUrl?: string): Delivery => ({
+    id: 1234200,
+    forDeliveryAt: FOR_DELIVERY,
+    orders: [
+      {
+        id: 1,
+        etaStatus: { status, start: ETA_START, end: "2026-08-11T11:50:00-07:00", trackingUrl },
+        pieces: [{ ...myPiece, userId: ME }],
+      },
+    ],
+  });
+
+  test("delayed shouts and hands over the tracking link", () => {
+    const d = withEta("delayed", "https://onf.lt/abc");
+    expect(fmtDelivery(d, undefined, ME)).toContain("⚠ DELAYED — track: https://onf.lt/abc");
+    const s = deliveryStatus(d, ME);
+    expect(s.delayed).toBe(true);
+    expect(formatDeliveryStatus(s)).toContain("⚠ DELAYED");
+    expect(compactDelivery(d, undefined, ME).delayed).toBe(true);
+  });
+
+  test("delayed without a tracking link still shouts", () => {
+    expect(fmtDelivery(withEta("delayed"), undefined, ME)).toContain("⚠ DELAYED");
+    expect(fmtDelivery(withEta("delayed"), undefined, ME)).not.toContain("track:");
+  });
+
+  test("the other two enum values are left alone", () => {
+    for (const status of ["ontime", "delivered"]) {
+      const d = withEta(status);
+      expect(fmtDelivery(d, undefined, ME)).toContain(status);
+      expect(fmtDelivery(d, undefined, ME)).not.toContain("DELAYED");
+      expect(deliveryStatus(d, ME).delayed).toBe(false);
+      expect(formatDeliveryStatus(deliveryStatus(d, ME))).toContain(status);
+    }
+  });
+
+  test("food on the table is not still late — both renderers agree", () => {
+    const d: Delivery = {
+      id: 10,
+      forDeliveryAt: FOR_DELIVERY,
+      club: { id: 1, market: { timezone: "America/Los_Angeles" } },
+      orders: [
+        {
+          id: 1,
+          // A stale `delayed` alongside a real arrival: the list already ranked arrival first, and
+          // the status headline used to shout DELAYED directly above "Arrived".
+          etaStatus: { status: "delayed", start: ETA_START, shortTz: "PT" },
+          dropoffCompletedAt: "2026-08-11T18:41:44.000Z",
+          pieces: [{ ...myPiece, userId: ME }],
+        },
+      ],
+    };
+    const s = deliveryStatus(d, ME);
+    expect(s.delayed).toBe(false);
+    expect(formatDeliveryStatus(s)).not.toContain("DELAYED");
+    expect(formatDeliveryStatus(s)).toContain("Arrived");
+    expect(fmtDelivery(d, undefined, ME)).not.toContain("DELAYED");
+    expect(compactDelivery(d, undefined, ME).delayed).toBe(false);
+  });
+
+  test("no courier yet is not a delay", () => {
+    const d: Delivery = { id: 6, forDeliveryAt: FOR_DELIVERY, orders: [] };
+    expect(deliveryStatus(d).delayed).toBe(false);
+    expect(formatDeliveryStatus(deliveryStatus(d))).toContain("not yet dispatched");
+  });
+});
+
+describe("formatCountdown / the replacement clock", () => {
+  const NOW = new Date("2026-08-12T18:00:00Z");
+  const ME = 501;
+
+  test("renders hours and minutes, then minutes alone", () => {
+    expect(formatCountdown("2026-08-12T20:14:00Z", NOW)).toBe("2h 14m");
+    expect(formatCountdown("2026-08-12T18:14:00Z", NOW)).toBe("14m");
+    // A true offset is honoured as the instant it names (20:30Z), same as the app's fromISO —
+    // NOT re-read as a host-local wall clock, which is what parseFloating would have done.
+    expect(formatCountdown("2026-08-12T13:30:00-07:00", NOW)).toBe("2h 30m");
+  });
+
+  test("an elapsed or missing cutoff renders nothing rather than a negative", () => {
+    expect(formatCountdown("2026-08-12T17:59:00Z", NOW)).toBe("");
+    expect(formatCountdown("2026-08-12T18:00:00Z", NOW)).toBe("");
+    expect(formatCountdown(undefined, NOW)).toBe("");
+    expect(formatCountdown("not a date", NOW)).toBe("");
+  });
+
+  test("a replacement in flight tells the member how long they have", () => {
+    const d: Delivery = {
+      id: 7,
+      forDeliveryAt: FOR_DELIVERY,
+      orders: [
+        {
+          id: 1,
+          replacementCutoffTs: "2026-08-12T20:14:00Z",
+          pieces: [{ ...myPiece, userId: ME }],
+        },
+      ],
+    };
+    const s = deliveryStatus(d, ME, NOW);
+    expect(s.replacementCountdown).toBe("2h 14m");
+    expect(s.replacementCutoffRaw).toBe("2026-08-12T20:14:00Z");
+    expect(formatDeliveryStatus(s)).toContain(
+      "Re-pick by : 2h 14m left — the restaurant cancelled",
+    );
+  });
+
+  test("an offset-less cutoff is refused rather than read as host-local", () => {
+    // The family is unproven, so a value with no `Z` and no ±HH:MM has no instant to count down to.
+    // Reading it with `new Date` would make the SAME wire value differ by host — which `test:tz`
+    // could never catch, since every fixture we can write carries an offset.
+    expect(formatCountdown("2026-08-12T20:14:00", NOW)).toBe("");
+    expect(formatCountdown("2026-08-12", NOW)).toBe("");
+  });
+
+  test("a sub-minute window still reads 1m instead of vanishing", () => {
+    expect(formatCountdown("2026-08-12T18:00:30Z", NOW)).toBe("1m");
+  });
+
+  test("the countdown scans every venue the member holds, not just the primary order", () => {
+    // The member's SECOND venue is the one that cancelled — reading orders[0] said nothing about it
+    // while happily rendering that venue's dish.
+    const d: Delivery = {
+      id: 11,
+      forDeliveryAt: FOR_DELIVERY,
+      orders: [
+        { id: 1, pieces: [{ ...myPiece, id: "a", userId: ME }] },
+        {
+          id: 2,
+          replacementCutoffTs: "2026-08-12T19:30:00Z",
+          pieces: [{ ...myPiece, id: "b", userId: ME }],
+        },
+      ],
+    };
+    const s = deliveryStatus(d, ME, NOW);
+    expect(s.meal).toHaveLength(2);
+    expect(s.replacementCountdown).toBe("1h 30m");
+    expect(formatDeliveryStatus(s)).toContain("Re-pick by");
+  });
+
+  test("the soonest OPEN window wins, by instant and not by string order", () => {
+    const d: Delivery = {
+      id: 12,
+      forDeliveryAt: FOR_DELIVERY,
+      orders: [
+        // Same instant expressed two ways, plus a later one: "13:30-07:00" is 20:30Z, so sorting
+        // these as strings would put the "19:30Z" order last and pick the wrong deadline.
+        {
+          id: 1,
+          replacementCutoffTs: "2026-08-12T13:30:00-07:00",
+          pieces: [{ ...myPiece, id: "a", userId: ME }],
+        },
+        {
+          id: 2,
+          replacementCutoffTs: "2026-08-12T19:30:00Z",
+          pieces: [{ ...myPiece, id: "b", userId: ME }],
+        },
+      ],
+    };
+    expect(deliveryStatus(d, ME, NOW).replacementCountdown).toBe("1h 30m");
+  });
+
+  test("an elapsed window drops the countdown but still reports the cutoff", () => {
+    const d: Delivery = {
+      id: 13,
+      forDeliveryAt: FOR_DELIVERY,
+      orders: [
+        {
+          id: 1,
+          replacementCutoffTs: "2026-08-12T17:00:00Z",
+          pieces: [{ ...myPiece, userId: ME }],
+        },
+      ],
+    };
+    const s = deliveryStatus(d, ME, NOW);
+    expect(s.replacementCountdown).toBeNull();
+    // Not null: a caller can still tell "the re-pick window closed" from "no replacement at all".
+    expect(s.replacementCutoffRaw).toBe("2026-08-12T17:00:00Z");
+    expect(formatDeliveryStatus(s)).not.toContain("Re-pick");
+  });
+
+  test("no replacement means no line, and the raw value stays null", () => {
+    const s = deliveryStatus(
+      { id: 8, forDeliveryAt: FOR_DELIVERY, orders: [{ id: 1, pieces: [{ ...myPiece }] }] },
+      undefined,
+      NOW,
+    );
+    expect(s.replacementCountdown).toBeNull();
+    expect(s.replacementCutoffRaw).toBeNull();
+    expect(formatDeliveryStatus(s)).not.toContain("Re-pick");
+  });
+});
+
+describe("money reaches the rendered line", () => {
+  const ME = 501;
+  const withReceipt = (receipt: Delivery["userReceipt"]): Delivery => ({
+    id: 1234200,
+    forDeliveryAt: FOR_DELIVERY,
+    allowanceType: "daily",
+    copayAmount: 20,
+    userReceipt: receipt,
+    orders: [{ id: 1, pieces: [{ ...myPiece, userId: ME }] }],
+  });
+
+  test("the list line shows the company limit and any out-of-pocket", () => {
+    const line = fmtDelivery(withReceipt({ id: 1, clubCopay: 20, due: 4.5 }), undefined, ME);
+    expect(line).toContain("company covers $20.00");
+    expect(line).toContain("you pay $4.50");
+  });
+
+  test("nothing out of pocket prints no 'you pay' at all", () => {
+    const line = fmtDelivery(withReceipt({ id: 1, clubCopay: 20, due: 0 }), undefined, ME);
+    expect(line).toContain("company covers $20.00");
+    expect(line).not.toContain("you pay");
+  });
+
+  test("the status view renders the same figures", () => {
+    const s = deliveryStatus(withReceipt({ id: 1, clubCopay: 20, due: 4.5 }), ME);
+    expect(s.companyLimit).toBe(20);
+    expect(s.companyLimitLabel).toBe("daily limit");
+    expect(s.youPay).toBe(4.5);
+    expect(formatDeliveryStatus(s)).toContain("You pay    : $4.50");
+  });
+
+  test("an unknown limit renders no coverage claim rather than $0.00", () => {
+    const d: Delivery = { id: 3, forDeliveryAt: FOR_DELIVERY, orders: [] };
+    expect(fmtDelivery(d)).not.toContain("company covers");
+    expect(compactDelivery(d).companyLimit).toBeNull();
   });
 });
 

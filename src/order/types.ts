@@ -73,6 +73,21 @@ export interface Piece {
    * roster, which is the ADMIN view and deliberately unselected — see CLAUDE.md.
    */
   group?: string | null;
+  /**
+   * Per-meal state the delivery-level flags don't express. All nullable, and all read null/false on
+   * the account these were modelled against except `isConfirmed` — so the rendering is MODELLED from
+   * the app's own member code, not observed live. See CLAUDE.md before trusting a combination.
+   *
+   * - `isConfirmed` — this meal is actually going to be ordered. Finer than `delivery.userConfirmed`.
+   * - `isLateSwappable` — the app offers "Choose Another Meal" for it even on a read-only delivery.
+   * - `isRemoval` + `requestStatus: "pending"` — a cancellation was requested and hasn't landed.
+   * - `isLateOrder` — placed after the normal cutoff, against the monthly late-order budget.
+   */
+  isConfirmed?: boolean | null;
+  isLateSwappable?: boolean | null;
+  isRemoval?: boolean | null;
+  requestStatus?: string | null;
+  isLateOrder?: boolean | null;
   price?: number; // dollars
   selections?: SelectionsHash | null; // stored hash on an existing piece
 }
@@ -201,9 +216,16 @@ export interface Delivery {
   orders?: Order[];
   myReportedIssues?: ReportedIssue[];
   userReceipt?: {
-    id: number;
+    /** Null until a receipt exists — a future delivery still reports the figures below. */
+    id: number | null;
     due?: number;
+    /**
+     * The copay actually APPLIED, not the cap: 14.95 against a $20 entitlement. Read
+     * `clubCopay` (via `allowanceFor`) for the limit — never this.
+     */
     copayAmount?: number;
+    /** This member's entitlement for this delivery. The allowance source — see `allowanceFor`. */
+    clubCopay?: number;
     subtotal?: number;
     feesTotal?: number;
     fees?: { type?: string; fee?: number }[];
