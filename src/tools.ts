@@ -368,15 +368,21 @@ const DELIVERY_HORIZON_DAYS = 21;
  * `myDeliveries(from:)` alone is week-bucketed: it returns only the calendar week containing `from`,
  * so on a Friday every delivery from Monday on is invisible. Adding `to` switches it to a true
  * inclusive range (verified: `from` Aug 3 alone → 0, but `{from: Aug 3, to: Aug 24}` → all five
- * Aug 10–14 deliveries). That is why this returns a pair rather than leaving `to` to the caller —
- * nine lookups once omitted it and could not resolve a single id past the current week.
+ * Aug 10–14 deliveries). Filling `to` here rather than leaving it to the caller is the invariant that
+ * matters: nine lookups once omitted it and could not resolve a single id past the current week.
  *
- * `to` is the LATER of `from + 21` and `today + 21`. The second term holds the horizon steady for
- * the default and for a backdated `from`; the first keeps a `from` beyond that horizon from
- * producing a backwards range, which returns nothing at all.
+ * An explicit `to` wins outright, which is the only way to express a window that ENDS in the past.
+ * Without that, `to` floors at `today + 21` and a historical question comes back padded with
+ * upcoming deliveries — "what did I eat last week" answered with next week, and no way to tell.
+ *
+ * Defaulted, `to` is the LATER of `from + 21` and `today + 21`. The second term holds the horizon
+ * steady for the default and for a backdated `from` (`get_delivery_status` looks back 14 days and
+ * still needs to reach forward); the first keeps a `from` beyond that horizon from producing a
+ * backwards range, which matches nothing.
  */
-export function deliveryRange(from?: string): { from: string; to: string } {
+export function deliveryRange(from?: string, to?: string): { from: string; to: string } {
   const start = from ?? todayLocal();
+  if (to) return { from: start, to };
   const fromHorizon = addDaysLocal(start, DELIVERY_HORIZON_DAYS);
   const todayHorizon = dateOffsetLocal(DELIVERY_HORIZON_DAYS);
   // ISO dates compare correctly as strings.
@@ -438,9 +444,11 @@ async function loadDeliveries(
   client: ForkableClient,
   from?: string,
   sel: string = DELIVERY_SEL,
+  to?: string,
 ): Promise<{ deliveries: Delivery[]; userId?: number }> {
-  // Always a range — there is deliberately no way to send a bare `from` from here. See deliveryRange.
-  const doc = buildQuery("myDeliveries", deliveryRange(from), sel, ["me { id }"]);
+  // `deliveryRange` fills `to` whether or not one is passed, so a bare `from` can't reach the wire.
+  // The safety lives there, not in the absence of this parameter — see deliveryRange.
+  const doc = buildQuery("myDeliveries", deliveryRange(from, to), sel, ["me { id }"]);
   const data = await client.gql<{ myDeliveries?: Delivery[]; me?: { id: number } }>(doc);
   return { deliveries: data.myDeliveries ?? [], userId: data.me?.id };
 }
@@ -768,27 +776,53 @@ export function registerAllTools(server: McpServer): void {
     {
       title: "List deliveries",
       description:
-        "List upcoming deliveries: date, weekday, meal service, club, status, what YOU have selected, " +
-        "write window, copay. A date can carry more than one delivery (lunch and dinner, or two " +
-        "clubs), so use the service/club labels to tell them apart. " +
+        "List deliveries — past and upcoming — with date, weekday, meal service, club, status, what " +
+        "YOU have selected, write window, copay. A date can carry more than one delivery (lunch and " +
+        "dinner, or two clubs), so use the service/club labels to tell them apart. " +
         "Start here to see the week and what still needs ordering. " +
         "Branch on `writeWindow`, not the cutoff: `open` = freely editable, `grace` = past the " +
-        "editing cutoff but a late change request is still accepted, `closed` = no further changes.",
+        "editing cutoff but a late change request is still accepted, `closed` = no further changes. " +
+        "Called with no arguments it covers today through 21 days out, so ALREADY-DELIVERED days are " +
+        "not included — to review what was eaten, pass `from` (and `to` to stop the window before " +
+        "today, otherwise upcoming deliveries are appended and a past-only question looks answered " +
+        "when it isn't).",
       inputSchema: z.object({
         from: z
           .string()
           .optional()
-          .describe("ISO date (YYYY-MM-DD) to list from; defaults to today"),
+          .describe(
+            "Inclusive start, ISO date (YYYY-MM-DD). Default: today. Pass an earlier date to include " +
+              "days already delivered — e.g. this week's Monday to review the week so far.",
+          ),
+        to: z
+          .string()
+          .optional()
+          .describe(
+            "Inclusive end, ISO date (YYYY-MM-DD). Default: 21 days out (`from` + 21 days, or " +
+              "today + 21, whichever is later). Set this to bound the window — it is the ONLY way to " +
+              "ask about the past alone, e.g. {from: '2026-08-03', to: '2026-08-07'} for that week " +
+              "and nothing after it. Must not be earlier than `from`.",
+          ),
       }),
       annotations: { readOnlyHint: true, openWorldHint: true },
     },
     async (args) =>
       guard(async (client) => {
+        // Reject rather than return the empty list a backwards range produces — indistinguishable
+        // from "you had no deliveries", which is the wrong thing to tell someone.
+        if (args.to && args.from && args.to < args.from)
+          return errResult(
+            `to (${args.to}) is earlier than from (${args.from}) — an empty range. Swap them.`,
+          );
         const [{ deliveries, userId }, inFlight] = await Promise.all([
-          loadDeliveries(client, args.from),
+          loadDeliveries(client, args.from, DELIVERY_SEL, args.to),
           inProgressIds(client),
         ]);
-        if (!deliveries.length) return ok("No deliveries in that window.");
+        // Echo the window, so "nothing that week" can't be read as "the query was wrong".
+        if (!deliveries.length) {
+          const w = deliveryRange(args.from, args.to);
+          return ok(`No deliveries between ${w.from} and ${w.to}.`);
+        }
         return ok(deliveries.map((d) => fmtDelivery(d, inFlight, userId)).join("\n\n"), {
           deliveries: deliveries.map((d) => compactDelivery(d, inFlight, userId)),
         });

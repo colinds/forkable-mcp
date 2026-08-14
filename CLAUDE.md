@@ -123,14 +123,30 @@ optional `to` and nine of its eleven callers omitted it, so every lookup-by-id t
 `recommend_meals`, `search_items`, `explain_pick`, and *every write*) saw only the current calendar
 week and answered `Delivery <id> not found in your upcoming deliveries` for anything later — ids
 `list_deliveries` had just printed, because it was one of the two that passed a `to`. Live on a
-Friday: next Monday's delivery listed fine and resolved nowhere. So the parameter is **gone**.
-`deliveryRange(from?)` returns both bounds and `loadDeliveries(client, from?, sel?)` is the only
-`myDeliveries` build site — there is no longer a code path that can send a bare `from`, and
-reintroducing one silently breaks nine tools three days out of five. `from` defaults to the local
+Friday: next Monday's delivery listed fine and resolved nowhere.
+
+So the invariant moved into **`deliveryRange(from?, to?)`**, which fills both bounds whether or not a
+`to` is supplied, and `loadDeliveries` is the only `myDeliveries` build site. The safety is that
+function, *not* the absence of a parameter — `loadDeliveries` does still take an optional `to` and
+that is fine, because there is no path from it to a bare `from`. Defaults: `from` is the local
 calendar day (`todayLocal`, avoiding a UTC off-by-one near midnight); `to` is the later of
 `from + 21` and `today + 21`, the second term holding the horizon steady for a backdated `from`
 (`get_delivery_status` looks back 14 days and still reaches today + 21) and the first keeping a
 far-future `from` from producing a backwards range that matches nothing.
+
+**An explicit `to` wins outright** — that is the only way to express a window ENDING in the past.
+Defaulted, `to` floors at `today + 21`, so a historical `from` comes back padded with upcoming
+deliveries: `{from: Aug 3}` on Aug 14 returns Aug 10–21, zero of them from the week asked about, and
+nothing marks the requested window as empty. A model reads that as an answer and reports this week as
+last week. `list_deliveries` therefore exposes both bounds, refuses `to < from` (rather than
+returning the empty list a backwards range produces, which reads as "you had no deliveries"), and
+names the window when the result is empty — `No deliveries between 2026-08-03 and 2026-08-07.`
+
+There is **no history floor**: a purely past window returns real past deliveries
+(`{from: Jun 1, to: Aug 13}` → the four days that exist). Measured on the reference account, nothing
+exists before Aug 10 2026 — July and Aug 3–9 are genuinely empty, not clamped. And **no request is
+ever an error**: any `from`, however far back, returns a well-formed list. Emptiness is the only
+signal, which is why the tool names the window rather than saying "none".
 
 Forkable's timestamps come in **three families**, and a trailing `Z` does not tell you which:
 

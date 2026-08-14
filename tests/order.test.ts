@@ -1985,4 +1985,19 @@ describe("delivery lookups always query a range", () => {
     const r = deliveryRange(addDaysLocal(deliveryRange().from, -14));
     expect(r.to).toBe(deliveryRange().to);
   });
+
+  test("an explicit `to` wins outright, so a window can END in the past", () => {
+    // The whole point: without this, `to` floors at today+21 and a historical question comes back
+    // padded with upcoming deliveries, which reads as an answer.
+    expect(deliveryRange("2026-08-03", "2026-08-07")).toEqual({
+      from: "2026-08-03",
+      to: "2026-08-07",
+    });
+  });
+
+  test("an explicit `to` is never widened to the horizon, even when it is close in", () => {
+    const r = deliveryRange(undefined, "2026-08-14");
+    expect(r.to).toBe("2026-08-14");
+    expect(r.from).toBe(deliveryRange().from);
+  });
 });
