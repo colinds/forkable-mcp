@@ -25,7 +25,13 @@ import {
   groupSuffix,
   pieceBadges,
 } from "@/order/format.ts";
-import { fmtDelivery, compactDelivery, deliveryRange, addDaysLocal } from "@/tools.ts";
+import {
+  fmtDelivery,
+  compactDelivery,
+  deliveryRange,
+  addDaysLocal,
+  isCalendarDate,
+} from "@/tools.ts";
 import { type MenuItem, type MenuModifier, type Delivery } from "@/order/types.ts";
 
 // A protein single-select (required, max 1, >1 options) + a "extras" multi-select.
@@ -1999,5 +2005,20 @@ describe("delivery lookups always query a range", () => {
     const r = deliveryRange(undefined, "2026-08-14");
     expect(r.to).toBe("2026-08-14");
     expect(r.from).toBe(deliveryRange().from);
+  });
+
+  test("a past `to` with no `from` resolves to a backwards window, which the tool refuses", () => {
+    // The inversion the raw-argument check missed: `from` defaults to today, so this only shows up
+    // once the window is resolved.
+    const r = deliveryRange(undefined, "2020-01-01");
+    expect(r.to < r.from).toBe(true);
+  });
+
+  test("isCalendarDate rejects what Date would silently roll over or reinterpret", () => {
+    for (const good of ["2026-08-03", "2028-02-29", "2026-12-31"])
+      expect(isCalendarDate(good)).toBe(true);
+    // 2026-02-30 is the dangerous one: Date turns it into 2026-03-02 and shifts the window.
+    for (const bad of ["2026-02-30", "2026-13-45", "2026-8-3", "20260803", " 2026-08-03", "", "x"])
+      expect(isCalendarDate(bad)).toBe(false);
   });
 });

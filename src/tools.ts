@@ -363,6 +363,21 @@ function dateOffsetLocal(days: number): string {
 const DELIVERY_HORIZON_DAYS = 21;
 
 /**
+ * A real `YYYY-MM-DD` calendar day.
+ *
+ * The round-trip is the point: `Date` rolls a nonexistent date over silently, so `2026-02-30` would
+ * become `2026-03-02` and shift the window a caller thought it had set. The regex alone can't catch
+ * that, and `Date` alone accepts neither `2026-8-3` nor a trailing space. Rejecting here turns what
+ * was an opaque `Invalid argument` from Forkable — sent after we'd already serialized the literal
+ * string "Invalid Date" — into a validation error naming the parameter.
+ */
+export const isCalendarDate = (s: string): boolean =>
+  /^\d{4}-\d{2}-\d{2}$/.test(s) && addDaysLocal(s, 0) === s;
+
+const dateArg = () =>
+  z.string().refine(isCalendarDate, "must be a real calendar date in YYYY-MM-DD form");
+
+/**
  * The inclusive range for `myDeliveries` — ALWAYS both bounds, never a bare `from`.
  *
  * `myDeliveries(from:)` alone is week-bucketed: it returns only the calendar week containing `from`,
@@ -787,42 +802,44 @@ export function registerAllTools(server: McpServer): void {
         "today, otherwise upcoming deliveries are appended and a past-only question looks answered " +
         "when it isn't).",
       inputSchema: z.object({
-        from: z
-          .string()
+        from: dateArg()
           .optional()
           .describe(
             "Inclusive start, ISO date (YYYY-MM-DD). Default: today. Pass an earlier date to include " +
               "days already delivered — e.g. this week's Monday to review the week so far.",
           ),
-        to: z
-          .string()
+        to: dateArg()
           .optional()
           .describe(
             "Inclusive end, ISO date (YYYY-MM-DD). Default: 21 days out (`from` + 21 days, or " +
               "today + 21, whichever is later). Set this to bound the window — it is the ONLY way to " +
               "ask about the past alone, e.g. {from: '2026-08-03', to: '2026-08-07'} for that week " +
-              "and nothing after it. Must not be earlier than `from`.",
+              "and nothing after it. Must not be earlier than `from` — note `from` defaults to " +
+              "TODAY, so a past `to` on its own is backwards and is refused.",
           ),
       }),
       annotations: { readOnlyHint: true, openWorldHint: true },
     },
     async (args) =>
       guard(async (client) => {
-        // Reject rather than return the empty list a backwards range produces — indistinguishable
-        // from "you had no deliveries", which is the wrong thing to tell someone.
-        if (args.to && args.from && args.to < args.from)
+        // Check the RESOLVED window, not the raw arguments: `to` alone with a past date inverts
+        // against the defaulted `from` and would otherwise sail through. Refuse rather than return
+        // the empty list a backwards range produces — that is indistinguishable from "you had no
+        // deliveries", which is a claim about the account rather than about the query.
+        const w = deliveryRange(args.from, args.to);
+        if (w.to < w.from)
           return errResult(
-            `to (${args.to}) is earlier than from (${args.from}) — an empty range. Swap them.`,
+            `Window ends before it starts: ${w.from} → ${w.to}. ` +
+              (args.from
+                ? "Swap `from` and `to`."
+                : "`from` defaults to today — pass an earlier `from` to look at the past."),
           );
         const [{ deliveries, userId }, inFlight] = await Promise.all([
           loadDeliveries(client, args.from, DELIVERY_SEL, args.to),
           inProgressIds(client),
         ]);
         // Echo the window, so "nothing that week" can't be read as "the query was wrong".
-        if (!deliveries.length) {
-          const w = deliveryRange(args.from, args.to);
-          return ok(`No deliveries between ${w.from} and ${w.to}.`);
-        }
+        if (!deliveries.length) return ok(`No deliveries between ${w.from} and ${w.to}.`);
         return ok(deliveries.map((d) => fmtDelivery(d, inFlight, userId)).join("\n\n"), {
           deliveries: deliveries.map((d) => compactDelivery(d, inFlight, userId)),
         });
@@ -1069,10 +1086,13 @@ export function registerAllTools(server: McpServer): void {
         "order is dispatched. `list_deliveries` carries a one-line summary; this is the full view.",
       inputSchema: z.object({
         deliveryId: z.number().int().describe("Delivery id from list_deliveries"),
-        from: z
-          .string()
+        from: dateArg()
           .optional()
-          .describe("ISO date (YYYY-MM-DD) to search from; defaults to 14 days ago"),
+          .describe(
+            "Inclusive start of the window searched for this delivery, ISO date (YYYY-MM-DD). " +
+              "Default: 14 days ago, which reaches back over already-delivered days; the window " +
+              "always runs forward to at least today + 21. Widen it only for an older delivery.",
+          ),
       }),
       annotations: { readOnlyHint: true, openWorldHint: true },
     },
