@@ -112,14 +112,25 @@ an option carries no price of its own, is also dollars.)
 observation (`total: 66759` against a ~$667 order) and nothing renders them, so they are **not
 selected**. Don't add them back without confirming the unit first.
 
-**`myDeliveries` takes `from` AND `to`** — always pass both. `from` alone is week-bucketed: it returns
+**`myDeliveries` takes `from` AND `to`** — always both. `from` alone is week-bucketed: it returns
 the calendar week containing `from`, so last Monday yields nothing (measured: Mon Aug 10 → 5, Sat Aug 8
 → 0, previous Mon → 0). Adding `to` switches it to a true inclusive range — `{from: Aug 3, to: Aug 24}`
 returns all five Aug 10–14 deliveries where `from: Aug 3` alone returned zero.
-`guestLinkRequestableOnly` is a third accepted argument. `list_deliveries` defaults to the
-local calendar day
-(`todayLocal`, avoiding a UTC off-by-one near midnight) and both tools pass a `to` as well via
-`dateOffsetLocal`, so neither depends on week boundaries.
+`guestLinkRequestableOnly` is a third accepted argument.
+
+That is **not a rule callers have to remember** — it was, and they didn't. `loadDeliveries` took an
+optional `to` and nine of its eleven callers omitted it, so every lookup-by-id tool (`get_menus`,
+`recommend_meals`, `search_items`, `explain_pick`, and *every write*) saw only the current calendar
+week and answered `Delivery <id> not found in your upcoming deliveries` for anything later — ids
+`list_deliveries` had just printed, because it was one of the two that passed a `to`. Live on a
+Friday: next Monday's delivery listed fine and resolved nowhere. So the parameter is **gone**.
+`deliveryRange(from?)` returns both bounds and `loadDeliveries(client, from?, sel?)` is the only
+`myDeliveries` build site — there is no longer a code path that can send a bare `from`, and
+reintroducing one silently breaks nine tools three days out of five. `from` defaults to the local
+calendar day (`todayLocal`, avoiding a UTC off-by-one near midnight); `to` is the later of
+`from + 21` and `today + 21`, the second term holding the horizon steady for a backdated `from`
+(`get_delivery_status` looks back 14 days and still reaches today + 21) and the first keeping a
+far-future `from` from producing a backwards range that matches nothing.
 
 Forkable's timestamps come in **three families**, and a trailing `Z` does not tell you which:
 

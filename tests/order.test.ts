@@ -25,7 +25,7 @@ import {
   groupSuffix,
   pieceBadges,
 } from "@/order/format.ts";
-import { fmtDelivery, compactDelivery } from "@/tools.ts";
+import { fmtDelivery, compactDelivery, deliveryRange, addDaysLocal } from "@/tools.ts";
 import { type MenuItem, type MenuModifier, type Delivery } from "@/order/types.ts";
 
 // A protein single-select (required, max 1, >1 options) + a "extras" multi-select.
@@ -1937,5 +1937,52 @@ describe("two deliveries on one date", () => {
     expect(fmtDelivery(lunch)).toContain("HQ");
     expect(compactDelivery(dinner).service).toBe("dinner");
     expect(compactDelivery(lunch).club).toBe("HQ");
+  });
+});
+
+/**
+ * `myDeliveries(from:)` alone is week-bucketed — it answers with only the calendar week containing
+ * `from`. Nine lookups once called the loader without a `to` and so could not resolve any id past
+ * the current week: on a Friday, every delivery from Monday on was invisible to `get_menus`,
+ * `set_meal` and the rest, while `list_deliveries` (which did pass a `to`) listed them happily.
+ */
+describe("delivery lookups always query a range", () => {
+  test("both bounds are always present — the omission that caused the bug", () => {
+    for (const r of [deliveryRange(), deliveryRange("2026-08-14")]) {
+      expect(r.from).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+      expect(r.to).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    }
+  });
+
+  test("the default window reaches past the end of the current week, whatever day it is", () => {
+    const r = deliveryRange();
+    // 21 days clears a week boundary from any weekday — the condition that failed on a Friday.
+    expect(r.to).toBe(addDaysLocal(r.from, 21));
+    expect(r.to > r.from).toBe(true);
+  });
+
+  test("addDaysLocal is pure calendar arithmetic, across a month boundary", () => {
+    expect(addDaysLocal("2026-08-14", 21)).toBe("2026-09-04");
+    expect(addDaysLocal("2026-08-14", -14)).toBe("2026-07-31");
+    expect(addDaysLocal("2026-08-14", 0)).toBe("2026-08-14");
+  });
+
+  test("a leap day and a year boundary survive the round trip", () => {
+    expect(addDaysLocal("2028-02-28", 1)).toBe("2028-02-29");
+    expect(addDaysLocal("2026-12-31", 1)).toBe("2027-01-01");
+  });
+
+  test("a `from` beyond the horizon still yields a forwards range, not a backwards one", () => {
+    // The old code paired a far-future `from` with a `to` of today+21, which is a range that
+    // matches nothing at all.
+    const r = deliveryRange("2099-12-01");
+    expect(r.to > r.from).toBe(true);
+    expect(r.to).toBe("2099-12-22");
+  });
+
+  test("a backdated `from` keeps the horizon at today+21 rather than 21 days after `from`", () => {
+    // get_delivery_status looks back 14 days; its window must still reach upcoming deliveries.
+    const r = deliveryRange(addDaysLocal(deliveryRange().from, -14));
+    expect(r.to).toBe(deliveryRange().to);
   });
 });

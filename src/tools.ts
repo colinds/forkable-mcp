@@ -342,17 +342,45 @@ function todayLocal(): string {
 }
 
 /**
- * A local calendar date N days from today, YYYY-MM-DD (negative for the past).
+ * A local calendar date N days from `date`, YYYY-MM-DD in and out (negative for the past).
  *
- * Pair with `to` whenever a query must span a week boundary. `myDeliveries(from:)` ALONE is
- * week-bucketed — it returns the calendar week containing `from`, so `from` = last Monday yields
- * nothing. Passing `to` switches it to a true inclusive range (verified: `from` Aug 3 alone → 0, but
- * `{from: Aug 3, to: Aug 24}` → all five Aug 10–14 deliveries).
+ * The explicit `T00:00:00` is load-bearing: a bare `YYYY-MM-DD` parses as UTC, which lands on the
+ * previous day west of Greenwich. Parsing and formatting both stay local, so the same input yields
+ * the same output on every host — what `bun run test:tz` checks.
  */
-function dateOffsetLocal(days: number): string {
-  const d = new Date();
+export function addDaysLocal(date: string, days: number): string {
+  const d = new Date(`${date}T00:00:00`);
   d.setDate(d.getDate() + days);
   return d.toLocaleDateString("en-CA");
+}
+
+/** A local calendar date N days from today, YYYY-MM-DD (negative for the past). */
+function dateOffsetLocal(days: number): string {
+  return addDaysLocal(todayLocal(), days);
+}
+
+/** How far ahead a delivery lookup reaches — three weeks, so a week boundary is never the limit. */
+const DELIVERY_HORIZON_DAYS = 21;
+
+/**
+ * The inclusive range for `myDeliveries` — ALWAYS both bounds, never a bare `from`.
+ *
+ * `myDeliveries(from:)` alone is week-bucketed: it returns only the calendar week containing `from`,
+ * so on a Friday every delivery from Monday on is invisible. Adding `to` switches it to a true
+ * inclusive range (verified: `from` Aug 3 alone → 0, but `{from: Aug 3, to: Aug 24}` → all five
+ * Aug 10–14 deliveries). That is why this returns a pair rather than leaving `to` to the caller —
+ * nine lookups once omitted it and could not resolve a single id past the current week.
+ *
+ * `to` is the LATER of `from + 21` and `today + 21`. The second term holds the horizon steady for
+ * the default and for a backdated `from`; the first keeps a `from` beyond that horizon from
+ * producing a backwards range, which returns nothing at all.
+ */
+export function deliveryRange(from?: string): { from: string; to: string } {
+  const start = from ?? todayLocal();
+  const fromHorizon = addDaysLocal(start, DELIVERY_HORIZON_DAYS);
+  const todayHorizon = dateOffsetLocal(DELIVERY_HORIZON_DAYS);
+  // ISO dates compare correctly as strings.
+  return { from: start, to: fromHorizon > todayHorizon ? fromHorizon : todayHorizon };
 }
 
 /** Hard spend ceiling (dollars) from FORKABLE_MAX_TOTAL, or undefined if unset/invalid. */
@@ -410,11 +438,9 @@ async function loadDeliveries(
   client: ForkableClient,
   from?: string,
   sel: string = DELIVERY_SEL,
-  to?: string,
 ): Promise<{ deliveries: Delivery[]; userId?: number }> {
-  // `to` present ⇒ true range; absent ⇒ the week containing `from`. See dateOffsetLocal.
-  const args = to ? { from: from ?? todayLocal(), to } : { from: from ?? todayLocal() };
-  const doc = buildQuery("myDeliveries", args, sel, ["me { id }"]);
+  // Always a range — there is deliberately no way to send a bare `from` from here. See deliveryRange.
+  const doc = buildQuery("myDeliveries", deliveryRange(from), sel, ["me { id }"]);
   const data = await client.gql<{ myDeliveries?: Delivery[]; me?: { id: number } }>(doc);
   return { deliveries: data.myDeliveries ?? [], userId: data.me?.id };
 }
@@ -758,10 +784,8 @@ export function registerAllTools(server: McpServer): void {
     },
     async (args) =>
       guard(async (client) => {
-        // Range, not a bare `from`: a bare `from` returns only its own calendar week, hiding next
-        // week entirely once Forkable creates it.
         const [{ deliveries, userId }, inFlight] = await Promise.all([
-          loadDeliveries(client, args.from, DELIVERY_SEL, dateOffsetLocal(21)),
+          loadDeliveries(client, args.from),
           inProgressIds(client),
         ]);
         if (!deliveries.length) return ok("No deliveries in that window.");
@@ -1020,15 +1044,10 @@ export function registerAllTools(server: McpServer): void {
     },
     async ({ deliveryId, from }) =>
       guard(async (client) => {
-        // A bracketing range rather than a bare `from`, so an already-arrived day stays reachable
-        // without tripping the week-bucket rule. See dateOffsetLocal.
+        // Backdated so an already-arrived day stays reachable; `deliveryRange` supplies the `to`,
+        // which still lands on today + 21 (the horizon floor), not 7 days after `since`.
         const since = from ?? dateOffsetLocal(-14);
-        const { deliveries: ds, userId } = await loadDeliveries(
-          client,
-          since,
-          DELIVERY_DETAIL_SEL,
-          dateOffsetLocal(21),
-        );
+        const { deliveries: ds, userId } = await loadDeliveries(client, since, DELIVERY_DETAIL_SEL);
         const d = findDelivery(ds, deliveryId);
         if (!d) {
           const seen = ds.length
