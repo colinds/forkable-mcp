@@ -54,6 +54,24 @@ Then ask your client things like *"what's for lunch this week?"* or *"set Tuesda
 > **From source instead?** `git clone` + `bun install`, authenticate with `bun run auth --chrome`, and
 > point your client at `bun run --cwd /path/to/forkable-mcp start`.
 
+## Skills
+
+Three [agent skills](https://agentskills.io) ship with the server:
+
+- **`forkable-lunch`** — the everyday one: see your week, swap a meal, confirm before anything is sent.
+- **`forkable-friday`** — the week ahead, a day at a time. Next week's meals post Friday morning.
+- **`forkable-setup`** — install, authenticate, connect.
+
+Install them into any skills-aware agent:
+
+```bash
+npx skills add colinds/forkable-mcp          # all three, into the agents it detects
+npx skills add colinds/forkable-mcp --list   # look first
+```
+
+They live in [`skills/`](./skills) and work standalone — copy a `SKILL.md` into
+`~/.claude/skills/<name>/` if you'd rather not use the installer.
+
 ## Tools
 
 | | Tool | Does |
