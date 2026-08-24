@@ -588,6 +588,7 @@ function resolveOwnedSource(
   d: Delivery,
   userId: number,
   sourcePieceId?: string | number,
+  ambiguousMessage?: (count: number) => string,
 ): PieceTarget | undefined {
   const all = pieceTargets(d);
   if (sourcePieceId != null) {
@@ -603,27 +604,47 @@ function resolveOwnedSource(
   const owned = all.filter(({ piece }) => piece.userId === userId);
   if (owned.length > 1) {
     throw new Error(
-      `You have ${owned.length} meals on delivery ${d.id}; pass sourcePieceId to choose which one to replace.`,
+      ambiguousMessage?.(owned.length) ??
+        `You have ${owned.length} meals on delivery ${d.id}; pass sourcePieceId to choose which one to replace.`,
     );
   }
   return owned[0];
 }
 
+function fulfillmentSummary(d: Delivery, userId?: number) {
+  const status = deliveryStatus(d, userId);
+  const tracked =
+    status.orders.find((order) => order.fulfillment === "delayed" && order.trackingUrl) ??
+    status.orders.find((order) => order.trackingUrl);
+  const completed = status.orders
+    .filter((order) => order.dropoffCompletedAt)
+    .toSorted((a, b) => Date.parse(b.dropoffCompletedAt!) - Date.parse(a.dropoffCompletedAt!))[0];
+  return { status, tracked, completed };
+}
+
 /** Fulfillment for the list line. Empty until the order is dispatched. */
 function arrivalNote(d: Delivery, userId?: number): string {
-  const order = findOwnMeal(d, userId)?.order;
-  const eta = order?.etaStatus;
+  const { status, tracked, completed } = fulfillmentSummary(d, userId);
   const iana = d.club?.market?.timezone;
-  const at =
-    (iana ? formatInstantIn(order?.dropoffCompletedAt, iana, eta?.shortTz) : "") ||
-    formatInstantLike(order?.dropoffCompletedAt, eta?.start ?? eta?.end, eta?.shortTz);
-  if (at) return `\n    arrived ${at}`;
-  if (!eta?.status) return "";
-  // `status` is a closed enum (delayed | ontime | delivered). A late courier is the one value worth
-  // shouting about, and the app promotes the tracking link alongside it.
-  if (eta.status === "delayed")
-    return `\n    ⚠ DELAYED${eta.trackingUrl ? ` — track: ${eta.trackingUrl}` : ""}`;
-  return `\n    ${eta.status}`;
+  if (status.delayed)
+    return `\n    ⚠ DELAYED${tracked?.trackingUrl ? ` — track: ${tracked.trackingUrl}` : ""}`;
+  if (status.fulfillment === "delivered") {
+    const at =
+      (iana
+        ? formatInstantIn(
+            completed?.dropoffCompletedAt ?? undefined,
+            iana,
+            completed?.etaShortTz ?? undefined,
+          )
+        : "") ||
+      formatInstantLike(
+        completed?.dropoffCompletedAt ?? undefined,
+        completed?.etaStart ?? completed?.etaEnd ?? undefined,
+        completed?.etaShortTz ?? undefined,
+      );
+    return `\n    ${at ? `arrived ${at}` : "delivered"}`;
+  }
+  return status.fulfillment ? `\n    ${status.fulfillment}` : "";
 }
 
 /** "lunch" / "dinner", so two deliveries on one date are tellable apart. */
@@ -670,6 +691,7 @@ export function fmtDelivery(d: Delivery, inFlight?: Set<number>, userId?: number
 export function compactDelivery(d: Delivery, inFlight?: Set<number>, userId?: number) {
   const own = findOwnMeal(d, userId);
   const pieces = own?.orders.flatMap((o) => o.pieces) ?? [];
+  const { status: fulfillment, tracked, completed } = fulfillmentSummary(d, userId);
   return {
     id: d.id,
     date: formatDate(d.forDeliveryAt),
@@ -690,16 +712,12 @@ export function compactDelivery(d: Delivery, inFlight?: Set<number>, userId?: nu
     pastLateOrderDeadline: d.pastLateOrderDeadline ?? null,
     canRequestChanges: d.canRequestChanges ?? null,
     arrivalWindow: d.deliveryWindow ?? null, // scheduled service window
-    /** Closed enum: "delayed" | "ontime" | "delivered". Null before the courier is assigned. */
-    etaState: own?.order?.etaStatus?.status ?? null,
-    /**
-     * Broken out of `etaState` because it's the one value a caller should act on. Arrival outranks a
-     * stale `delayed`, matching `arrivalNote` and the status view.
-     */
-    delayed: own?.order?.etaStatus?.status === "delayed" && !own?.order?.dropoffCompletedAt,
-    trackingUrl: own?.order?.etaStatus?.trackingUrl ?? null,
-    arrivedAtRaw: own?.order?.dropoffCompletedAt ?? null,
-    billing: deliveryStatus(d, userId).billing,
+    etaState: fulfillment.fulfillment,
+    delayed: fulfillment.delayed,
+    trackingUrl: tracked?.trackingUrl ?? null,
+    arrivedAtRaw:
+      fulfillment.fulfillment === "delivered" ? (completed?.dropoffCompletedAt ?? null) : null,
+    billing: fulfillment.billing,
     availableMenuIds: d.availableMenuIds ?? [],
     picked: pieces.map((p) => ({
       pieceId: p.id,
@@ -1441,7 +1459,10 @@ export function registerAllTools(server: McpServer, writeGate: WriteGate): void 
         return toCallToolResult(
           await writeGate(gateCtx(client, session), {
             tool: "set_meal_all",
-            argsHash: hashWriteArgs({ ...a }, { modifiers: [], instructions: "" }),
+            argsHash: hashWriteArgs(
+              { ...a, deliveryIds: [...new Set(a.deliveryIds)] },
+              { modifiers: [], instructions: "" },
+            ),
             confirmToken: a.confirmToken,
             plan,
           }),
@@ -1518,7 +1539,13 @@ export function registerAllTools(server: McpServer, writeGate: WriteGate): void 
           const d = findDelivery(deliveries, a.deliveryId);
           if (!d) throw new Error(`Delivery ${a.deliveryId} not found.`);
           if (userId == null) throw new Error("Forkable did not report your user id.");
-          const source = resolveOwnedSource(d, userId);
+          const source = resolveOwnedSource(
+            d,
+            userId,
+            undefined,
+            (count) =>
+              `You have ${count} verified meals on delivery ${d.id}; remove them individually with remove_meal and pieceId.`,
+          );
           if (!source)
             throw new Error(`You have no verified meal on delivery ${a.deliveryId} to skip.`);
           const { order, piece } = source;

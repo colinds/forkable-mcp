@@ -591,8 +591,10 @@ describe("deliveryStatus", () => {
             status: "ontime",
             start: ETA_START,
             end: "2026-08-11T11:50:00-07:00",
+            shortTz: "PT",
             trackingUrl: "https://track.test/first",
           },
+          dropoffCompletedAt: "2026-08-11T18:00:00Z",
           pieces: [{ ...myPiece, id: "first", userId: STATUS_USER }],
         },
         {
@@ -600,9 +602,10 @@ describe("deliveryStatus", () => {
           state: "ready",
           venue: { id: 20, displayName: "Second Cafe" },
           etaStatus: {
-            status: "ontime",
+            status: "delayed",
             start: ETA_START,
             end: "2026-08-11T12:05:00-07:00",
+            shortTz: "PT",
             trackingUrl: "https://track.test/second",
           },
           pieces: [{ ...myPiece, id: "second", userId: STATUS_USER }],
@@ -612,7 +615,8 @@ describe("deliveryStatus", () => {
 
     const status = deliveryStatus(d, STATUS_USER);
     expect(status.deliveryWindow).toEqual(["11:45", "12:15"]);
-    expect(status.fulfillment).toBe("ontime");
+    expect(status.fulfillment).toBe("partially delivered");
+    expect(status.delayed).toBe(true);
     expect(
       status.orders.map(({ orderId, pieceIds, trackingUrl }) => ({
         orderId,
@@ -630,6 +634,31 @@ describe("deliveryStatus", () => {
     const rendered = formatDeliveryStatus(status);
     expect(rendered).toContain("https://track.test/first");
     expect(rendered).toContain("https://track.test/second");
+
+    const compact = compactDelivery(d, undefined, STATUS_USER);
+    expect(compact.etaState).toBe("partially delivered");
+    expect(compact.delayed).toBe(true);
+    expect(compact.trackingUrl).toBe("https://track.test/second");
+    expect(compact.arrivedAtRaw).toBeNull();
+    expect(fmtDelivery(d, undefined, STATUS_USER)).toContain(
+      "⚠ DELAYED — track: https://track.test/second",
+    );
+
+    const allDelivered: Delivery = {
+      ...d,
+      orders: d.orders?.map((order, index) =>
+        Object.assign({}, order, {
+          dropoffCompletedAt: index === 0 ? "2026-08-11T18:00:00Z" : "2026-08-11T19:00:00Z",
+        }),
+      ),
+    };
+    const completed = compactDelivery(allDelivered, undefined, STATUS_USER);
+    expect(completed.etaState).toBe("delivered");
+    expect(completed.delayed).toBe(false);
+    expect(completed.arrivedAtRaw).toBe("2026-08-11T19:00:00Z");
+    expect(fmtDelivery(allDelivered, undefined, STATUS_USER)).toContain(
+      "arrived Tue 2026-08-11 12:00 PM PT",
+    );
   });
 
   test.each([

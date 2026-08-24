@@ -227,9 +227,11 @@ describe("write tool planning", () => {
     );
     expect(dietChecks).toBe(1);
     const confirmed = await handlers.get("set_meal_all")!({
-      deliveryIds: [1, 1, 2],
+      deliveryIds: [1, 2],
       menuId: MENU_ID,
       itemId: ITEM_ID,
+      modifiers: [],
+      instructions: "",
       confirmToken: structured(result).confirmToken,
     });
     expect(structured(confirmed).mode).toBe("executed");
@@ -274,6 +276,9 @@ describe("write tool planning", () => {
       deliveryId: 1,
       menuId: MENU_ID,
       itemId: ITEM_ID,
+      modifiers: [],
+      instructions: "",
+      autoConfirm: false,
       confirmToken: structured(conflict).confirmToken,
     });
     expect(structured(confirmed).mode).toBe("executed");
@@ -302,6 +307,33 @@ describe("write tool planning", () => {
       expect(result.isError).toBe(true);
       expect(structured(result).confirmToken).toBeUndefined();
     }
+  });
+
+  test("skip explains how to remove multiple positively owned meals", async () => {
+    deliveries = [
+      delivery(1, [
+        { id: "first", itemId: 1, menuId: MENU_ID, userId: USER_ID },
+        { id: "second", itemId: 2, menuId: MENU_ID, userId: USER_ID },
+      ]),
+    ];
+    const ambiguous = await handlers.get("skip_delivery")!({ deliveryId: 1 });
+    const message = ambiguous.content[0]?.type === "text" ? ambiguous.content[0].text : "";
+    expect(ambiguous.isError).toBe(true);
+    expect(structured(ambiguous).confirmToken).toBeUndefined();
+    expect(message).toContain("remove_meal");
+    expect(message).toContain("pieceId");
+    expect(message).not.toContain("sourcePieceId");
+    expect(mutations).toEqual([]);
+
+    deliveries = [
+      delivery(1, [
+        { id: "mine", itemId: 1, menuId: MENU_ID, userId: USER_ID },
+        { id: "theirs", itemId: 2, menuId: MENU_ID, userId: USER_ID + 1 },
+        { id: "unknown", itemId: 3, menuId: MENU_ID },
+      ]),
+    ];
+    const oneOwned = await handlers.get("skip_delivery")!({ deliveryId: 1 });
+    expect(structured(oneOwned).mode).toBe("preview");
   });
 
   test("blocks unknown prices only when a preview ceiling is configured", async () => {
