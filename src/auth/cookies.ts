@@ -1,49 +1,25 @@
-// Cookie-jar helpers + cURL parsing. Pure string manipulation, no I/O.
-//
-// Keeps ALL cookies (including the AWSALBTG/AWSALBTGCORS load-balancer stickiness cookies —
-// dropping them can route a later request to a node that rejects the CSRF token).
+import { parseCookie, stringifyCookie } from "cookie";
+import { parseSetCookie } from "set-cookie-parser";
 
-/** Parse a `Cookie:` header into an ordered name→value map. */
-function parseCookieHeader(header: string): Map<string, string> {
-  const map = new Map<string, string>();
-  for (const part of header.split(";")) {
-    const s = part.trim();
-    if (!s) continue;
-    const eq = s.indexOf("=");
-    if (eq <= 0) continue;
-    map.set(s.slice(0, eq).trim(), s.slice(eq + 1).trim());
-  }
-  return map;
-}
+const identity = (value: string) => value;
 
-/**
- * Merge `Set-Cookie` response headers into an existing Cookie header, keeping ALL cookies
- * (including the AWSALBTG/AWSALBTGCORS load-balancer stickiness cookies — dropping them can
- * route a later request to a node that rejects the CSRF token).
- */
+/** Merge response cookies without dropping load-balancer affinity cookies. */
 export function mergeSetCookies(existingCookieHeader: string, setCookies: string[]): string {
-  const jar = parseCookieHeader(existingCookieHeader);
-  for (const sc of setCookies) {
-    const first = sc.split(";", 1)[0]?.trim();
-    if (!first) continue;
-    const eq = first.indexOf("=");
-    if (eq <= 0) continue;
-    const name = first.slice(0, eq).trim();
-    const value = first.slice(eq + 1).trim();
-    // A Set-Cookie with an empty/"deleted" value expires the cookie.
-    if (value === "" || value === "deleted") jar.delete(name);
-    else jar.set(name, value);
+  const jar = parseCookie(existingCookieHeader, { decode: identity });
+  for (const cookie of parseSetCookie(setCookies, { decodeValues: false })) {
+    const expired =
+      cookie.maxAge !== undefined
+        ? cookie.maxAge <= 0
+        : cookie.expires !== undefined && cookie.expires.getTime() <= Date.now();
+    if (expired) delete jar[cookie.name];
+    else jar[cookie.name] = cookie.value;
   }
-  return [...jar.entries()].map(([k, v]) => `${k}=${v}`).join("; ");
+  return stringifyCookie(jar, { encode: identity });
 }
 
 export function hasSessionCookie(cookieHeader: string): boolean {
-  return parseCookieHeader(cookieHeader).has("_easyorder_session");
+  return Boolean(parseCookie(cookieHeader, { decode: identity })["_easyorder_session"]);
 }
-
-// ---------------------------------------------------------------------------
-// cURL parsing
-// ---------------------------------------------------------------------------
 
 function matchQuoted(blob: string, re: RegExp): string | undefined {
   const m = re.exec(blob);
@@ -52,7 +28,7 @@ function matchQuoted(blob: string, re: RegExp): string | undefined {
 
 /** Extract cookie + csrf from a browser "Copy as cURL" blob. */
 export function parseCurl(blob: string): { cookie?: string; csrf?: string } {
-  // Cookie is usually a `-b '...'`/`--cookie '...'` flag, but may be an `-H 'cookie: ...'` header.
+  // DevTools may emit the cookie as either a flag or a header.
   let cookie =
     matchQuoted(blob, /(?:-b|--cookie)\s+(['"])([\s\S]*?)\1/) ??
     matchQuoted(blob, /-H\s+(['"])cookie:\s*([\s\S]*?)\1/i);

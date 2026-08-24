@@ -48,6 +48,47 @@ async function run(cmd: string[], cwd: string): Promise<void> {
   if (code !== 0) fail(`\`${cmd.join(" ")}\` exited ${code}\n${err || out}`);
 }
 
+async function checkInstalled(runner: "bunx" | "npx", cwd: string, home: string): Promise<void> {
+  log(`connecting with ${runner}`);
+  const client = new Client({ name: `smoke-${runner}`, version: "0" });
+  const transport = new StdioClientTransport({
+    command: runner,
+    args: runner === "bunx" ? ["--bun", "forkable-mcp"] : ["forkable-mcp"],
+    cwd,
+    env: { PATH: process.env.PATH ?? "", FORKABLE_MCP_HOME: home },
+    stderr: "pipe",
+  });
+  const connecting = client.connect(transport);
+  let childErr = "";
+  transport.stderr?.on("data", (d: Buffer) => {
+    childErr += d.toString();
+  });
+  const timer = setTimeout(() => fail(`timed out connecting with ${runner}`), 30_000);
+  await connecting.catch((e: Error) =>
+    fail(`${runner} connect failed: ${e.message}\n${childErr.trim()}`),
+  );
+  clearTimeout(timer);
+
+  const version = client.getServerVersion()?.version;
+  if (version !== pkg.version)
+    fail(`${runner} server reports v${version}, package.json says v${pkg.version}`);
+  log(`${runner} serverInfo.version = ${version}`);
+
+  const names = (await client.listTools()).tools.map((tool) => tool.name).toSorted();
+  const missing = EXPECTED_TOOLS.filter((tool) => !names.includes(tool));
+  const extra = names.filter((tool) => !EXPECTED_TOOLS.includes(tool));
+  if (missing.length) fail(`${runner} missing tools: ${missing.join(", ")}`);
+  if (extra.length) fail(`${runner} unexpected tools: ${extra.join(", ")}`);
+  log(`${runner} registered ${names.length} tools`);
+
+  const res: any = await client.callTool({ name: "get_profile", arguments: {} });
+  const text = (res.content ?? []).map((content: any) => content.text ?? "").join("");
+  if (!text.trim()) fail(`${runner}: get_profile returned no content`);
+  log(`${runner} get_profile responded (${text.split("\n")[0].slice(0, 60)}…)`);
+
+  await client.close();
+}
+
 const tmp = await mkdtemp(join(tmpdir(), "forkable-smoke-"));
 try {
   log(`packing ${pkg.name}@${pkg.version}`);
@@ -62,51 +103,14 @@ try {
   );
 
   log(`installing ${tgz} into a scratch project`);
-  await run(["bun", "add", join(tmp, tgz)], consumer);
+  await run(["npm", "install", "--cache", join(tmp, "npm-cache"), join(tmp, tgz)], consumer);
 
   const bin = join(consumer, "node_modules", ".bin", "forkable-mcp");
   if (!(await Bun.file(bin).exists())) fail(`no binary at ${bin} — check package.json "bin"`);
 
-  log("connecting a real MCP client to the installed binary");
-  const client = new Client({ name: "smoke", version: "0" });
-  const transport = new StdioClientTransport({
-    command: bin,
-    cwd: consumer,
-    env: { PATH: process.env.PATH ?? "", FORKABLE_MCP_HOME: join(tmp, "home") },
-    stderr: "pipe",
-  });
-  // A startup crash surfaces as a bare "Connection closed", so keep the child's stderr to report
-  // the actual cause. The stream only exists once connect() has started the transport.
-  const connecting = client.connect(transport);
-  let childErr = "";
-  transport.stderr?.on("data", (d: Buffer) => {
-    childErr += d.toString();
-  });
-  const timer = setTimeout(() => fail("timed out connecting — the server never came up"), 30_000);
-  await connecting.catch((e: Error) => fail(`connect failed: ${e.message}\n${childErr.trim()}`));
-  clearTimeout(timer);
-
-  const version = client.getServerVersion()?.version;
-  if (version !== pkg.version)
-    fail(`server reports v${version}, package.json says v${pkg.version}`);
-  log(`serverInfo.version = ${version}`);
-
-  const names = (await client.listTools()).tools.map((t) => t.name).toSorted();
-  const missing = EXPECTED_TOOLS.filter((t) => !names.includes(t));
-  const extra = names.filter((t) => !EXPECTED_TOOLS.includes(t));
-  if (missing.length) fail(`missing tools: ${missing.join(", ")}`);
-  if (extra.length) fail(`unexpected tools (update EXPECTED_TOOLS?): ${extra.join(", ")}`);
-  log(`${names.length} tools registered`);
-
-  // Prove a tool actually dispatches. Unauthenticated, so the re-auth message is the pass condition —
-  // what matters is that the handler ran instead of the process falling over.
-  const res: any = await client.callTool({ name: "get_profile", arguments: {} });
-  const text = (res.content ?? []).map((c: any) => c.text ?? "").join("");
-  if (!text.trim()) fail("get_profile returned no content");
-  log(`get_profile responded (${text.split("\n")[0].slice(0, 60)}…)`);
-
-  await client.close();
-  console.log("\n✓ packaged install works");
+  await checkInstalled("bunx", consumer, join(tmp, "home-bun"));
+  await checkInstalled("npx", consumer, join(tmp, "home-node"));
+  console.log("\n✓ packaged install works with Bun and Node.js");
 } finally {
   await rm(tmp, { recursive: true, force: true });
 }

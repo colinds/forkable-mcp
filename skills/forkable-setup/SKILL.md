@@ -16,8 +16,7 @@ It acts on the user's behalf with their own Forkable session — there is no API
 `forkable-lunch` skill. If a call fails with a re-auth message, redo step 1 alone — the session
 expired, nothing needs reinstalling.
 
-Requires [Bun](https://bun.sh) 1.3+ (`bun --version`). `bunx` runs the server; there's nothing to
-clone or install globally.
+Use Bun or Node.js. The package runs without a clone or global install.
 
 ## 1. Authenticate — the user runs this themselves
 
@@ -28,18 +27,17 @@ command you execute or in a file you write.
 **macOS, already logged into Forkable in a browser:**
 
 ```bash
-bunx forkable-mcp@latest --auth --chrome
+bunx --bun forkable-mcp@latest --auth --chrome # Node: npx forkable-mcp@latest --auth --chrome
 ```
 
-Approve the Keychain prompt. Every Chrome profile is searched and the most recently used Forkable
-session wins. Other browsers: `--browser arc` (also brave, edge, vivaldi, opera, chromium,
-chrome-beta, chrome-dev, chrome-canary); pin a profile by its *directory* name with
+Approve the Keychain prompt. Every Chrome profile is searched and matching sessions are verified
+until one succeeds. Other browsers: `--browser arc` (also brave, edge, chromium); pin a profile by its _directory_ name with
 `--profile "Profile 1"`.
 
 **Email + password** — the only method that survives expiry (the server re-logs in on a 401):
 
 ```bash
-bunx forkable-mcp@latest --auth --login --email you@company.com --password '…'
+bunx --bun forkable-mcp@latest --auth --login --email you@company.com --password '…'
 ```
 
 Add `--mfa <code>` if their account asks for one. A password typed as an argument lands in shell
@@ -47,7 +45,7 @@ history — `FORKABLE_EMAIL` / `FORKABLE_PASSWORD` in the environment does the s
 
 **SSO / Okta accounts can't use password login** and the command says so immediately. Those need a
 cookie: forkable.com → DevTools → Network → filter `graphql` → right-click a `POST .../api/v2/graphql`
-row → *Copy → Copy as cURL*, then `pbpaste | bunx forkable-mcp@latest --auth`. The whole blob is
+row → _Copy → Copy as cURL_, then `pbpaste | bunx --bun forkable-mcp@latest --auth`. The whole blob is
 fine; only the `cookie:` header is read, and it must contain `_easyorder_session`. Cookie sessions
 can't self-refresh — expect to repeat this when it expires.
 
@@ -55,17 +53,17 @@ The session lands in `~/.forkable-mcp/session.json` (mode `0600`) and is never l
 
 ## 2. Register the server
 
-| Client | Command / config |
-|---|---|
-| Claude Code | `claude mcp add forkable -- bunx forkable-mcp@latest` |
-| Codex | `codex mcp add forkable -- bunx forkable-mcp@latest` |
-| Claude Desktop / Cursor | the JSON below, under `mcpServers` |
-| VS Code | the JSON below in `.vscode/mcp.json`, under `servers` |
+| Client                  | Command / config                                            |
+| ----------------------- | ----------------------------------------------------------- |
+| Claude Code             | `claude mcp add forkable -- bunx --bun forkable-mcp@latest` |
+| Codex                   | `codex mcp add forkable -- bunx --bun forkable-mcp@latest`  |
+| Claude Desktop / Cursor | the JSON below, under `mcpServers`                          |
+| VS Code                 | the JSON below in `.vscode/mcp.json`, under `servers`       |
 
 ```json
 {
   "mcpServers": {
-    "forkable": { "command": "bunx", "args": ["forkable-mcp@latest"] }
+    "forkable": { "command": "bunx", "args": ["--bun", "forkable-mcp@latest"] }
   }
 }
 ```
@@ -81,12 +79,12 @@ The client spawns the server at startup, so a restart is required before the too
 
 All optional; set them in the client's MCP config `env` block, not in the shell.
 
-| | |
-|---|---|
-| `FORKABLE_EMAIL` / `FORKABLE_PASSWORD` | headless login, and auto-relogin when the session expires |
-| `FORKABLE_MAX_TOTAL` | hard spend cap in dollars — a write over it is refused outright |
-| `FORKABLE_COOKIE` | a full Cookie header, for headless SSO accounts |
-| `FORKABLE_MCP_HOME` | where the session lives (default `~/.forkable-mcp`) |
+|                                        |                                                                 |
+| -------------------------------------- | --------------------------------------------------------------- |
+| `FORKABLE_EMAIL` / `FORKABLE_PASSWORD` | headless login, and auto-relogin when the session expires       |
+| `FORKABLE_MAX_TOTAL`                   | hard spend cap in dollars — a write over it is refused outright |
+| `FORKABLE_COOKIE`                      | a full Cookie header, for headless SSO accounts                 |
+| `FORKABLE_MCP_HOME`                    | where the session lives (default `~/.forkable-mcp`)             |
 
 ## Troubleshooting
 

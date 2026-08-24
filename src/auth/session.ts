@@ -3,7 +3,7 @@
 // Lives on disk (0600) so it survives restarts and is shared by the writers: the `--auth` CLI,
 // the FORKABLE_COOKIE env provisioning, and the client's cookie rotation.
 
-import { mkdir, rename, chmod, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, chmod, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join, dirname } from "node:path";
 import { randomBytes } from "node:crypto";
@@ -37,10 +37,8 @@ export function storePath(): string {
 // ---------------------------------------------------------------------------
 
 export async function readSession(): Promise<SessionRecord | null> {
-  const f = Bun.file(storePath());
-  if (!(await f.exists())) return null;
   try {
-    return (await f.json()) as SessionRecord;
+    return JSON.parse(await readFile(storePath(), "utf8")) as SessionRecord;
   } catch {
     return null;
   }

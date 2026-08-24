@@ -70,9 +70,9 @@ function reauthResult(e: ReauthRequiredError): CallToolResult {
     content: text(
       `Forkable session ${e.reason}. The server can't log in for you — provide a fresh browser cookie, ` +
         `then retry:\n` +
-        `  • headless: set FORKABLE_COOKIE to a fresh forkable.com cookie (or run \`bun run auth\` with it set), or\n` +
-        `  • \`bun run auth --file <copy-as-curl.txt>\` / \`pbpaste | bun run auth\`, or\n` +
-        `  • \`bun run auth --chrome\` on a machine logged into forkable.com in Chrome.`,
+        `  • headless: set FORKABLE_COOKIE to a fresh forkable.com cookie, or\n` +
+        `  • run \`forkable-mcp --auth --file <copy-as-curl.txt>\`, or\n` +
+        `  • run \`forkable-mcp --auth --chrome\` on a machine logged into forkable.com in Chrome.`,
     ),
     structuredContent: { error: "forkable_reauth_required", reason: e.reason },
   };

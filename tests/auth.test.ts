@@ -41,15 +41,34 @@ describe("mergeSetCookies", () => {
     expect(merged).not.toContain("_easyorder_session=old");
   });
 
-  test("deletes on empty value", () => {
-    const merged = mergeSetCookies("a=1; b=2", ["a=; path=/"]);
-    expect(merged).toBe("b=2");
+  test("keeps empty values unless the response expires them", () => {
+    expect(mergeSetCookies("a=1; b=2", ["a=; path=/"])).toBe("a=; b=2");
+    expect(mergeSetCookies("a=1; b=2", ["a=; Max-Age=0; path=/"])).toBe("b=2");
+    expect(mergeSetCookies("a=1; b=2", ["a=deleted; Expires=Thu, 01 Jan 1970 00:00:00 GMT"])).toBe(
+      "b=2",
+    );
+  });
+
+  test("Max-Age takes precedence over Expires", () => {
+    expect(
+      mergeSetCookies("a=old", ["a=new; Max-Age=60; Expires=Thu, 01 Jan 1970 00:00:00 GMT"]),
+    ).toBe("a=new");
+    expect(
+      mergeSetCookies("a=old", ["a=new; Max-Age=0; Expires=Thu, 01 Jan 2100 00:00:00 GMT"]),
+    ).toBe("");
+  });
+
+  test("preserves opaque cookie values", () => {
+    expect(mergeSetCookies("token=a=b; encoded=%2F", ["next=x=y; Path=/"])).toBe(
+      "token=a=b; encoded=%2F; next=x=y",
+    );
   });
 });
 
 describe("hasSessionCookie", () => {
   test("detects _easyorder_session", () => {
     expect(hasSessionCookie("_easyorder_session=x; y=z")).toBe(true);
+    expect(hasSessionCookie("_easyorder_session=; y=z")).toBe(false);
     expect(hasSessionCookie("y=z")).toBe(false);
   });
 });
