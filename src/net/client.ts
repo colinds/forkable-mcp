@@ -1,7 +1,4 @@
-// The authenticated GraphQL client. Wraps the low-level auth primitives with query/mutate
-// ergonomics, CSRF minting, cookie rotation, and 401/CSRF/5xx handling.
-// Stateless-friendly: construct one per tool call from the on-disk session; every rotated
-// cookie/CSRF is written straight back through `onSessionChange` (= patchSession).
+// Authenticated GraphQL client with operation-aware retry and cookie rotation.
 
 import {
   ENDPOINT,
@@ -13,12 +10,18 @@ import {
 import {
   ReauthRequiredError,
   MutationError,
+  MutationOutcomeUnknownError,
   QueryError,
   baseCodes,
   type GqlResponse,
 } from "./errors.ts";
 import { buildQuery, buildMutation, type LiteralArgs } from "./gql.ts";
-import { type SessionRecord, patchSession, requireSession } from "@/auth/session.ts";
+import {
+  applyNetworkSessionUpdate,
+  requireSession,
+  type NetworkSessionUpdate,
+  type SessionRecord,
+} from "@/auth/session.ts";
 import { mergeSetCookies } from "@/auth/cookies.ts";
 import { setTimeout as delay } from "node:timers/promises";
 
@@ -84,11 +87,75 @@ export interface ClientOptions {
   timeoutMs?: number;
 }
 
+type Operation = "query" | "mutation";
+
+interface RequestOptions {
+  operation: Operation;
+  operationName: string;
+  public: boolean;
+  queryRetries: number;
+  csrfRetries: number;
+}
+
+function requestOptions(
+  operation: Operation,
+  operationName: string = operation,
+  isPublic = false,
+): RequestOptions {
+  return { operation, operationName, public: isPublic, queryRetries: 0, csrfRetries: 0 };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function parsedAttributes(value: unknown): unknown {
+  if (typeof value !== "string") return value;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return value;
+  }
+}
+
+function outcomeUnknown(
+  op: string,
+  message: string,
+  status?: number,
+  cause?: unknown,
+): MutationOutcomeUnknownError {
+  return new MutationOutcomeUnknownError(op, message, status, cause);
+}
+
+function mutationRejection(
+  op: string,
+  status: number,
+  body?: Record<string, unknown>,
+): MutationError {
+  const data = isRecord(body?.data) ? body.data : undefined;
+  const payload = data && isRecord(data[op]) ? data[op] : undefined;
+  const source = payload?.errors ?? body?.errors;
+  const messages = Array.isArray(source)
+    ? source.flatMap((error) => {
+        if (typeof error === "string") return [error];
+        if (isRecord(error) && typeof error.message === "string") return [error.message];
+        return [];
+      })
+    : [];
+  return new MutationError(
+    op,
+    messages.length ? messages : [`HTTP ${status}`],
+    payload?.errorDetails ?? body?.errorDetails,
+    parsedAttributes(payload?.errorAttributes ?? body?.errorAttributes),
+    payload?.warningDetails ?? body?.warningDetails,
+  );
+}
+
 export class ForkableClient {
   private cookie: string;
   private csrf?: string;
   private readonly delegationSessionId: string | null;
-  private readonly onSessionChange: (p: Partial<SessionRecord>) => Promise<unknown>;
+  private readonly onSessionChange?: (p: Partial<SessionRecord>) => Promise<unknown>;
   private readonly delegationMode: "auto" | "off";
   private readonly fetchImpl: FetchImpl;
   private readonly timeoutMs: number;
@@ -97,7 +164,7 @@ export class ForkableClient {
     this.cookie = opts.session.cookie;
     this.csrf = opts.session.csrf;
     this.delegationSessionId = opts.session.delegationSessionId ?? null;
-    this.onSessionChange = opts.onSessionChange ?? patchSession;
+    this.onSessionChange = opts.onSessionChange;
     this.delegationMode = opts.delegation ?? "auto";
     this.fetchImpl = opts.fetchImpl ?? fetch;
     this.timeoutMs = opts.timeoutMs ?? 20_000;
@@ -113,81 +180,234 @@ export class ForkableClient {
     return this.delegationMode === "off" ? null : this.delegationSessionId;
   }
 
-  private async persist(patch: Partial<SessionRecord>): Promise<void> {
-    await this.onSessionChange(patch).catch(() => {});
+  private async persist(update: NetworkSessionUpdate): Promise<void> {
+    if (update.setCookies?.length) this.cookie = mergeSetCookies(this.cookie, update.setCookies);
+    if (Object.hasOwn(update, "csrf")) this.csrf = update.csrf;
+
+    try {
+      if (this.onSessionChange) {
+        await this.onSessionChange({
+          cookie: this.cookie,
+          ...(Object.hasOwn(update, "csrf") ? { csrf: update.csrf } : {}),
+        });
+      } else {
+        const session = await applyNetworkSessionUpdate(update);
+        this.cookie = session.cookie;
+        this.csrf = session.csrf;
+      }
+    } catch (error) {
+      console.error(
+        `session persistence failed: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
   }
 
   private async mintCsrf(): Promise<void> {
     const { token, setCookies } = await fetchCsrf(this.cookie, this.fetchImpl);
-    this.csrf = token;
-    if (setCookies.length) this.cookie = mergeSetCookies(this.cookie, setCookies);
-    await this.persist({ cookie: this.cookie, csrf: this.csrf });
+    await this.persist({ setCookies, csrf: token });
   }
 
-  /** Low-level POST with CSRF mint, cookie rotation, and 401 / CSRF / 5xx handling. */
-  async gqlRaw<T = unknown>(
+  private async sendGraphql<T>(
     query: string,
-    variables?: Record<string, unknown>,
-    o: { public?: boolean; retried?: number } = {},
+    variables: Record<string, unknown> | undefined,
+    options: RequestOptions,
   ): Promise<GqlResponse<T>> {
-    const isPublic = o.public ?? false;
-    const retried = o.retried ?? 0;
+    if (!options.public && !this.csrf) await this.mintCsrf();
 
-    if (!isPublic && !this.csrf) await this.mintCsrf();
-
-    const endpoint = isPublic ? PUBLIC_ENDPOINT : ENDPOINT;
-    const headers = forkableHeaders(this.cookie, isPublic ? undefined : this.csrf, this.delegation);
+    const endpoint = options.public ? PUBLIC_ENDPOINT : ENDPOINT;
+    const headers = forkableHeaders(
+      this.cookie,
+      options.public ? undefined : this.csrf,
+      this.delegation,
+    );
 
     let res: Response;
     try {
       res = await this.fetchImpl(endpoint, {
         method: "POST",
+        redirect: options.operation === "mutation" ? "manual" : "follow",
         headers,
         body: JSON.stringify({ query, variables: variables ?? {} }),
         signal: AbortSignal.timeout(this.timeoutMs),
       });
-    } catch (e) {
-      if (retried < 1)
-        return this.gqlRaw<T>(query, variables, { public: isPublic, retried: retried + 1 });
-      throw e;
+    } catch (cause) {
+      if (options.operation === "mutation") {
+        throw outcomeUnknown(
+          options.operationName,
+          "the request ended without a response",
+          undefined,
+          cause,
+        );
+      }
+      if (options.queryRetries < 1) {
+        return this.sendGraphql(query, variables, {
+          ...options,
+          queryRetries: options.queryRetries + 1,
+        });
+      }
+      throw cause;
     }
 
-    // A dead session cannot be auto-recovered — no programmatic re-login; re-provision the cookie.
     if (res.status === 401) throw new ReauthRequiredError("expired");
 
-    // Rotate cookies on any non-401 response (never merge an anonymous jar over a live one).
     const setCookies = res.headers.getSetCookie?.() ?? [];
-    if (setCookies.length) {
-      this.cookie = mergeSetCookies(this.cookie, setCookies);
-      await this.persist({ cookie: this.cookie });
+    if (setCookies.length) await this.persist({ setCookies });
+
+    if (!options.public && res.status === 419) {
+      if (options.csrfRetries < 1) {
+        try {
+          await this.mintCsrf();
+        } catch (cause) {
+          if (options.operation === "mutation") {
+            throw new MutationError(options.operationName, [
+              `HTTP 419; CSRF refresh failed: ${cause instanceof Error ? cause.message : String(cause)}`,
+            ]);
+          }
+          throw cause;
+        }
+        return this.sendGraphql(query, variables, {
+          ...options,
+          csrfRetries: options.csrfRetries + 1,
+        });
+      }
+      if (options.operation === "mutation") {
+        throw new MutationError(options.operationName, ["HTTP 419"]);
+      }
+      throw new Error("Forkable HTTP 419");
     }
 
-    // Stale CSRF with a still-valid cookie → re-mint and retry once.
-    if (!isPublic && (res.status === 419 || res.status === 422) && retried < 1) {
-      await this.mintCsrf();
-      return this.gqlRaw<T>(query, variables, { public: isPublic, retried: retried + 1 });
+    if (options.operation === "mutation") {
+      if (
+        res.redirected ||
+        res.status === 408 ||
+        res.status >= 500 ||
+        (res.status >= 300 && res.status < 400)
+      ) {
+        throw outcomeUnknown(
+          options.operationName,
+          `Forkable returned HTTP ${res.status}`,
+          res.status,
+        );
+      }
+    } else {
+      if (res.status >= 500 && options.queryRetries < 1) {
+        await delay(250);
+        return this.sendGraphql(query, variables, {
+          ...options,
+          queryRetries: options.queryRetries + 1,
+        });
+      }
+      if (!res.ok) throw new Error(`Forkable HTTP ${res.status}`);
     }
 
-    if (res.status >= 500 && retried < 1) {
-      await delay(250);
-      return this.gqlRaw<T>(query, variables, { public: isPublic, retried: retried + 1 });
+    let parsed: unknown;
+    try {
+      parsed = await res.json();
+    } catch (cause) {
+      if (
+        options.operation === "mutation" &&
+        res.status >= 400 &&
+        res.status < 500 &&
+        res.status !== 408
+      ) {
+        throw mutationRejection(options.operationName, res.status);
+      }
+      if (options.operation === "mutation") {
+        throw outcomeUnknown(
+          options.operationName,
+          "Forkable returned malformed JSON",
+          res.status,
+          cause,
+        );
+      }
+      throw new Error("Forkable returned malformed JSON", { cause });
     }
 
-    const body = (await res.json().catch(() => ({}))) as GqlResponse<T>;
+    if (!isRecord(parsed)) {
+      if (
+        options.operation === "mutation" &&
+        res.status >= 400 &&
+        res.status < 500 &&
+        res.status !== 408
+      ) {
+        throw mutationRejection(options.operationName, res.status);
+      }
+      if (options.operation === "mutation") {
+        throw outcomeUnknown(
+          options.operationName,
+          "Forkable returned a malformed GraphQL envelope",
+          res.status,
+        );
+      }
+      throw new Error("Forkable returned a malformed GraphQL envelope");
+    }
+
+    const body = parsed as GqlResponse<T>;
     if (body.httpErrorCode === 401) throw new ReauthRequiredError("expired");
+
+    if (options.operation === "mutation") {
+      const logicalStatus = body.httpErrorCode;
+      if (
+        logicalStatus === 408 ||
+        (logicalStatus !== undefined && logicalStatus >= 500) ||
+        (logicalStatus !== undefined && logicalStatus >= 300 && logicalStatus < 400)
+      ) {
+        throw outcomeUnknown(
+          options.operationName,
+          `Forkable reported HTTP ${logicalStatus}`,
+          logicalStatus,
+        );
+      }
+      if ((!res.ok && res.status >= 400) || (logicalStatus !== undefined && logicalStatus >= 400)) {
+        throw mutationRejection(options.operationName, logicalStatus ?? res.status, parsed);
+      }
+      if (body.errors !== undefined) {
+        if (
+          !Array.isArray(body.errors) ||
+          !body.errors.every((error) => isRecord(error) && typeof error.message === "string")
+        ) {
+          throw outcomeUnknown(options.operationName, "malformed GraphQL errors", res.status);
+        }
+        const messages = body.errors.map((error) => error.message);
+        if (!messages.length) return body;
+        if (!Object.hasOwn(body, "data")) {
+          throw new MutationError(options.operationName, messages);
+        }
+        throw outcomeUnknown(
+          options.operationName,
+          `GraphQL execution failed: ${messages.join("; ")}`,
+          res.status,
+        );
+      }
+    } else if (body.httpErrorCode !== undefined && body.httpErrorCode >= 400) {
+      throw new Error(`Forkable reported HTTP ${body.httpErrorCode}`);
+    }
+
     return body;
+  }
+
+  /** Low-level POST using mutation-safe retry behavior. */
+  async gqlRaw<T = unknown>(
+    query: string,
+    variables?: Record<string, unknown>,
+    o: { public?: boolean; retried?: number } = {},
+  ): Promise<GqlResponse<T>> {
+    return this.sendGraphql<T>(query, variables, {
+      ...requestOptions("mutation", "mutation", o.public ?? false),
+      csrfRetries: o.retried ?? 0,
+    });
   }
 
   /** Run a query document, throwing on GraphQL errors; returns `data`. */
   async gql<T = unknown>(query: string, variables?: Record<string, unknown>): Promise<T> {
-    const r = await this.gqlRaw<T>(query, variables);
+    const r = await this.sendGraphql<T>(query, variables, requestOptions("query"));
     if (r.errors?.length) throw new QueryError(r.errors);
     return (r.data ?? null) as T;
   }
 
   /** Public (unauthenticated) endpoint — e.g. `identities`, `diets`. */
   async gqlPublic<T = unknown>(query: string, variables?: Record<string, unknown>): Promise<T> {
-    const r = await this.gqlRaw<T>(query, variables, { public: true });
+    const r = await this.sendGraphql<T>(query, variables, requestOptions("query", "query", true));
     if (r.errors?.length) throw new QueryError(r.errors);
     return (r.data ?? null) as T;
   }
@@ -215,35 +435,37 @@ export class ForkableClient {
     input: Record<string, unknown>,
   ): Promise<T> {
     const doc = buildMutation(name, selection);
-    const data = await this.gql<Record<string, T & Payload>>(doc, { input });
-    const payload = data[name];
-    if (!payload) throw new MutationError(name, ["no payload returned"]);
-    const errors = payload.errors ?? [];
+    const body = await this.sendGraphql<Record<string, unknown>>(
+      doc,
+      { input },
+      requestOptions("mutation", name),
+    );
+    const data = body.data;
+    const payload = isRecord(data) ? data[name] : undefined;
+    if (!isRecord(payload)) {
+      throw outcomeUnknown(name, "no mutation payload was returned");
+    }
+
+    const payloadErrors = payload.errors;
+    if (
+      payloadErrors !== undefined &&
+      payloadErrors !== null &&
+      (!Array.isArray(payloadErrors) || !payloadErrors.every((error) => typeof error === "string"))
+    ) {
+      throw outcomeUnknown(name, "the mutation payload was malformed");
+    }
+    const errors = (payloadErrors ?? []) as string[];
     // A refusal can arrive with an EMPTY `errors` array and the reason only in `errorDetails.base`.
     // Treating that as success reported "✓ Sent" on a write the server had rejected.
     if (errors.length || baseCodes(payload.errorDetails).length) {
-      let attrs: unknown = payload.errorAttributes;
-      if (typeof attrs === "string") {
-        try {
-          attrs = JSON.parse(attrs);
-        } catch {
-          /* leave as string */
-        }
-      }
+      const attrs = parsedAttributes(payload.errorAttributes);
       throw new MutationError(name, errors, payload.errorDetails, attrs, payload.warningDetails);
     }
-    return payload;
+    return payload as T;
   }
 
   /** Cheap keepalive / auth probe. */
   async warm(): Promise<{ id: number }> {
     return this.query<{ id: number }>("me", undefined, "id");
   }
-}
-
-interface Payload {
-  errors?: string[];
-  errorDetails?: unknown;
-  errorAttributes?: unknown;
-  warningDetails?: unknown;
 }

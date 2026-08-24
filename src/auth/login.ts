@@ -93,6 +93,7 @@ export async function loginWithPassword(
   const session = await patchSession({
     cookie,
     csrf,
+    delegationSessionId: null,
     meta: { userId: me.id, email: me.email, fullName: me.fullName },
     lastVerifiedAt: new Date().toISOString(),
   });

@@ -14,6 +14,111 @@ async function readStdin(input: NodeJS.ReadStream = process.stdin): Promise<stri
   return value;
 }
 
+export function validateAuthCliArgs(argv: string[]): void {
+  if (argv.some((arg) => arg === "--password" || arg.startsWith("--password="))) {
+    throw new Error(
+      "--password is not supported because command-line arguments can expose secrets. " +
+        "Use the hidden prompt, --password-stdin, or FORKABLE_PASSWORD.",
+    );
+  }
+  if (argv.includes("--password-stdin") && !argv.includes("--login")) {
+    throw new Error("--password-stdin requires --login.");
+  }
+}
+
+export function promptHiddenPassword(
+  input: NodeJS.ReadStream = process.stdin,
+  output: Pick<NodeJS.WriteStream, "write"> = process.stderr,
+): Promise<string> {
+  if (!input.isTTY || typeof input.setRawMode !== "function") {
+    throw new Error(
+      "No interactive terminal available; use --password-stdin or FORKABLE_PASSWORD.",
+    );
+  }
+
+  output.write("Password: ");
+  const wasRaw = input.isRaw;
+  input.setRawMode(true);
+  input.resume();
+
+  return new Promise<string>((resolve, reject) => {
+    let password = "";
+    let finished = false;
+
+    const cleanup = () => {
+      input.off("data", onData);
+      input.off("end", onEnd);
+      input.off("error", onError);
+      if (!wasRaw) input.setRawMode(false);
+      input.pause();
+      output.write("\n");
+    };
+    const finish = (error?: Error) => {
+      if (finished) return;
+      finished = true;
+      cleanup();
+      if (error) reject(error);
+      else if (!password) reject(new Error("Password cannot be empty."));
+      else resolve(password);
+    };
+    const onData = (chunk: Buffer | string) => {
+      for (const char of chunk.toString()) {
+        if (char === "\r" || char === "\n") {
+          finish();
+          return;
+        }
+        if (char === "\u0003" || char === "\u0004") {
+          finish(new Error("Password prompt canceled."));
+          return;
+        }
+        if (char === "\u007f" || char === "\b") {
+          password = password.slice(0, -1);
+          continue;
+        }
+        if (char >= " ") password += char;
+      }
+    };
+    const onEnd = () => finish(new Error("Password input ended before submission."));
+    const onError = (error: Error) => finish(error);
+
+    input.on("data", onData);
+    input.once("end", onEnd);
+    input.once("error", onError);
+  });
+}
+
+interface PasswordSources {
+  envPassword?: string | null;
+  stdinIsTTY?: boolean;
+  readStdin?: () => Promise<string>;
+  prompt?: () => Promise<string>;
+}
+
+export async function resolveLoginPassword(
+  passwordStdin: boolean,
+  sources: PasswordSources = {},
+): Promise<string> {
+  if (passwordStdin) {
+    const raw = await (sources.readStdin ?? (() => readStdin()))();
+    const password = raw.replace(/\r?\n$/, "");
+    if (!password) throw new Error("No password was provided on stdin.");
+    return password;
+  }
+
+  const envPassword = Object.hasOwn(sources, "envPassword")
+    ? sources.envPassword
+    : process.env.FORKABLE_PASSWORD;
+  if (envPassword) return envPassword;
+
+  const stdinIsTTY = sources.stdinIsTTY ?? Boolean(process.stdin.isTTY);
+  if (!stdinIsTTY) {
+    throw new Error(
+      "No password provided. Use --password-stdin or set FORKABLE_PASSWORD in a non-interactive environment.",
+    );
+  }
+  return (sources.prompt ?? (() => promptHiddenPassword()))();
+}
+
 export async function runAuthCli(argv: string[]): Promise<void> {
   const flag = (name: string) => {
     const i = argv.indexOf(name);
@@ -26,17 +131,16 @@ export async function runAuthCli(argv: string[]): Promise<void> {
   const browserArg = browserIdx >= 0 ? argv[browserIdx + 1] : undefined;
 
   try {
+    validateAuthCliArgs(argv);
     if (useLogin) {
       // Email/password login (works headless; can self-heal an expired session).
       const email = flag("--email") ?? process.env.FORKABLE_EMAIL;
-      const password = flag("--password") ?? process.env.FORKABLE_PASSWORD;
       const mfaCode = flag("--mfa") ?? process.env.FORKABLE_MFA;
-      if (!email || !password) {
-        console.error(
-          "Provide --email and --password (or set FORKABLE_EMAIL / FORKABLE_PASSWORD).",
-        );
+      if (!email) {
+        console.error("Provide --email or set FORKABLE_EMAIL.");
         process.exit(1);
       }
+      const password = await resolveLoginPassword(argv.includes("--password-stdin"));
       const { me } = await loginWithPassword({ email, password, mfaCode });
       console.error(`✓ Logged in as ${me.fullName || me.email || `user ${me.id}`}.`);
     } else if (useChrome) {
@@ -99,7 +203,9 @@ export async function runAuthCli(argv: string[]): Promise<void> {
           "No session provided. Pick whichever is easiest:\n" +
             "\n" +
             "  1. Email + password (works headless, auto-refreshes):\n" +
-            "       forkable-mcp --auth --login --email you@co.com --password '…'\n" +
+            "       forkable-mcp --auth --login --email you@co.com\n" +
+            "     The terminal prompts without echoing. For non-interactive use:\n" +
+            "       printf '%s\\n' \"$FORKABLE_PASSWORD\" | forkable-mcp --auth --login --email you@co.com --password-stdin\n" +
             "\n" +
             "  2. Import from your logged-in browser:\n" +
             "       forkable-mcp --auth --chrome\n" +

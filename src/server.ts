@@ -11,11 +11,12 @@ import { registerAllTools } from "./tools.ts";
 import { type Config } from "./config.ts";
 import { ForkableClient } from "@/net/client.ts";
 import { provisionFromEnvIfNeeded } from "@/auth/ingest.ts";
+import { createWriteGate } from "@/write-gate.ts";
 
 /** Build a fresh MCP server with all tools registered (one per stdio connection). */
 function makeServer(cfg: Config): McpServer {
   const server = new McpServer({ name: "forkable", version: cfg.version });
-  registerAllTools(server);
+  registerAllTools(server, createWriteGate());
   return server;
 }
 

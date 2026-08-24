@@ -58,6 +58,19 @@ export class MutationError extends Error {
   }
 }
 
+/** The mutation may have reached Forkable, but no authoritative outcome was received. */
+export class MutationOutcomeUnknownError extends Error {
+  constructor(
+    public op: string,
+    message: string,
+    public status?: number,
+    public override cause?: unknown,
+  ) {
+    super(`${op}: outcome unknown — ${message}`, { cause });
+    this.name = "MutationOutcomeUnknownError";
+  }
+}
+
 /** Thrown when a query returns GraphQL `errors`. */
 export class QueryError extends Error {
   constructor(public errors: GqlError[]) {

@@ -1,7 +1,17 @@
-import { expect, test, describe } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { parseCurl, mergeSetCookies, hasSessionCookie } from "@/auth/cookies.ts";
 import { forkableHeaders } from "@/net/endpoints.ts";
-import { redact, type SessionRecord } from "@/auth/session.ts";
+import {
+  applyNetworkSessionUpdate,
+  clearDelegation,
+  patchSession,
+  readSession,
+  redact,
+  type SessionRecord,
+} from "@/auth/session.ts";
 
 describe("parseCurl", () => {
   test("extracts cookie from -b flag and csrf from -H", () => {
@@ -95,14 +105,53 @@ describe("redact", () => {
       version: 1,
       cookie: "_easyorder_session=supersecret",
       csrf: "tok",
-      writeSecret: "deadbeef",
       updatedAt: "2026-08-10T00:00:00Z",
       meta: { userId: 42, email: "user@example.com" },
     };
     const r = redact(s);
     expect(JSON.stringify(r)).not.toContain("supersecret");
-    expect(JSON.stringify(r)).not.toContain("deadbeef");
     expect(r.cookie).toContain("«hidden");
     expect((r.meta as { userId: number }).userId).toBe(42);
+  });
+});
+
+describe("session updates", () => {
+  let home: string | undefined;
+
+  afterEach(() => {
+    delete process.env.FORKABLE_MCP_HOME;
+    if (home) rmSync(home, { recursive: true, force: true });
+    home = undefined;
+  });
+
+  function useTempStore(): void {
+    home = mkdtempSync(join(tmpdir(), "forkable-session-"));
+    process.env.FORKABLE_MCP_HOME = home;
+  }
+
+  test("explicit null clears delegation", async () => {
+    useTempStore();
+    await patchSession({ cookie: "_easyorder_session=live", delegationSessionId: "delegate-1" });
+    await clearDelegation();
+    expect((await readSession())?.delegationSessionId).toBeNull();
+  });
+
+  test("concurrent response deltas merge into the latest jar", async () => {
+    useTempStore();
+    await patchSession({
+      cookie: "_easyorder_session=live; base=keep",
+      csrf: "old-csrf",
+    });
+
+    await Promise.all([
+      applyNetworkSessionUpdate({ setCookies: ["first=1; Path=/"] }),
+      applyNetworkSessionUpdate({ setCookies: ["second=2; Path=/"], csrf: "new-csrf" }),
+    ]);
+
+    const session = await readSession();
+    expect(session?.cookie).toContain("base=keep");
+    expect(session?.cookie).toContain("first=1");
+    expect(session?.cookie).toContain("second=2");
+    expect(session?.csrf).toBe("new-csrf");
   });
 });

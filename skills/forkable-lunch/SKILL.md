@@ -112,9 +112,9 @@ that token is what actually sends it.
 3. Call again with `confirmToken` once they've agreed. If they already said "order it", one clear
    summary and the confirming call in the same turn is fine; don't loop back for permission twice.
 
-The token is bound to the payload the server rebuilt from live data, so it dies the moment
-anything drifts — the menu changed, the piece was replaced, someone else edited the day — and it
-lapses on its own after ten minutes (the preview says when). A rejected token means
+The token is bound to the exact tool arguments, user, and delegation. It is single-use, lapses after
+ten minutes, and disappears when the server restarts. Confirmation sends the stored preview once;
+Forkable decides whether intervening server changes make it invalid. A rejected token means
 **re-preview**, never retry.
 
 Guards attached to a preview are advisory: Forkable enforces its own policy and reports refusals
