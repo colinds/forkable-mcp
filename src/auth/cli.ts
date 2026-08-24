@@ -6,7 +6,9 @@ import { readSession, redact } from "./session.ts";
 import { ReauthRequiredError } from "@/net/errors.ts";
 import { type SupportedBrowser } from "./chrome.ts";
 import { readFile } from "node:fs/promises";
-import { StringDecoder } from "node:string_decoder";
+import { createInterface } from "node:readline/promises";
+import { Writable } from "node:stream";
+import { parseArgs } from "node:util";
 
 async function readStdin(input: NodeJS.ReadStream = process.stdin): Promise<string> {
   input.setEncoding("utf8");
@@ -15,19 +17,38 @@ async function readStdin(input: NodeJS.ReadStream = process.stdin): Promise<stri
   return value;
 }
 
-export function validateAuthCliArgs(argv: string[]): void {
+const authOptions = {
+  auth: { type: "boolean" },
+  login: { type: "boolean" },
+  chrome: { type: "boolean" },
+  file: { type: "string" },
+  browser: { type: "string" },
+  profile: { type: "string" },
+  email: { type: "string" },
+  mfa: { type: "string" },
+  "password-stdin": { type: "boolean" },
+} as const;
+
+function parseAuthCliArgs(argv: string[]) {
   if (argv.some((arg) => arg === "--password" || arg.startsWith("--password="))) {
     throw new Error(
       "--password is not supported because command-line arguments can expose secrets. " +
         "Use the hidden prompt, --password-stdin, or FORKABLE_PASSWORD.",
     );
   }
-  if (argv.includes("--password-stdin") && !argv.includes("--login")) {
+
+  const { values } = parseArgs({ args: argv, options: authOptions, strict: true });
+  if (values["password-stdin"] && !values.login) {
     throw new Error("--password-stdin requires --login.");
   }
+  return values;
 }
 
-export function promptHiddenPassword(
+export function validateAuthCliArgs(argv: string[]): void {
+  parseAuthCliArgs(argv);
+}
+
+export async function promptHiddenPassword(
   input: NodeJS.ReadStream = process.stdin,
   output: Pick<NodeJS.WriteStream, "write"> = process.stderr,
 ): Promise<string> {
@@ -37,74 +58,36 @@ export function promptHiddenPassword(
     );
   }
 
-  output.write("Password: ");
-  const wasRaw = input.isRaw;
-  input.setRawMode(true);
-  input.resume();
-
-  return new Promise<string>((resolve, reject) => {
-    let password = "";
-    let finished = false;
-    let escape: "none" | "start" | "sequence" = "none";
-    const decoder = new StringDecoder("utf8");
-
-    const cleanup = () => {
-      input.off("data", onData);
-      input.off("end", onEnd);
-      input.off("error", onError);
-      if (!wasRaw) input.setRawMode(false);
-      input.pause();
-      output.write("\n");
-    };
-    const finish = (error?: Error) => {
-      if (finished) return;
-      finished = true;
-      cleanup();
-      if (error) reject(error);
-      else if (!password) reject(new Error("Password cannot be empty."));
-      else resolve(password);
-    };
-    const consume = (value: string) => {
-      for (const char of value) {
-        if (char === "\r" || char === "\n") {
-          finish();
-          return;
-        }
-        if (char === "\u0003" || char === "\u0004") {
-          finish(new Error("Password prompt canceled."));
-          return;
-        }
-        if (escape === "start") {
-          escape = char === "[" || char === "O" ? "sequence" : "none";
-          continue;
-        }
-        if (escape === "sequence") {
-          if (char >= "@" && char <= "~") escape = "none";
-          continue;
-        }
-        if (char === "\u001b") {
-          escape = "start";
-          continue;
-        }
-        if (char === "\u007f" || char === "\b") {
-          password = Array.from(password).slice(0, -1).join("");
-          continue;
-        }
-        if (char >= " ") password += char;
-      }
-    };
-    const onData = (chunk: Buffer | string) =>
-      consume(typeof chunk === "string" ? chunk : decoder.write(chunk));
-    const onEnd = () => {
-      consume(decoder.end());
-      finish(new Error("Password input ended before submission."));
-    };
-    const onError = (error: Error) => finish(error);
-
-    input.on("data", onData);
-    input.once("end", onEnd);
-    input.once("error", onError);
+  const muted = new Writable({
+    write(_chunk, _encoding, done) {
+      done();
+    },
   });
+  const readline = createInterface({ input, output: muted, terminal: true });
+  const abort = new AbortController();
+  const cancel = (_value: string, key: { ctrl?: boolean; name?: string; sequence?: string }) => {
+    if (
+      (key.ctrl && (key.name === "c" || key.name === "d")) ||
+      key.sequence?.endsWith("\u0003") ||
+      key.sequence?.endsWith("\u0004")
+    ) {
+      abort.abort();
+    }
+  };
+  input.on("keypress", cancel);
+  output.write("Password: ");
+  try {
+    const password = await readline.question("", { signal: abort.signal });
+    if (!password) throw new Error("Password cannot be empty.");
+    return password;
+  } catch (error) {
+    if (abort.signal.aborted) throw new Error("Password prompt canceled.", { cause: error });
+    throw error;
+  } finally {
+    input.off("keypress", cancel);
+    readline.close();
+    output.write("\n");
+  }
 }
 
 interface PasswordSources {
@@ -140,42 +123,31 @@ export async function resolveLoginPassword(
 }
 
 export async function runAuthCli(argv: string[]): Promise<void> {
-  const flag = (name: string) => {
-    const i = argv.indexOf(name);
-    return i >= 0 ? argv[i + 1] : undefined;
-  };
-  const useLogin = argv.includes("--login");
-  const useChrome = argv.includes("--chrome");
-  const fileIdx = argv.indexOf("--file");
-  const browserIdx = argv.indexOf("--browser");
-  const browserArg = browserIdx >= 0 ? argv[browserIdx + 1] : undefined;
-
   try {
-    validateAuthCliArgs(argv);
-    if (useLogin) {
+    const args = parseAuthCliArgs(argv);
+    if (args.login) {
       // Email/password login (works headless; can self-heal an expired session).
-      const email = flag("--email") ?? process.env.FORKABLE_EMAIL;
-      const mfaCode = flag("--mfa") ?? process.env.FORKABLE_MFA;
+      const email = args.email ?? process.env.FORKABLE_EMAIL;
+      const mfaCode = args.mfa ?? process.env.FORKABLE_MFA;
       if (!email) {
         console.error("Provide --email or set FORKABLE_EMAIL.");
         process.exit(1);
       }
-      const password = await resolveLoginPassword(argv.includes("--password-stdin"));
+      const password = await resolveLoginPassword(args["password-stdin"] ?? false);
       const { me } = await loginWithPassword({ email, password, mfaCode });
       console.error(`✓ Logged in as ${me.fullName || me.email || `user ${me.id}`}.`);
-    } else if (useChrome) {
+    } else if (args.chrome) {
       const { readForkableCookieHeaders, SUPPORTED_BROWSERS } = await import("./chrome.ts");
-      if (browserArg && !(SUPPORTED_BROWSERS as readonly string[]).includes(browserArg)) {
+      if (args.browser && !(SUPPORTED_BROWSERS as readonly string[]).includes(args.browser)) {
         console.error(
-          `Unknown --browser "${browserArg}". Supported: ${SUPPORTED_BROWSERS.join(", ")}.`,
+          `Unknown --browser "${args.browser}". Supported: ${SUPPORTED_BROWSERS.join(", ")}.`,
         );
         process.exit(1);
       }
-      const browser = browserArg as SupportedBrowser | undefined;
-      const profileArg = flag("--profile");
+      const browser = args.browser as SupportedBrowser | undefined;
       const { candidates, warnings } = await readForkableCookieHeaders({
         ...(browser ? { browser } : {}),
-        ...(profileArg ? { profile: profileArg } : {}),
+        ...(args.profile ? { profile: args.profile } : {}),
       });
       for (const warning of warnings) console.error(`Browser import warning: ${warning}`);
 
@@ -203,7 +175,7 @@ export async function runAuthCli(argv: string[]): Promise<void> {
       console.error(
         `✓ Imported ${browser ?? "chrome"} session (profile ${imported.profile}) for ${imported.user}.`,
       );
-    } else if (fileIdx < 0 && process.env.FORKABLE_COOKIE) {
+    } else if (!args.file && process.env.FORKABLE_COOKIE) {
       // Headless: cookie provided via env (no browser, no terminal paste).
       const { me } = await ingestCredentials({
         cookie: process.env.FORKABLE_COOKIE,
@@ -213,10 +185,7 @@ export async function runAuthCli(argv: string[]): Promise<void> {
         `✓ Stored session from FORKABLE_COOKIE for ${me.fullName || me.email || `user ${me.id}`}.`,
       );
     } else {
-      const blob =
-        fileIdx >= 0 && argv[fileIdx + 1]
-          ? await readFile(argv[fileIdx + 1]!, "utf8")
-          : await readStdin();
+      const blob = args.file ? await readFile(args.file, "utf8") : await readStdin();
       if (!blob.trim()) {
         const { SUPPORTED_BROWSERS } = await import("./chrome.ts");
         console.error(

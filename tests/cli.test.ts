@@ -29,6 +29,12 @@ describe("auth CLI password handling", () => {
     expect(() => validateAuthCliArgs(["--login", "--password-stdin"])).not.toThrow();
   });
 
+  test("parses the supported auth options", () => {
+    expect(() =>
+      validateAuthCliArgs(["--auth", "--chrome", "--browser", "arc", "--profile", "Profile 1"]),
+    ).not.toThrow();
+  });
+
   test("reads the explicit stdin password without trimming spaces", async () => {
     const password = await resolveLoginPassword(true, {
       envPassword: "ignored-env",
