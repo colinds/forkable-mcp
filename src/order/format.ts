@@ -1,17 +1,11 @@
-// Formatters.
-
-/**
- * Money → "$12.34", from DOLLARS. Units are MIXED on the wire: everything we render is dollars
- * (item/option/piece price, copayAmount, userReceipt.*), but `Order.total`/`serviceFee`/`tally` are
- * cents. Those are left unselected, so nothing cents-valued reaches here. See CLAUDE.md.
- */
+/** Format dollar values. Order total/serviceFee/tally use cents and must not reach this helper. */
 export function formatMoney(dollars?: number | null): string {
   if (dollars == null) return "$0.00";
   const sign = dollars < 0 ? "-" : "";
   return `${sign}$${Math.abs(dollars).toFixed(2)}`;
 }
 
-/** ISO timestamp → the calendar date it names, as YYYY-MM-DD. See parseFloating on the `Z` caveat. */
+/** Extract the named YYYY-MM-DD calendar date without timezone conversion. */
 export function formatDate(iso?: string): string {
   if (!iso) return "";
   return iso.length >= 10 ? iso.slice(0, 10) : iso;
@@ -19,12 +13,7 @@ export function formatDate(iso?: string): string {
 
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as const;
 
-/**
- * Weekday for a YYYY-MM-DD calendar date, computed from the date parts alone.
- *
- * Callers were re-deriving weekdays from our date strings and getting them wrong, so we emit the
- * weekday ourselves. Parsing at UTC noon keeps the weekday stable regardless of the host timezone.
- */
+/** Weekday for a calendar date, anchored at UTC noon for host-zone stability. */
 export function weekdayOf(iso?: string): string {
   const date = formatDate(iso);
   if (!/^\d{4}-\d{2}-\d{2}/.test(date)) return "";
@@ -41,17 +30,7 @@ export function formatDay(iso?: string): string {
 const valid = (d: Date): Date | undefined => (Number.isNaN(d.getTime()) ? undefined : d);
 const pad2 = (n: number): string => String(n).padStart(2, "0");
 
-/**
- * Parse a Forkable timestamp to a real instant, for comparing against the clock.
- *
- * Handles the floating-local family only: `forDeliveryAt`'s "…T12:01:00.000Z" means noon local, so
- * `new Date()` alone would shift it. Timestamps with a true offset need nothing, and honest-UTC ones
- * (`dropoffCompletedAt`) must go through `formatInstantLike` instead. CLAUDE.md lists which is which
- * — a `Z` alone can't tell you, so it's knowledge, not inference.
- *
- * Two nudges on top of `Date`, whose offset-less parsing is already local: drop a lying `Z`, and pin
- * a time onto a date-only string, since those parse as UTC.
- */
+/** Parse Forkable floating-local timestamps; true offsets remain real instants. */
 export function parseFloating(iso?: string): Date | undefined {
   if (!iso) return undefined;
   if (/[+-]\d{2}:?\d{2}$/.test(iso)) return valid(new Date(iso)); // genuine offset: a real instant
@@ -59,13 +38,7 @@ export function parseFloating(iso?: string): Date | undefined {
   return valid(new Date(local));
 }
 
-/**
- * "2026-08-10T11:45:00-07:00" → "Mon 2026-08-10 11:45 AM".
- *
- * Shown in the offset Forkable sent, which is also the least work: the leading "YYYY-MM-DDTHH:MM"
- * already *is* the wall clock to display — true both for a real offset and for `forDeliveryAt`'s
- * mislabelled `Z` — so this is pure string slicing, with no `Date` and no host-zone dependence.
- */
+/** Format the wall clock exactly as named by the timestamp, without host-zone conversion. */
 export function formatDateTime(iso?: string): string {
   const m = /^(\d{4}-\d{2}-\d{2})T(\d{2}):(\d{2})/.exec(iso ?? "");
   if (!m) return formatDay(iso);
@@ -76,22 +49,11 @@ export function formatDateTime(iso?: string): string {
 
 /** Parse an honest-UTC instant. `undefined` unless it really carries a `Z`. */
 function utcInstant(utcIso?: string): Date | undefined {
-  // `new Date`, NOT parseFloating: this `Z` is honest, and parseFloating would strip it and reread
-  // the value as host-local — the floating-local rule, which is wrong for this family.
+  // This timestamp family uses an actual UTC `Z`, unlike floating delivery timestamps.
   return utcIso && /Z$/i.test(utcIso) ? valid(new Date(utcIso)) : undefined;
 }
 
-/**
- * Show an honest-UTC instant as a wall clock in a named IANA zone:
- * `formatInstantIn(dropoffCompletedAt, "America/Los_Angeles", "PT")` → "Tue 2026-08-11 11:41 AM PT".
- *
- * Honest-UTC fields only — never `forDeliveryAt`. `""` when the instant or zone is missing: an
- * omitted line beats a wrong clock.
- *
- * Host-independent because the zone is explicit; `formatToParts` (not `toLocaleString`) so the shape
- * is ours rather than the locale's. Don't drop the explicit `timeZone` — without it this silently
- * becomes host-dependent, which the TZ test run exists to catch.
- */
+/** Format a UTC instant in an explicit IANA zone; returns empty when either is unusable. */
 export function formatInstantIn(utcIso?: string, zone?: string, label?: string): string {
   const at = utcInstant(utcIso);
   if (!at || !zone) return "";
@@ -115,10 +77,7 @@ export function formatInstantIn(utcIso?: string, zone?: string, label?: string):
   return label ? `${shown} ${label}` : shown;
 }
 
-/**
- * Same, for clubs that expose no IANA zone: borrow the offset off a sibling timestamp that carries a
- * real one (`etaStatus.start`). Prefer `formatInstantIn`; this is the fallback.
- */
+/** Format a UTC instant using the explicit offset from a sibling timestamp. */
 export function formatInstantLike(utcIso?: string, zoneSource?: string, label?: string): string {
   const off = /([+-])(\d{2}):?(\d{2})$/.exec(zoneSource ?? "");
   const at = utcInstant(utcIso);
@@ -133,22 +92,8 @@ export function formatInstantLike(utcIso?: string, zoneSource?: string, label?: 
 }
 
 /**
- * Time left until an instant, as "2h 14m" / "14m". `""` when the value is missing, unreadable, or
- * already past — an expired countdown is not news, it's just closed.
- *
- * Used for `order.replacementCutoffTs`, whose timestamp family is UNPROVEN: it reads null on every
- * delivery observed, so there is nothing to measure. The app does `DateTime.fromISO(ts).diffNow()`,
- * i.e. treats it as a real instant and honours a `Z`, and this follows the app — hence `new Date`
- * rather than `parseFloating`, which would strip a `Z` and reread it as host-local. Callers keep the
- * raw ISO alongside so the reading can be redone if this turns out wrong.
- *
- * That reading REQUIRES an explicit `Z` or `±HH:MM`, the same discipline as `utcInstant`. An
- * offset-less value has no instant to count down to: `new Date` would read it as host-local, so the
- * identical wire value would produce "2h 14m" on one host and "" on another. Since the family is
- * unproven, an unexpected format must omit the line rather than invent a clock — and `bun run
- * test:tz` could never catch it, because every fixture we can write carries an offset.
- *
- * Rounds UP, so a window with 30 seconds left reads "1m" rather than vanishing.
+ * Time remaining until an explicit-offset instant. Offset-less values are rejected to avoid
+ * host-dependent countdowns; partial minutes round up.
  */
 export function formatCountdown(iso?: string, now: Date = new Date()): string {
   const zoned = iso && /(Z|[+-]\d{2}:?\d{2})$/i.test(iso);
@@ -166,20 +111,12 @@ export function isPast(iso?: string, now: Date = new Date()): boolean | undefine
   return at ? at.getTime() < now.getTime() : undefined;
 }
 
-/**
- * The dropoff group as a trailing segment: `" — group A1"`, or `""` before the delivery is grouped.
- * Every renderer goes through this so the list and the status view can't drift apart — the group is
- * per PIECE, so it attaches to a dish, and the em dash separates a dish's attributes while a comma
- * separates the dishes themselves.
- */
+/** Format a per-piece dropoff group suffix. */
 export function groupSuffix(group?: string | null): string {
   return group ? ` — group ${group}` : "";
 }
 
-/**
- * A cancellation was requested for this meal and Forkable hasn't acted on it yet. Two fields have to
- * agree, so the fold lives here and every caller reuses it rather than re-deriving the pair.
- */
+/** A cancellation is pending only when both wire fields agree. */
 export function cancellationPending(p: {
   isRemoval?: boolean | null;
   requestStatus?: string | null;
@@ -187,11 +124,7 @@ export function cancellationPending(p: {
   return p.isRemoval === true && p.requestStatus === "pending";
 }
 
-/**
- * The per-piece state a badge can report. Structural, so this module needs no domain imports, and
- * deliberately accepting both shapes: a raw `Piece` (the `isRemoval`/`requestStatus` pair) and a
- * view model that already folded them into `cancellationPending`.
- */
+/** Raw pieces and projected meals share these badge fields. */
 interface Badgeable {
   isConfirmed?: boolean | null;
   isLateSwappable?: boolean | null;
@@ -201,20 +134,7 @@ interface Badgeable {
   cancellationPending?: boolean | null;
 }
 
-/**
- * Per-meal state as ONE bracketed group, ordered the way a member cares: whether the meal is
- * happening at all, then what they can still do about it.
- *
- * Bracketed, and `·`-separated inside, because the em dash is already the structural separator for a
- * dish's parts — stacking states onto it made "dish — venue — group — state — state" one flat run
- * with no way to see where the facts ended and the state began. The bracket also survives the list's
- * comma-joined dishes: "A [state], B [state]" stays readable where the dashes didn't.
- *
- * Shared by the list and the status view so neither spells these differently. Every clause tests a
- * definite value rather than falsiness — these fields are nullable, and `null` means "not reported",
- * which must render nothing rather than "not confirmed". The consequence of `not confirmed` is a
- * footnote at the bottom of the status view, not more words here.
- */
+/** Format definite per-piece states as one bracketed badge; null means unreported. */
 export function pieceBadges(p: Badgeable): string {
   const badges = [
     p.isConfirmed === false ? "not confirmed" : "",

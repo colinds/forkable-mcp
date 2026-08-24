@@ -1,5 +1,4 @@
-// Ingest — the ONE shared writer path.
-// Normalize credentials → mint CSRF if needed → verify {me{id}} → persist.
+// Shared credential ingestion path.
 
 import { type FetchImpl } from "@/net/endpoints.ts";
 import { fetchCsrf, verifyMe, type Me } from "@/net/client.ts";
@@ -14,7 +13,7 @@ export interface IngestInput {
   cookies?: { name: string; value: string }[];
 }
 
-/** Normalize credentials → mint CSRF if needed → verify {me{id}} → persist. Returns the live user. */
+/** Normalize credentials, verify the session, and persist it. */
 export async function ingestCredentials(
   input: IngestInput,
   fetchImpl: FetchImpl = fetch,
@@ -61,11 +60,7 @@ export async function ingestCredentials(
   return { session, me };
 }
 
-/**
- * Headless provisioning: if no usable session exists, establish one from env — no terminal, no
- * browser. Prefers `FORKABLE_COOKIE` (+ optional `FORKABLE_CSRF`); otherwise logs in with
- * `FORKABLE_EMAIL`/`FORKABLE_PASSWORD` (+ `FORKABLE_MFA`). Returns the user, or null if nothing to do.
- */
+/** Provision a missing session from cookie or password environment variables. */
 export async function provisionFromEnvIfNeeded(fetchImpl: FetchImpl = fetch): Promise<Me | null> {
   const existing = await readSession();
   if (existing && hasSessionCookie(existing.cookie)) return null; // already provisioned

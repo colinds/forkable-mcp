@@ -1,6 +1,4 @@
-// Email/password login via the `createSession` mutation. Works headless (no browser/Keychain) and,
-// unlike a pasted cookie, can be replayed to self-heal an expired session. Only works for accounts
-// that permit password login; SSO-only accounts must import a cookie instead (see cli.ts / README).
+// Password login supports headless session refresh; SSO-only accounts must import a cookie.
 
 import { ENDPOINT, PUBLIC_ENDPOINT, forkableHeaders, type FetchImpl } from "@/net/endpoints.ts";
 import { fetchCsrf, type Me } from "@/net/client.ts";
@@ -16,11 +14,7 @@ export interface LoginInput {
 
 const CREATE_SESSION_SELECTION = "errorAttributes errorDetails user { id email fullName }";
 
-/**
- * Pre-flight (public, unauthenticated): if the email belongs to an SSO org that disallows password
- * login, fail fast with a clear message instead of an opaque createSession error. Best-effort — any
- * lookup failure just proceeds to the login attempt.
- */
+/** Best-effort public check for SSO-only accounts before password login. */
 async function assertPasswordLoginAllowed(email: string, fetchImpl: FetchImpl): Promise<void> {
   const query = `{ identities(email: ${JSON.stringify(email)}) { integration { allowSsoPasswordLogin } } }`;
   let identities: { integration?: { allowSsoPasswordLogin?: boolean } }[];
@@ -35,7 +29,7 @@ async function assertPasswordLoginAllowed(email: string, fetchImpl: FetchImpl): 
   } catch {
     return; // couldn't check — let the login attempt decide
   }
-  // Empty ⇒ plain password login. Otherwise it's SSO; allowed only if some integration opts in.
+  // Empty identities permit password login; SSO must explicitly allow it.
   if (identities.length && !identities.some((i) => i.integration?.allowSsoPasswordLogin)) {
     throw new Error(
       "This account uses SSO and doesn't allow password login. Import a browser cookie instead " +
@@ -51,7 +45,7 @@ export async function loginWithPassword(
 ): Promise<{ session: SessionRecord; me: Me }> {
   await assertPasswordLoginAllowed(input.email.trim().toLowerCase(), fetchImpl);
 
-  // Seed an anonymous session + CSRF token (createSession needs a matching token).
+  // createSession requires a matching anonymous cookie and CSRF token.
   const seed = await fetchCsrf("", fetchImpl);
   let cookie = mergeSetCookies("", seed.setCookies);
   let csrf = seed.token;
@@ -85,7 +79,7 @@ export async function loginWithPassword(
   const me = payload?.user;
   if (!me?.id) throw new Error("Login failed — no user returned (check email / password / MFA).");
 
-  // Refresh CSRF for the now-authenticated session, then persist.
+  // Refresh CSRF after authentication before persisting.
   const after = await fetchCsrf(cookie, fetchImpl);
   csrf = after.token;
   cookie = mergeSetCookies(cookie, after.setCookies);

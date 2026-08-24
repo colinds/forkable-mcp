@@ -1,12 +1,9 @@
-// Meal selection logic. Pure and unit-tested — this is where a wrong answer silently orders
-// the wrong real food.
-//
 // selectionsHash semantics:
-//   - keyed by MenuModifier.id (NOT optionSetId), value = array of selected option ids
+//   - keyed by MenuModifier.id, not optionSetId
 //   - single-select modifier ⇔ (max === 1 && options.length > 1); value is [optionId] or the
-//     sentinel [-1] when a NON-required single-select has nothing chosen
+//     sentinel [-1] when a non-required single-select has nothing chosen
 //   - multi-select ⇔ everything else; value is the array of chosen option ids
-//   - key order follows item.modifierIds so previews and requests stay stable and diffable
+//   - key order follows item.modifierIds
 
 import {
   type Menu,
@@ -110,11 +107,7 @@ function resolveUnique<T>(values: T[], name: string, label: (value: T) => string
   return values.filter((value) => normalizeName(label(value)) === normalized);
 }
 
-/**
- * Build a selectionsHash for an item from explicit choices (falling back to sensible defaults).
- * Nothing is silently guessed for user-facing violations — required/min/max problems are returned
- * as violations (the write gate turns them into blocking guards).
- */
+/** Build selections from explicit choices, prior values, or API-ordered defaults. */
 export function buildSelectionsHash(input: BuildSelectionsInput): BuildSelectionsResult {
   const mods = input.modifiers ?? resolveItemModifiers(input.item);
   const prev = input.previous ?? null;
@@ -123,7 +116,7 @@ export function buildSelectionsHash(input: BuildSelectionsInput): BuildSelection
   const selectionsHash: SelectionsHash = {};
   let extraTotal = 0;
 
-  // Index explicit choices by resolved modifier id.
+  // Resolve names before indexing choices by modifier id.
   const chosenByMod = new Map<number, number[]>();
   for (const choice of input.choices ?? []) {
     const matches =
@@ -247,7 +240,7 @@ export function buildSelectionsHash(input: BuildSelectionsInput): BuildSelection
 
     selectionsHash[String(mod.id)] = selected;
 
-    // Human summary + pricing (skip the -1 sentinel).
+    // The -1 sentinel has no option or price.
     const chosenOpts = selected
       .filter((id) => id !== -1)
       .map((id) => mod.options.find((o) => o.id === id))

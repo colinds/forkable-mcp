@@ -1,7 +1,4 @@
-// GraphQL string construction. The Forkable API inlines query args as literals
-// (no typed $vars) and uses a single Relay `$input` for mutations. This module
-// builds those strings safely — every identifier is validated, and every value
-// goes through a strict GraphQL literal serializer (no injection via strings).
+// Queries inline validated literals; mutations use one Relay `$input` variable.
 
 const NAME_RE = /^[_A-Za-z][_0-9A-Za-z]*$/;
 

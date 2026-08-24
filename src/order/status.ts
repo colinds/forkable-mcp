@@ -1,5 +1,4 @@
-// Fulfillment view of a delivery: where lunch is, when it landed, and how to chase it.
-// Pure, so the layout is testable without standing up a server.
+// Delivery fulfillment projection and rendering.
 
 import { type Delivery, type Order, type Piece } from "./types.ts";
 import {
@@ -41,7 +40,7 @@ export interface DeliveryStatus {
   id: number;
   date: string;
   day: string;
-  /** Conservative roll-up of the positively owned orders below. */
+  /** Conservative roll-up of positively owned orders. */
   fulfillment: string | null;
   delayed: boolean;
   orders: OwnedOrderStatus[];
@@ -238,7 +237,7 @@ function formatOrderInstant(
   );
 }
 
-/** Every line drops out when its data is absent, so pre- and post-delivery share one renderer. */
+/** Omit status lines whose source data is absent. */
 export function formatDeliveryStatus(s: DeliveryStatus): string {
   const aggregate = s.fulfillment ?? "status unavailable";
   let headline = aggregate;

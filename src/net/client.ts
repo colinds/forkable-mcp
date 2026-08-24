@@ -25,10 +25,6 @@ import {
 import { mergeSetCookies } from "@/auth/cookies.ts";
 import { setTimeout as delay } from "node:timers/promises";
 
-// ---------------------------------------------------------------------------
-// CSRF + verification (low-level; the full client adds retries/error mapping)
-// ---------------------------------------------------------------------------
-
 /** GET /api/v2/csrf_token with the cookie. Returns the token and any rotated Set-Cookies. */
 export async function fetchCsrf(
   cookie: string,
@@ -74,10 +70,6 @@ export async function verifyMe(
   if (!me?.id) throw new Error("me query returned no user");
   return { me, setCookies };
 }
-
-// ---------------------------------------------------------------------------
-// Client
-// ---------------------------------------------------------------------------
 
 export interface ClientOptions {
   session: SessionRecord;
@@ -457,8 +449,7 @@ export class ForkableClient {
       throw outcomeUnknown(name, "the mutation payload was malformed");
     }
     const errors = (payloadErrors ?? []) as string[];
-    // A refusal can arrive with an EMPTY `errors` array and the reason only in `errorDetails.base`.
-    // Treating that as success reported "✓ Sent" on a write the server had rejected.
+    // Some refusals appear only in errorDetails.base.
     if (errors.length || baseCodes(payload.errorDetails).length) {
       const attrs = parsedAttributes(payload.errorAttributes);
       throw new MutationError(name, errors, payload.errorDetails, attrs, payload.warningDetails);

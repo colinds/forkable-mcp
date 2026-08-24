@@ -1,7 +1,4 @@
-// Session store — the only durable state the server has.
-//
-// Lives on disk (0600) so it survives restarts and is shared by the writers: the `--auth` CLI,
-// the FORKABLE_COOKIE env provisioning, and the client's cookie rotation.
+// The mode-0600 session file is shared by authentication and cookie rotation.
 
 import { mkdir, readFile, rename, chmod, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
@@ -9,13 +6,9 @@ import { join, dirname } from "node:path";
 import { ReauthRequiredError } from "@/net/errors.ts";
 import { hasSessionCookie, mergeSetCookies } from "./cookies.ts";
 
-// ---------------------------------------------------------------------------
-// Record shape + paths
-// ---------------------------------------------------------------------------
-
 export interface SessionRecord {
   version: 1;
-  cookie: string; // FULL Cookie header: _easyorder_session + AWSALBTG* + anything else
+  cookie: string; // complete Cookie header, including load-balancer affinity
   csrf?: string;
   updatedAt: string; // ISO
   lastVerifiedAt?: string;
@@ -29,10 +22,6 @@ export function storeHome(): string {
 export function storePath(): string {
   return join(storeHome(), "session.json");
 }
-
-// ---------------------------------------------------------------------------
-// Read / write
-// ---------------------------------------------------------------------------
 
 export async function readSession(): Promise<SessionRecord | null> {
   try {
@@ -59,7 +48,7 @@ async function atomicWrite(record: SessionRecord): Promise<void> {
   await chmod(path, 0o600).catch(() => {});
 }
 
-// In-process serialization keeps concurrent session updates from overwriting each other.
+// Serialize in-process updates to prevent lost cookie rotations.
 let writeChain: Promise<unknown> = Promise.resolve();
 function serialize<T>(fn: () => Promise<T>): Promise<T> {
   const next = writeChain.then(fn, fn);
@@ -118,7 +107,7 @@ function hideSecret(v?: string): string | undefined {
   return v ? `«hidden len=${v.length}»` : undefined;
 }
 
-/** Redacted view for logging — never expose cookie/csrf. */
+/** Redacted view for logging. */
 export function redact(s: SessionRecord | null): Record<string, unknown> {
   if (!s) return { session: null };
   const hide = hideSecret;

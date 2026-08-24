@@ -1,4 +1,4 @@
-// Domain types (only the fields our v0 tools touch).
+// Domain fields selected by the tools.
 
 export interface MenuOption {
   id: number;
@@ -44,7 +44,7 @@ export interface Menu {
   name?: string;
   displayName?: string;
   sections: MenuSection[];
-  /** Option price fallback. Unit UNVERIFIED — never seen populated; assumed dollars. */
+  /** Option price fallback; treated as dollars. */
   optionSets?: { id: number; price?: number | null }[];
   /** This venue takes no custom notes; `instructions` sent anyway are dropped. */
   disableSpecialInstructions?: boolean;
@@ -58,31 +58,15 @@ export interface Piece {
   userId?: number; // whose meal — required to tell your piece from a guest's
   name?: string;
   state?: string;
-  autoOrder?: boolean; // the MEMBER is on auto-order (no per-meal confirm) — not "who picked this"
-  /** `"late_replacement"` on any piece freezes every meal on the delivery. */
+  autoOrder?: boolean; // account auto-order state
+  /** Forkable flow classification. */
   flowType?: string;
   /** Pre-rendered customization labels — cheaper than decoding `selections`. */
   nonHiddenAttributes?: PieceAttribute[];
   instructions?: string;
-  /**
-   * The dropoff group this meal is bagged into, e.g. `"A1"` — a String, badged in the app as
-   * "This meal is in Group A1". Assigned when the delivery is grouped, so it's null on a future
-   * delivery (measured: today's piece carries `"A1"`, tomorrow's carries `null`).
-   *
-   * This is the ONLY member-facing source of the group. The order also carries a `mealGroups`
-   * roster, which is the ADMIN view and deliberately unselected — see CLAUDE.md.
-   */
+  /** Per-piece dropoff group; null before grouping. */
   group?: string | null;
-  /**
-   * Per-meal state the delivery-level flags don't express. All nullable, and all read null/false on
-   * the account these were modelled against except `isConfirmed` — so the rendering is MODELLED from
-   * the app's own member code, not observed live. See CLAUDE.md before trusting a combination.
-   *
-   * - `isConfirmed` — this meal is actually going to be ordered. Finer than `delivery.userConfirmed`.
-   * - `isLateSwappable` — the app offers "Choose Another Meal" for it even on a read-only delivery.
-   * - `isRemoval` + `requestStatus: "pending"` — a cancellation was requested and hasn't landed.
-   * - `isLateOrder` — placed after the normal cutoff, against the monthly late-order budget.
-   */
+  /** Nullable per-piece confirmation, swap, removal, and late-order state. */
   isConfirmed?: boolean | null;
   isLateSwappable?: boolean | null;
   isRemoval?: boolean | null;
@@ -104,7 +88,7 @@ export interface EtaStatus {
 export interface Dropoff {
   id: string | number;
   route?: { courierId?: string | number | null; date?: string };
-  pickupWindowInfo?: { windowStart?: string; windowEnd?: string }; // TRUE offsets
+  pickupWindowInfo?: { windowStart?: string; windowEnd?: string }; // explicit offsets
 }
 
 export interface OrderVenue {
@@ -132,13 +116,7 @@ export interface ReportedIssue {
   pieces?: { id: string | number }[];
 }
 
-/**
- * One order per VENUE, not per person. Your pieces sit on exactly one, at an index that moves day
- * to day — resolve it with `findOwnMeal`/`orderForGuards`, never by indexing.
- *
- * `total`/`serviceFee`/`tally` are company-wide CENTS on the wire; left unselected and untyped so
- * nothing cents-valued can reach `formatMoney`.
- */
+/** One order per venue. Resolve pieces by owner rather than order position. */
 export interface Order {
   id: string | number;
   state?: string;
@@ -150,7 +128,7 @@ export interface Order {
   pastLateOrderDeadline?: boolean;
   hasVenueLateOrdersRemaining?: boolean;
   hasChangeRequest?: boolean;
-  /** The order this one replaces. Its presence unlocks a late order here AND freezes siblings. */
+  /** The order this one replaces. */
   replaces?: { id: string | number; menu?: { id: number } };
   replacementCutoffTs?: string;
   isNextStepsAble?: boolean;
@@ -159,7 +137,7 @@ export interface Order {
   pieces?: Piece[];
   venue?: OrderVenue;
   etaStatus?: EtaStatus;
-  dropoffCompletedAt?: string; // HONEST UTC — display via formatInstantLike, never parseFloating
+  dropoffCompletedAt?: string; // UTC instant
   dropoff?: Dropoff;
 }
 
@@ -185,7 +163,7 @@ export interface Delivery {
   forDeliveryAt?: string; // floating local mislabelled UTC — see parseFloating
   isReadOnly?: boolean;
   userConfirmed?: boolean;
-  /** The DAILY company limit. Only meaningful when `allowanceType` is "daily" — see allowanceFor. */
+  /** Forkable-reported delivery copay, in dollars. */
   copayAmount?: number; // dollars
   availableMenuIds?: number[];
   pastLateOrderDeadline?: boolean;
@@ -194,19 +172,19 @@ export interface Delivery {
   allowanceType?: string;
   weeklyAllowance?: number; // dollars; the weekly cap
   weeklyAllowanceAvailable?: number; // dollars; what's left of it. Reads 0 on a daily club.
-  /** Family-style service: meals are shared, so per-member change requests don't apply. Nullable. */
+  /** Family-style service flags. */
   forFamily?: boolean | null;
   forBuffet?: boolean | null;
   deliveryWindow?: string[]; // ["11:45","12:15"] — wall clock, no date, no zone
   serviceWindow?: ServiceWindow;
-  /** Missing-item deadline. Read as honest UTC (inferred, not proven) — rendered, but never gated on. */
+  /** Missing-item deadline, rendered only when it is an explicit instant. */
   reportMissingItemCutoff?: string;
   address?: DeliveryAddress;
   notes?: string; // duplicate of address.notes
   club?: {
     id: number;
     name?: string;
-    /** Boolean: the company covers ONE meal a day. Not a count. */
+    /** Boolean coverage rule, not a count. */
     allowanceMealLimit?: boolean;
     allowanceType?: string;
     familyHub?: boolean;
@@ -219,12 +197,9 @@ export interface Delivery {
     /** Null until a receipt exists — a future delivery still reports the figures below. */
     id: number | null;
     due?: number;
-    /**
-     * The copay actually APPLIED, not the cap: 14.95 against a $20 entitlement. Read
-     * `clubCopay` (via `allowanceFor`) for the limit — never this.
-     */
+    /** Copay applied to this receipt. */
     copayAmount?: number;
-    /** This member's entitlement for this delivery. The allowance source — see `allowanceFor`. */
+    /** Forkable-reported member copay context. */
     clubCopay?: number;
     subtotal?: number;
     feesTotal?: number;
