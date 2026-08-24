@@ -78,8 +78,14 @@ function stable(value: unknown): unknown {
 }
 
 /** Hash the effective tool arguments while excluding the confirmation credential itself. */
-export function hashWriteArgs(args: Record<string, unknown>): string {
-  const bound = { ...args };
+export function hashWriteArgs(
+  args: Record<string, unknown>,
+  defaults: Record<string, unknown> = {},
+): string {
+  const bound = { ...defaults };
+  for (const [key, value] of Object.entries(args)) {
+    if (value !== undefined) bound[key] = value;
+  }
   delete bound.confirmToken;
   return createHash("sha256")
     .update(`${ARGS_PREFIX}\n${JSON.stringify(stable(bound))}`)

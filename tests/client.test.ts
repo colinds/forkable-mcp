@@ -162,6 +162,42 @@ describe("mutation transport", () => {
     expect(urls).toHaveLength(1);
   });
 
+  test("uses structured rejection codes when no error message is present", async () => {
+    let calls = 0;
+    const details = {
+      base: [{ error: "new_server_code" }, { error: "venue_capacity_overage" }],
+    };
+    const c = client(async () => {
+      calls++;
+      return response(422, {
+        data: {
+          addPiece: {
+            errors: [],
+            errorDetails: details,
+          },
+        },
+      });
+    });
+
+    const error = await rejection(c.mutate("addPiece", "errors", { itemId: 1 }));
+    expect(error).toBeInstanceOf(MutationError);
+    expect((error as MutationError).errors).toEqual([]);
+    expect((error as MutationError).errorDetails).toEqual(details);
+    expect(error.message).toContain("new_server_code");
+    expect(error.message).toContain("venue_capacity_overage");
+    expect(error.message).toContain("that venue is full");
+    expect(error.message).not.toContain("HTTP 422");
+    expect(calls).toBe(1);
+  });
+
+  test("uses the HTTP status when a rejection has no messages or detail codes", async () => {
+    const c = client(async () => response(422, { data: { addPiece: { errors: [] } } }));
+
+    const error = await rejection(c.mutate("addPiece", "errors", { itemId: 1 }));
+    expect(error).toBeInstanceOf(MutationError);
+    expect(error.message).toContain("HTTP 422");
+  });
+
   test("retries exactly one actual HTTP 419", async () => {
     let posts = 0;
     let csrfGets = 0;

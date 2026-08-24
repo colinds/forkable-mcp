@@ -6,6 +6,7 @@ import { readSession, redact } from "./session.ts";
 import { ReauthRequiredError } from "@/net/errors.ts";
 import { type SupportedBrowser } from "./chrome.ts";
 import { readFile } from "node:fs/promises";
+import { StringDecoder } from "node:string_decoder";
 
 async function readStdin(input: NodeJS.ReadStream = process.stdin): Promise<string> {
   input.setEncoding("utf8");
@@ -44,6 +45,8 @@ export function promptHiddenPassword(
   return new Promise<string>((resolve, reject) => {
     let password = "";
     let finished = false;
+    let escape: "none" | "start" | "sequence" = "none";
+    const decoder = new StringDecoder("utf8");
 
     const cleanup = () => {
       input.off("data", onData);
@@ -61,8 +64,8 @@ export function promptHiddenPassword(
       else if (!password) reject(new Error("Password cannot be empty."));
       else resolve(password);
     };
-    const onData = (chunk: Buffer | string) => {
-      for (const char of chunk.toString()) {
+    const consume = (value: string) => {
+      for (const char of value) {
         if (char === "\r" || char === "\n") {
           finish();
           return;
@@ -71,14 +74,31 @@ export function promptHiddenPassword(
           finish(new Error("Password prompt canceled."));
           return;
         }
+        if (escape === "start") {
+          escape = char === "[" || char === "O" ? "sequence" : "none";
+          continue;
+        }
+        if (escape === "sequence") {
+          if (char >= "@" && char <= "~") escape = "none";
+          continue;
+        }
+        if (char === "\u001b") {
+          escape = "start";
+          continue;
+        }
         if (char === "\u007f" || char === "\b") {
-          password = password.slice(0, -1);
+          password = Array.from(password).slice(0, -1).join("");
           continue;
         }
         if (char >= " ") password += char;
       }
     };
-    const onEnd = () => finish(new Error("Password input ended before submission."));
+    const onData = (chunk: Buffer | string) =>
+      consume(typeof chunk === "string" ? chunk : decoder.write(chunk));
+    const onEnd = () => {
+      consume(decoder.end());
+      finish(new Error("Password input ended before submission."));
+    };
     const onError = (error: Error) => finish(error);
 
     input.on("data", onData);

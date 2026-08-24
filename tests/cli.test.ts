@@ -1,5 +1,22 @@
 import { describe, expect, test } from "bun:test";
-import { resolveLoginPassword, validateAuthCliArgs } from "@/auth/cli.ts";
+import { EventEmitter } from "node:events";
+import { promptHiddenPassword, resolveLoginPassword, validateAuthCliArgs } from "@/auth/cli.ts";
+
+function fakeTty() {
+  const input = new EventEmitter() as NodeJS.ReadStream;
+  const rawModes: boolean[] = [];
+  Object.assign(input, {
+    isTTY: true,
+    isRaw: false,
+    pause() {},
+    resume() {},
+    setRawMode(value: boolean) {
+      rawModes.push(value);
+      return input;
+    },
+  });
+  return { input, rawModes };
+}
 
 describe("auth CLI password handling", () => {
   test("rejects command-line passwords", () => {
@@ -50,5 +67,39 @@ describe("auth CLI password handling", () => {
     await expect(
       resolveLoginPassword(false, { envPassword: null, stdinIsTTY: false }),
     ).rejects.toThrow(/--password-stdin/);
+  });
+
+  test("decodes split UTF-8 and ignores split terminal escape sequences", async () => {
+    const { input, rawModes } = fakeTty();
+    let output = "";
+    const password = promptHiddenPassword(input, {
+      write(value) {
+        output += value;
+        return true;
+      },
+    });
+
+    input.emit("data", Buffer.from([0x70, 0xc3]));
+    input.emit("data", Buffer.from([0xa4, 0x73, 0x73]));
+    input.emit("data", "\u001b");
+    input.emit("data", "[D");
+    input.emit("data", "\u001b[200~");
+    input.emit("data", "🔐");
+    input.emit("data", "\u001b[201~");
+    input.emit("data", "\u007f\n");
+
+    expect(await password).toBe("päss");
+    expect(rawModes).toEqual([true, false]);
+    expect(output).toBe("Password: \n");
+  });
+
+  test("restores terminal mode when the prompt is canceled", async () => {
+    const { input, rawModes } = fakeTty();
+    const password = promptHiddenPassword(input, { write: () => true });
+
+    input.emit("data", "\u001b\u0003");
+
+    await expect(password).rejects.toThrow(/canceled/);
+    expect(rawModes).toEqual([true, false]);
   });
 });

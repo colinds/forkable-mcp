@@ -142,10 +142,12 @@ function mutationRejection(
         return [];
       })
     : [];
+  const errorDetails = payload?.errorDetails ?? body?.errorDetails;
+  const errors = messages.length || baseCodes(errorDetails).length ? messages : [`HTTP ${status}`];
   return new MutationError(
     op,
-    messages.length ? messages : [`HTTP ${status}`],
-    payload?.errorDetails ?? body?.errorDetails,
+    errors,
+    errorDetails,
     parsedAttributes(payload?.errorAttributes ?? body?.errorAttributes),
     payload?.warningDetails ?? body?.warningDetails,
   );

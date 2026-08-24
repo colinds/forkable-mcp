@@ -74,6 +74,43 @@ describe("hashWriteArgs", () => {
     expect(first).toBe(reordered);
     expect(hashWriteArgs({ ids: [1, 2, 3] })).not.toBe(hashWriteArgs({ ids: [3, 2, 1] }));
   });
+
+  test("normalizes omitted arguments to their effective defaults", () => {
+    expect(hashWriteArgs({ deliveryId: 1 }, { confirm: true })).toBe(
+      hashWriteArgs({ deliveryId: 1, confirm: true }, { confirm: true }),
+    );
+    expect(
+      hashWriteArgs(
+        { deliveryId: 1, itemId: 4 },
+        { modifiers: [], instructions: "", autoConfirm: false },
+      ),
+    ).toBe(
+      hashWriteArgs(
+        {
+          deliveryId: 1,
+          itemId: 4,
+          modifiers: [],
+          instructions: "",
+          autoConfirm: false,
+        },
+        { modifiers: [], instructions: "", autoConfirm: false },
+      ),
+    );
+    expect(hashWriteArgs({ deliveryId: 1 }, { confirm: true })).not.toBe(
+      hashWriteArgs({ deliveryId: 1, confirm: false }, { confirm: true }),
+    );
+    expect(
+      hashWriteArgs(
+        { deliveryId: 1, itemId: 4, instructions: "extra sauce" },
+        { modifiers: [], instructions: "", autoConfirm: false },
+      ),
+    ).not.toBe(
+      hashWriteArgs(
+        { deliveryId: 1, itemId: 4 },
+        { modifiers: [], instructions: "", autoConfirm: false },
+      ),
+    );
+  });
 });
 
 describe("createWriteGate", () => {

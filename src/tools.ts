@@ -1277,7 +1277,10 @@ export function registerAllTools(server: McpServer, writeGate: WriteGate): void 
         return toCallToolResult(
           await writeGate(gateCtx(client, session), {
             tool: "set_meal",
-            argsHash: hashWriteArgs({ ...a }),
+            argsHash: hashWriteArgs(
+              { ...a },
+              { modifiers: [], instructions: "", autoConfirm: false },
+            ),
             confirmToken: a.confirmToken,
             plan,
           }),
@@ -1393,7 +1396,7 @@ export function registerAllTools(server: McpServer, writeGate: WriteGate): void 
         return toCallToolResult(
           await writeGate(gateCtx(client, session), {
             tool: "set_meal_all",
-            argsHash: hashWriteArgs({ ...a }),
+            argsHash: hashWriteArgs({ ...a }, { modifiers: [], instructions: "" }),
             confirmToken: a.confirmToken,
             plan,
           }),
@@ -1557,7 +1560,7 @@ export function registerAllTools(server: McpServer, writeGate: WriteGate): void 
         return toCallToolResult(
           await writeGate(gateCtx(client, session), {
             tool: "confirm_delivery",
-            argsHash: hashWriteArgs({ ...a }),
+            argsHash: hashWriteArgs({ ...a }, { confirm: true }),
             confirmToken: a.confirmToken,
             plan,
           }),
