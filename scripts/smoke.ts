@@ -11,10 +11,14 @@
 
 import { Client } from "@modelcontextprotocol/client";
 import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
-import { mkdtemp, rm } from "node:fs/promises";
+import { execFile } from "node:child_process";
+import { access, mkdir, mkdtemp, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
+import { promisify } from "node:util";
 import pkg from "../package.json" with { type: "json" };
+
+const exec = promisify(execFile);
 
 const EXPECTED_TOOLS = [
   "confirm_delivery",
@@ -32,6 +36,7 @@ const EXPECTED_TOOLS = [
 ];
 
 const log = (msg: string) => console.log(`  ${msg}`);
+type Runner = "bunx" | "npx";
 
 function fail(msg: string): never {
   console.error(`\n✗ ${msg}`);
@@ -39,16 +44,33 @@ function fail(msg: string): never {
 }
 
 async function run(cmd: string[], cwd: string): Promise<void> {
-  const p = Bun.spawn(cmd, { cwd, stdout: "pipe", stderr: "pipe" });
-  const [out, err, code] = await Promise.all([
-    new Response(p.stdout).text(),
-    new Response(p.stderr).text(),
-    p.exited,
-  ]);
-  if (code !== 0) fail(`\`${cmd.join(" ")}\` exited ${code}\n${err || out}`);
+  const [command, ...args] = cmd;
+  try {
+    await exec(command!, args, { cwd });
+  } catch (error) {
+    const result = error as Error & { code?: number; stdout?: string; stderr?: string };
+    fail(
+      `\`${cmd.join(" ")}\` exited ${result.code ?? "unknown"}\n${result.stderr || result.stdout || result.message}`,
+    );
+  }
 }
 
-async function checkInstalled(runner: "bunx" | "npx", cwd: string, home: string): Promise<void> {
+async function exists(path: string): Promise<boolean> {
+  return access(path).then(
+    () => true,
+    () => false,
+  );
+}
+
+async function findTarball(path: string): Promise<string> {
+  const input = resolve(path);
+  if ((await stat(input)).isFile()) return input;
+  const file = (await readdir(input)).find((name) => name.endsWith(".tgz"));
+  if (!file) fail(`no package tarball found in ${input}`);
+  return join(input, file);
+}
+
+async function checkInstalled(runner: Runner, cwd: string, home: string): Promise<void> {
   log(`connecting with ${runner}`);
   const client = new Client({ name: `smoke-${runner}`, version: "0" });
   const transport = new StdioClientTransport({
@@ -89,28 +111,38 @@ async function checkInstalled(runner: "bunx" | "npx", cwd: string, home: string)
   await client.close();
 }
 
-const tmp = await mkdtemp(join(tmpdir(), "forkable-smoke-"));
-try {
-  log(`packing ${pkg.name}@${pkg.version}`);
-  await run(["bun", "pm", "pack", "--destination", tmp], process.cwd());
-  const tgz = [...new Bun.Glob("*.tgz").scanSync(tmp)][0];
-  if (!tgz) fail("bun pm pack produced no tarball");
+async function checkPackage(runner: Runner, root: string, tarball: string): Promise<void> {
+  const consumer = join(root, `consumer-${runner}`);
+  await mkdir(consumer, { recursive: true });
+  await writeFile(join(consumer, "package.json"), JSON.stringify({ private: true }));
 
-  const consumer = join(tmp, "consumer");
-  await Bun.write(
-    join(consumer, "package.json"),
-    JSON.stringify({ name: "smoke-consumer", private: true }),
-  );
-
-  log(`installing ${tgz} into a scratch project`);
-  await run(["npm", "install", "--cache", join(tmp, "npm-cache"), join(tmp, tgz)], consumer);
+  log(`installing with ${runner === "bunx" ? "bun" : "npm"}`);
+  if (runner === "bunx") await run(["bun", "add", tarball], consumer);
+  else await run(["npm", "install", "--cache", join(root, "npm-cache"), tarball], consumer);
 
   const bin = join(consumer, "node_modules", ".bin", "forkable-mcp");
-  if (!(await Bun.file(bin).exists())) fail(`no binary at ${bin} — check package.json "bin"`);
+  if (!(await exists(bin))) fail(`no binary at ${bin} — check package.json "bin"`);
+  await checkInstalled(runner, consumer, join(root, `home-${runner}`));
+}
 
-  await checkInstalled("bunx", consumer, join(tmp, "home-bun"));
-  await checkInstalled("npx", consumer, join(tmp, "home-node"));
-  console.log("\n✓ packaged install works with Bun and Node.js");
+const tmp = await mkdtemp(join(tmpdir(), "forkable-smoke-"));
+try {
+  const requested = process.argv[2];
+  if (requested && requested !== "bunx" && requested !== "npx") {
+    fail(`unknown runner ${requested}; expected bunx or npx`);
+  }
+  const runners: Runner[] =
+    requested === "bunx" || requested === "npx" ? [requested] : ["bunx", "npx"];
+  let tarball: string;
+  if (process.argv[3]) {
+    tarball = await findTarball(process.argv[3]);
+  } else {
+    log(`packing ${pkg.name}@${pkg.version}`);
+    await run(["bun", "pm", "pack", "--destination", tmp], process.cwd());
+    tarball = await findTarball(tmp);
+  }
+  await Promise.all(runners.map((runner) => checkPackage(runner, tmp, tarball)));
+  console.log(`\n✓ packaged install works with ${runners.join(" and ")}`);
 } finally {
   await rm(tmp, { recursive: true, force: true });
 }

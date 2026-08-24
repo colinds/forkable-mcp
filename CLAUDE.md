@@ -26,7 +26,7 @@ src/
     session.ts      on-disk session store (mode 0600)
     cookies.ts      cookie-jar merge + cURL parsing
     ingest.ts       normalize creds → verify → persist (+ FORKABLE_COOKIE provisioning)
-    chrome.ts       macOS Chrome cookie decryption
+    chrome.ts       browser cookie import
     cli.ts          `bun run auth`
     login.ts        email/password `createSession` login
   order/            ordering domain (pure)
@@ -51,18 +51,11 @@ a session one of:
 - **Email/password** (`auth/login.ts`): `bun run auth --login` (`--email`/`--password`/`--mfa`) or
   `FORKABLE_EMAIL`/`FORKABLE_PASSWORD` (+ `FORKABLE_MFA`) env. Logs in via the `createSession` mutation;
   works headless. A public `identities` pre-check fails fast on SSO-only accounts. Password-capable only.
-- **Browser cookie**: `bun run auth --chrome` (macOS Keychain-decrypts the local browser cookie; `--browser`
-  picks any value in `SUPPORTED_BROWSERS`), `FORKABLE_COOKIE` env, or `bun run auth --file <path>` /
-  `pbpaste | bun run auth`.
-
-  `chrome.ts` searches **every** profile, not just `Default`: `discoverProfiles` unions `Default`, the
-  dirs in `Local State`'s `profile.info_cache`, any sibling dir holding a `Cookies` DB, and the
-  user-data root itself (Opera keeps `Cookies` there). Labels come from `info_cache` or the profile's
-  own `Preferences` (`profile.name`) — Arc doesn't keep `info_cache` current. `pickProfileJar` then
-  takes the profile whose `_easyorder_session` has the newest `last_access_utc`, so a logged-out
-  `Default` can't shadow a live `Profile 1`; `--profile <dir>` pins one. Note Arc nests profiles one
-  level deeper (`Arc/User Data/<Profile>`), and all Google Chrome channels share the single
-  `Chrome Safe Storage` Keychain account, so `BrowserSpec.label` carries the display name separately.
+- **Browser cookie**: `bun run auth --chrome` uses `@steipete/sweet-cookie` to read Chrome and Edge
+  profiles on macOS, Linux, and Windows. Arc targeting is macOS-only; Brave and Chromium on Linux or
+  Windows may need an explicit `--profile` path. Matching session candidates are verified until one
+  succeeds, and the operating system may prompt for credential-store access. `FORKABLE_COOKIE`,
+  `bun run auth --file <path>`, and `pbpaste | bun run auth` provide manual alternatives.
 
 On startup with no session, `provisionFromEnvIfNeeded` establishes one from env (cookie first, else
 email/password). The session is stored at `~/.forkable-mcp/session.json` (mode `0600`, never logged); the

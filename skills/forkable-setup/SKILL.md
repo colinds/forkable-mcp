@@ -20,19 +20,20 @@ Use Bun or Node.js. The package runs without a clone or global install.
 
 ## 1. Authenticate — the user runs this themselves
 
-These commands take their password or unlock their macOS Keychain, so hand them the line to run in a
-real terminal rather than running it for them. Never put their password in a
+These commands take their password or may unlock their operating system's credential store, so hand
+them the line to run in a real terminal rather than running it for them. Never put their password in a
 command you execute or in a file you write.
 
-**macOS, already logged into Forkable in a browser:**
+**Already logged into Forkable in a browser:**
 
 ```bash
 bunx --bun forkable-mcp@latest --auth --chrome # Node: npx forkable-mcp@latest --auth --chrome
 ```
 
-Approve the Keychain prompt. Every Chrome profile is searched and matching sessions are verified
-until one succeeds. Other browsers: `--browser arc` (also brave, edge, chromium); pin a profile by its _directory_ name with
-`--profile "Profile 1"`.
+Browser import is best-effort on macOS, Linux, and Windows. macOS may prompt for Keychain access;
+Linux may use its system keyring. Chrome and Edge profiles are discovered automatically. Arc targeting
+is macOS-only; Brave and Chromium on Linux or Windows may need an explicit profile path. Use
+`--browser arc` (also brave, edge, chromium) and pin a profile with `--profile "Profile 1"`.
 
 **Email + password** — the only method that survives expiry (the server re-logs in on a 401):
 

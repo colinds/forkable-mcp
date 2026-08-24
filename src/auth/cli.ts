@@ -101,13 +101,15 @@ export async function runAuthCli(argv: string[]): Promise<void> {
             "  1. Email + password (works headless, auto-refreshes):\n" +
             "       forkable-mcp --auth --login --email you@co.com --password '…'\n" +
             "\n" +
-            "  2. Import from your logged-in browser (macOS only):\n" +
+            "  2. Import from your logged-in browser:\n" +
             "       forkable-mcp --auth --chrome\n" +
             "       forkable-mcp --auth --chrome --browser arc [--profile 'Profile 1']\n" +
             `       --browser: ${SUPPORTED_BROWSERS.join(", ")}\n` +
             "       matching profiles are verified until one succeeds\n" +
+            "       Arc targeting is macOS-only; Brave/Chromium on Linux or Windows may\n" +
+            "       need --profile /path/to/profile\n" +
             "\n" +
-            "  3. Paste a cookie header (SSO accounts, or any non-macOS machine):\n" +
+            "  3. Paste a cookie header (SSO accounts, or when browser import is unavailable):\n" +
             "       FORKABLE_COOKIE='_easyorder_session=…; …' forkable-mcp --auth\n" +
             "     Get it from forkable.com → DevTools (⌥⌘I) → Network → filter for\n" +
             "     `graphql` → click a POST /api/v2/graphql request → Headers → Request Headers\n" +
