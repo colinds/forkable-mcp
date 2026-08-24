@@ -25,7 +25,16 @@ export interface ModifierChoice {
 export interface SelectionViolation {
   modifierId: number;
   label: string;
-  code: "required" | "below_min" | "above_max" | "unknown_option" | "unknown_modifier";
+  code:
+    | "required"
+    | "below_min"
+    | "above_max"
+    | "unknown_option"
+    | "unknown_modifier"
+    | "ambiguous_option"
+    | "ambiguous_modifier"
+    | "duplicate_option"
+    | "duplicate_modifier";
   min?: number;
   max?: number;
   selected: number;
@@ -42,8 +51,12 @@ function isSingleSelect(mod: MenuModifier): boolean {
   return mod.max === 1 && mod.options.length > 1;
 }
 
+function modName(mod: MenuModifier): string {
+  return mod.display?.trim() || mod.name?.trim() || "";
+}
+
 function modLabel(mod: MenuModifier): string {
-  return mod.display || mod.name || `modifier ${mod.id}`;
+  return modName(mod) || `modifier ${mod.id}`;
 }
 
 /** Ordered, non-hidden modifiers for an item (order follows item.modifierIds when present). */
@@ -66,17 +79,9 @@ export function resolveItemModifiers(
   return ordered;
 }
 
-/** Diet-aware default option (first whose ingredients don't intersect restrictions; else options[0]). */
-export function defaultOption(
-  mod: MenuModifier,
-  restrictedIngredients: string[] = [],
-): MenuOption | undefined {
-  if (!restrictedIngredients.length) return mod.options[0];
-  const restricted = new Set(restrictedIngredients);
-  return (
-    mod.options.find((o) => !(o.ingredientTags ?? []).some((t) => restricted.has(t))) ??
-    mod.options[0]
-  );
+/** The API-ordered default for a required modifier. */
+export function defaultOption(mod: MenuModifier): MenuOption | undefined {
+  return mod.options[0];
 }
 
 /** Added price (dollars) of an option: its own price, else the modifier's option-set price, else 0. */
@@ -95,7 +100,14 @@ export interface BuildSelectionsInput {
   modifiers?: MenuModifier[]; // defaults to resolveItemModifiers(item)
   choices?: ModifierChoice[]; // explicit user choices
   previous?: SelectionsHash | null; // an existing piece's stored selections (for round-trip / defaults)
-  restrictedIngredients?: string[];
+}
+
+const normalizeName = (value: string): string => value.trim().toLowerCase();
+
+function resolveUnique<T>(values: T[], name: string, label: (value: T) => string): T[] {
+  const normalized = normalizeName(name);
+  if (!normalized) return [];
+  return values.filter((value) => normalizeName(label(value)) === normalized);
 }
 
 /**
@@ -111,13 +123,14 @@ export function buildSelectionsHash(input: BuildSelectionsInput): BuildSelection
   const selectionsHash: SelectionsHash = {};
   let extraTotal = 0;
 
-  // Index user choices by resolved modifier id → resolved option ids (with unknown detection).
+  // Index explicit choices by resolved modifier id.
   const chosenByMod = new Map<number, number[]>();
   for (const choice of input.choices ?? []) {
-    const mod =
+    const matches =
       typeof choice.modifier === "number"
-        ? mods.find((m) => m.id === choice.modifier)
-        : mods.find((m) => modLabel(m).toLowerCase() === String(choice.modifier).toLowerCase());
+        ? mods.filter((m) => m.id === choice.modifier)
+        : resolveUnique(mods, choice.modifier, modName);
+    const mod = matches[0];
     if (!mod) {
       violations.push({
         modifierId: typeof choice.modifier === "number" ? choice.modifier : -1,
@@ -127,12 +140,31 @@ export function buildSelectionsHash(input: BuildSelectionsInput): BuildSelection
       });
       continue;
     }
+    if (matches.length > 1) {
+      violations.push({
+        modifierId: -1,
+        label: String(choice.modifier),
+        code: "ambiguous_modifier",
+        selected: matches.length,
+      });
+      continue;
+    }
+    if (chosenByMod.has(mod.id)) {
+      violations.push({
+        modifierId: mod.id,
+        label: modLabel(mod),
+        code: "duplicate_modifier",
+        selected: 2,
+      });
+    }
+
     const optIds: number[] = [];
     for (const o of choice.options) {
-      const opt =
+      const optionMatches =
         typeof o === "number"
-          ? mod.options.find((x) => x.id === o)
-          : mod.options.find((x) => x.name.toLowerCase() === String(o).toLowerCase());
+          ? mod.options.filter((x) => x.id === o)
+          : resolveUnique(mod.options, o, (x) => x.name);
+      const opt = optionMatches[0];
       if (!opt) {
         violations.push({
           modifierId: mod.id,
@@ -140,26 +172,38 @@ export function buildSelectionsHash(input: BuildSelectionsInput): BuildSelection
           code: "unknown_option",
           selected: 0,
         });
+      } else if (optionMatches.length > 1) {
+        violations.push({
+          modifierId: mod.id,
+          label: modLabel(mod),
+          code: "ambiguous_option",
+          selected: optionMatches.length,
+        });
+      } else if (optIds.includes(opt.id) || chosenByMod.get(mod.id)?.includes(opt.id)) {
+        violations.push({
+          modifierId: mod.id,
+          label: modLabel(mod),
+          code: "duplicate_option",
+          selected: 2,
+        });
       } else {
         optIds.push(opt.id);
       }
     }
-    chosenByMod.set(mod.id, optIds);
+    chosenByMod.set(mod.id, [...(chosenByMod.get(mod.id) ?? []), ...optIds]);
   }
 
   for (const mod of mods) {
     const label = modLabel(mod);
+    const hasUserChoice = chosenByMod.has(mod.id);
     const user = chosenByMod.get(mod.id);
     const previous = prev?.[String(mod.id)];
 
     let selected: number[];
     if (isSingleSelect(mod)) {
-      if (user?.length) selected = [user[0]!];
+      if (hasUserChoice) selected = user?.length ? [user[0]!] : [-1];
       else if (previous?.length) selected = [previous[0]!];
-      else
-        selected = [
-          mod.required ? (defaultOption(mod, input.restrictedIngredients)?.id ?? -1) : -1,
-        ];
+      else selected = [mod.required ? (defaultOption(mod)?.id ?? -1) : -1];
 
       if (mod.required && selected[0] === -1) {
         violations.push({ modifierId: mod.id, label, code: "required", selected: 0 });
