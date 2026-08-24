@@ -1,153 +1,137 @@
 ---
 name: forkable-lunch
 description: >-
-  Order, change, skip, and track Forkable corporate lunches through the forkable MCP server. Use
-  for anything about the user's lunch — what's coming this week, what's on the menu, picking or
-  swapping a meal, skipping a day, confirming an order, or where today's delivery is right now.
+  Read, choose, change, skip, confirm, and track meals through the forkable MCP server. Use for
+  Forkable delivery, menu, recommendation, meal, and courier-status requests.
 ---
 
 # Forkable lunch
 
-The `forkable` MCP server acts on the user's real Forkable account; the tool descriptions say what
-each tool does, so this file only covers what they can't. If the tools aren't connected, don't
-improvise a CLI or hit the website — use the `forkable-setup` skill.
+Use the `forkable` MCP tools for account data and meal changes. If the tools are not available, use
+the `forkable-setup` skill.
 
-## Start at `list_deliveries`
+## Find the delivery first
 
-Every other tool takes a `deliveryId`, and the only valid source of one is `list_deliveries`.
-Don't guess an id, don't derive it from a date, and re-list rather than reusing anything from
-earlier in a long conversation — pieceIds are reissued on every swap, and a day's `writeWindow`
-can flip while you talk. One date can carry **two** deliveries (lunch and dinner, or two clubs) —
-tell them apart by the service and club labels, not the date.
+Call `list_deliveries` before other delivery tools. Use the returned `deliveryId`; do not derive an
+ID from a date. A date can have more than one delivery, so distinguish deliveries by service and club.
 
-- Default window is today → 21 days out, so days already eaten aren't in it. To look back, pass
-  `from` **and** `to`: a past `from` on its own appends upcoming days, and a question about last
-  week comes back looking answered when it isn't.
-- **The horizon really ends this Friday.** Forkable posts the coming week's suggestions on Friday
-  morning, the week before delivery, so mid-week the list stops at Friday however wide the window.
-  Nothing past Friday means *next week isn't out yet* — say that, don't report an empty week.
-  Planning a full week is the `forkable-friday` skill.
-- Branch on `writeWindow`, never on a cutoff you compute yourself (Forkable's stated policy is 2pm
-  the day before, but the flag is the truth): `open` — freely editable · `grace` — normal editing
-  closed, but a late adjustment can still be requested, and Forkable confirms it morning-of rather
-  than instantly, so report it as requested, not done · `closed` — nothing further will land.
-- In `grace`, adding and removing are **separate budgets**: late orders spend the monthly allowance
-  the app calls Last-Call Passes (`get_profile` shows the balance), late cancellations spend their
-  own and some clubs switch them off entirely. Being able to add a meal there says nothing about
-  being able to drop one.
+Re-list before a write if the conversation has been long or a meal has changed. Piece IDs can change
+after a replacement.
 
-## Common asks
+The default list window begins today and extends 21 days. For past deliveries, supply both `from`
+and `to`. Forkable normally posts the next week's suggestions on Friday; an empty future range may
+mean that the week is not available yet.
 
-| They say | Route |
-|---|---|
-| "what's for lunch this week / tomorrow" | `list_deliveries`, then the picked meal per day |
-| "what's my company limit?" | the per-delivery copay in `list_deliveries`; `get_profile` for club policy |
-| "switch Wednesday to something better" | `recommend_meals` for that day → `set_meal` |
-| "where's my lunch?" | `get_delivery_status` — ETA, tracking link, meal group (reassigned daily), access notes |
-| "I'm away next week" | `skip_delivery` each scheduled day — Forkable's vacation setting only stops future weeks from generating |
-| "plan next week" | the `forkable-friday` skill |
+The delivery fields are server-reported context. Do not infer a write deadline, capacity decision,
+company limit, or authoritative charge from them. Forkable decides whether a mutation is allowed.
 
-## Picking
+## Read and choose meals
 
-A day may already carry a meal, but don't assume one, and don't assume it's ordered. Forkable
-*suggests* from the user's diet settings: with auto-order on that suggestion gets ordered unless
-canceled, with it off the day is only real once confirmed, and a day can be empty outright — a
-vacation day, a weekday they don't take, or no suggestion at all. Read the day, then decide whether
-this is a swap or a first order. `explain_pick` gives the pick's score and rank — which on a day of
-tied scores explains less than it looks like; `set_meal` replaces it.
+Use these tools in order as appropriate:
 
-Three ways in, in rough order of cost:
+1. `recommend_meals` for Forkable's ranked suggestions.
+2. `search_items` when the user names an ingredient, dish, or cuisine.
+3. `get_menus` to browse a delivery or load one item's modifier details.
 
-1. `recommend_meals` — Forkable's meal-generation scores. Start here, but read the numbers before
-   you trust them: they tie heavily in practice — a real day came back with one item at 27.5 and
-   every other suggestion at exactly 7.50, the same score as the meal Forkable itself had picked,
-   which ranked 15th. Treat the list as a shortlist to break with what you know about the user, not
-   a ranking that already knows their taste.
-2. `search_items` — when the user named something ("anything with salmon").
-3. `get_menus` — the full slate when they want to browse, or to read one item's modifiers
-   (`itemId`) before customizing. It marks a full venue with `[venue at capacity]`; the venue the
-   user already holds a meal at is never full for them — re-picking there isn't a new seat.
+Treat recommendations as suggestions rather than policy. Apply the user's stated preferences and
+show a short set of suitable options with prices and any images returned by the tools.
 
-Then apply the user's own taste on top: Forkable's score doesn't know they're off tofu this month,
-and even the diet match isn't guaranteed — Forkable's own advice is to review suggestions. Prefer
-the user's stated constraint over the higher score, and say why you picked in a line, not a paragraph.
+Menu item IDs can repeat across menus. Keep the `menuId` with every item. Both `set_meal` and
+`set_meal_all` require the exact `(menuId, itemId)` returned by a menu read tool.
 
-- **Keep the dish images.** Items come back with `![name](url)` markdown attached. Pass it through —
-  people choose lunch by looking at it. An item without one just has no photo on Forkable's side.
-- **Don't dump menus.** One day is around fifty items across four venues, so a week is a wall of
-  text. Show a handful that fit what they asked for, with prices, and offer the rest. `get_menus`
-  does carry a per-item `diet` label, which is the cheapest way to filter a day properly.
+Load item details before setting modifiers. Modifier and option names are accepted only when they
+resolve uniquely; IDs are preferable when names repeat. Preserve an explicitly empty optional
+selection instead of restoring an old or default choice.
 
-Customize through `modifiers` on `set_meal`, by name or id:
-`[{modifier: "Choose Protein", options: ["Steak"]}]`. Required modifiers get a diet-safe default
-if you leave them out; read the item's options first when the user cares.
+## Local preferences
 
-## Preferences
+If file access is available, store user-stated food preferences in
+`~/.forkable-mcp/preferences.md` and read it before choosing a meal. This file is an agent
+convention, not a Forkable setting.
 
-A convention this skill owns, not a server feature: keep what the user tells you about their food
-in `~/.forkable-mcp/preferences.md`, with your own file tools — read before any ordering task,
-append whenever they state a taste, a limit, or a rule. Forkable holds their diet server-side
-(`set_meal` warns `diet_conflict`), so don't re-declare it; the file is for what Forkable can't express:
+A simple format is:
 
 ```markdown
-avoid: peanut (allergy — hard block, never order around it)
+avoid: peanut (allergy)
 dislikes: fried, bone-in
-likes: salmon, grain bowls, greens
-maxPrice: 20
-notes: lighter on meeting-heavy days; don't repeat a cuisine twice in a week
+likes: salmon, grain bowls
+notes: prefer lighter meals on meeting-heavy days
 ```
 
-Anything under `avoid` is a hard block: if the whole day's menu conflicts, say so and pick nothing
-rather than the least-bad option. The rest is judgment you're expected to exercise — open-ended
-notes like "more protein this week" are the point, not noise.
+Treat `avoid` entries as hard local constraints unless the user explicitly changes them. Other
+entries guide ranking. Do not copy Forkable dietary settings into this file or present local
+preferences as server validation.
 
-## Writing: preview, show, then confirm
+## Set or remove a meal
 
-Every write tool is **dry-run by default**. The first call sends nothing — it returns the exact
-mutation, the resolved payload, a summary with the price, and a `confirmToken`. Calling again with
-that token is what actually sends it.
+`set_meal` adds a meal when none is owned and otherwise replaces an owned meal. It does not add a
+second meal. If the delivery has several owned meals, pass `sourcePieceId` to identify the one to
+replace.
 
-1. Preview.
-2. Show the user the dish, the day, and the total — plus any warning the preview raised.
-3. Call again with `confirmToken` once they've agreed. If they already said "order it", one clear
-   summary and the confirming call in the same turn is fine; don't loop back for permission twice.
+`set_meal_all` applies one exact `(menuId, itemId)` across the requested delivery IDs and ignores
+duplicate delivery IDs. A delivery with several owned meals must be handled individually with
+`set_meal` and `sourcePieceId`.
 
-The token is bound to the exact tool arguments, user, and delegation. It is single-use, lapses after
-ten minutes, and disappears when the server restarts. Confirmation sends the stored preview once;
-Forkable decides whether intervening server changes make it invalid. A rejected token means
-**re-preview**, never retry.
+`remove_meal` requires an owned `pieceId`. `skip_delivery` removes the only positively owned
+meal on a delivery; use `remove_meal` separately when more than one is owned.
 
-Guards attached to a preview are advisory: Forkable enforces its own policy and reports refusals
-itself. A warning is worth repeating to the user, not worth refusing over. Only two things stop a
-token being minted, and both are real stops: the operator's `FORKABLE_MAX_TOTAL` ceiling, and a
-malformed selection (a bug — report it, don't work around it).
+`confirm_delivery` confirms by default. Pass `confirm: false` to unconfirm without removing the
+meal. `set_meal` can use `autoConfirm` when the user wants the replacement and confirmation in one
+mutation.
 
-- `set_meal` **replaces** the day's existing pick; it never stacks a second meal on a day. It takes
-  `instructions` too — a venue that ignores special instructions gets a warn, and they're sent anyway.
-- `set_meal_all` puts one item across several days and flags the days that don't offer it.
-- `skip_delivery` declines the whole day, but refuses when the day carries more than one of the
-  user's meals — `remove_meal` them one at a time so the right ones go.
-- `confirm_delivery` is a toggle: `confirm: false` unconfirms but leaves the meal in place.
-  Unconfirming is **not** skipping.
-- Auto-order off (check `get_profile`) means an unconfirmed meal is **canceled at the cutoff** —
-  `confirm_delivery` is load-bearing, not a formality. `set_meal` takes `autoConfirm` for both in one call.
-- Suggestions ignore the allowance, and a confirmed meal over it with no card on file is
-  **cancelled**, not merely charged — the app warns in those words. `over_company_limit` /
-  `no_credit_card` on a preview is that failure arriving early; say so before confirming.
+## Dietary advisory
 
-## Not through these tools
+While creating a `set_meal` or `set_meal_all` preview, the server calls Forkable's
+`mealRestrictions` query with the selected customization.
 
-The website does things this server doesn't expose. Say so and point at forkable.com rather than
-improvising: **adding a second meal** to a day (`set_meal` only replaces), **rating** a meal (ratings
-are what steer future suggestions), **reporting a missing or wrong item** after delivery, **vacation
-days**, **diet settings**, and **switching office** for a day.
+- `diet_conflict` contains conflicts reported by Forkable.
+- `diet_check_unavailable` means the advisory query did not complete.
 
-## Don't
+Neither warning blocks a confirmation token. Show a dietary conflict prominently and use the token
+only if the user accepts the override. Confirmation is the equivalent of Forkable's "add anyway"
+action. The advisory is not run again during confirmation.
 
-- Don't touch a meal the tools didn't attribute to this user — a delivery can carry a colleague's
-  order, and the tools say when a meal isn't theirs.
-- Don't promise coverage. What the company pays is reported per delivery and can be per-member,
-  weekly, or absent; quote what the tool said and nothing more.
-- Don't read a meal the user didn't set as a mistake. Forkable suggests; `explain_pick` says why.
-- Don't answer a closed day with just "too late". Say what the window is (`grace` still takes a late
-  change request; `closed` doesn't) and what the user can do instead — tomorrow, or a different day.
+## Preview and confirmation
+
+Every write is a preview until the same tool is called with `confirmToken`. The preview sends
+nothing and stores the exact executable request in the running server process.
+
+Before confirming, show the user the delivery, meal or action, price when known, and all warnings.
+If the user already gave explicit approval for that exact action and the preview adds no material
+warning, the confirmation can happen in the same turn.
+
+The token is single-use, expires after about ten minutes, and is bound to the tool arguments, user,
+and delegation session. It is lost when the server restarts. Confirmation submits the stored request
+without rebuilding it or repeating advisory checks.
+
+Keep every original argument unchanged when adding `confirmToken`. If a token is expired, used, or
+mismatched, the response contains a replacement preview with `confirmationError`. Nothing was sent.
+Review the replacement preview before using its new token.
+
+## Result handling
+
+- `preview`: nothing was sent. Review it before confirmation.
+- `blocked`: no token was issued. Correct the target, selection, ownership issue, or local preview
+  ceiling problem.
+- `executed`: Forkable returned success.
+- `rejected`: Forkable definitively refused the write. Stop and report the structured errors; do
+  not reuse the consumed token.
+- `outcome_unknown`: Forkable may have applied the write. Do not retry. Refresh the delivery IDs
+  named in `reconciliation` with `list_deliveries`, then compare the current state.
+
+Mutations are not retried after an ambiguous transport or server failure.
+
+## Price and billing
+
+`FORKABLE_MAX_TOTAL`, when configured, is a local per-meal preview ceiling. It is not a Forkable
+allowance or charge limit. A total above the ceiling is blocked. An unknown total is also blocked
+because the ceiling cannot be verified.
+
+Delivery billing fields are direct values reported by Forkable and are returned in integer cents.
+Quote them as reported. Do not calculate company coverage or an authoritative out-of-pocket amount.
+
+## Unsupported account actions
+
+The tools do not add a second meal to a delivery, rate meals, report missing or incorrect items,
+change vacation settings, edit Forkable dietary settings, or switch offices. Direct the user to
+Forkable for those actions.
