@@ -30,10 +30,11 @@ command you execute or in a file you write.
 bunx --bun forkable-mcp@latest --auth --chrome # Node: npx forkable-mcp@latest --auth --chrome
 ```
 
-Browser import is best-effort on macOS, Linux, and Windows. macOS may prompt for Keychain access;
-Linux may use its system keyring. Chrome and Edge profiles are discovered automatically. Arc targeting
-is macOS-only; Brave and Chromium on Linux or Windows may need an explicit profile path. Use
-`--browser arc` (also brave, edge, chromium) and pin a profile with `--profile "Profile 1"`.
+Browser import is best-effort on macOS, Linux, and Windows. macOS may prompt for Keychain access once
+per scanned profile; use `--profile` to limit the scan. Linux may use its system keyring. Chrome and
+Edge profiles are discovered automatically. Arc targeting is macOS-only; Brave and Chromium on Linux
+or Windows may need an explicit profile path. Use `--browser arc` (also brave, edge, chromium) and pin
+a profile with `--profile "Profile 1"`.
 
 **Email + password** — the only method that survives expiry (the server re-logs in on a 401):
 

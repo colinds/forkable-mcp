@@ -46,6 +46,7 @@ describe("browser cookie import", () => {
       browsers: ["chrome"],
       chromeProfile: ALL_PROFILES,
       chromiumBrowser: "chrome",
+      timeoutMs: 30_000,
     });
     expect(result.warnings).toEqual(["one profile could not be read"]);
     expect(result.candidates).toEqual([
@@ -70,6 +71,7 @@ describe("browser cookie import", () => {
       url: "https://forkable.com/api/v2/graphql",
       browsers: ["edge"],
       edgeProfile: "Work",
+      timeoutMs: 30_000,
     });
   });
 

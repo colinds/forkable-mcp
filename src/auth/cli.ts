@@ -106,6 +106,7 @@ export async function runAuthCli(argv: string[]): Promise<void> {
             "       forkable-mcp --auth --chrome --browser arc [--profile 'Profile 1']\n" +
             `       --browser: ${SUPPORTED_BROWSERS.join(", ")}\n` +
             "       matching profiles are verified until one succeeds\n" +
+            "       macOS may prompt once per profile; --profile limits the scan\n" +
             "       Arc targeting is macOS-only; Brave/Chromium on Linux or Windows may\n" +
             "       need --profile /path/to/profile\n" +
             "\n" +

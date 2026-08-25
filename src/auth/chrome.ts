@@ -8,6 +8,7 @@ import {
 import { hasSessionCookie } from "./cookies.ts";
 
 const FORKABLE_GRAPHQL_URL = "https://forkable.com/api/v2/graphql";
+const BROWSER_HELPER_TIMEOUT_MS = 30_000;
 
 export const SUPPORTED_BROWSERS = ["chrome", "brave", "arc", "chromium", "edge"] as const;
 export type SupportedBrowser = (typeof SUPPORTED_BROWSERS)[number];
@@ -37,6 +38,7 @@ function readOptions(options: ChromeReadOptions): GetCookiesOptions {
       url: FORKABLE_GRAPHQL_URL,
       browsers: ["edge"],
       edgeProfile: profile,
+      timeoutMs: BROWSER_HELPER_TIMEOUT_MS,
     };
   }
   return {
@@ -44,6 +46,7 @@ function readOptions(options: ChromeReadOptions): GetCookiesOptions {
     browsers: ["chrome"],
     chromeProfile: profile,
     chromiumBrowser: browser,
+    timeoutMs: BROWSER_HELPER_TIMEOUT_MS,
   };
 }
 
