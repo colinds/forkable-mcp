@@ -96,12 +96,25 @@ async function checkInstalled(runner: Runner, cwd: string, home: string): Promis
     fail(`${runner} server reports v${version}, package.json says v${pkg.version}`);
   log(`${runner} serverInfo.version = ${version}`);
 
-  const names = (await client.listTools()).tools.map((tool) => tool.name).toSorted();
+  const listedTools = (await client.listTools()).tools;
+  const names = listedTools.map((tool) => tool.name).toSorted();
   const missing = EXPECTED_TOOLS.filter((tool) => !names.includes(tool));
   const extra = names.filter((tool) => !EXPECTED_TOOLS.includes(tool));
   if (missing.length) fail(`${runner} missing tools: ${missing.join(", ")}`);
   if (extra.length) fail(`${runner} unexpected tools: ${extra.join(", ")}`);
   log(`${runner} registered ${names.length} tools`);
+
+  for (const name of ["set_meal", "set_meal_all"]) {
+    const tool = listedTools.find((candidate) => candidate.name === name);
+    const required = (tool?.inputSchema as { required?: string[] } | undefined)?.required ?? [];
+    if (!required.includes("menuId")) fail(`${runner}: ${name} does not require menuId`);
+  }
+  const setMeal = listedTools.find((tool) => tool.name === "set_meal");
+  const setMealProperties = (
+    setMeal?.inputSchema as { properties?: Record<string, unknown> } | undefined
+  )?.properties;
+  if (!setMealProperties?.sourcePieceId) fail(`${runner}: set_meal does not expose sourcePieceId`);
+  log(`${runner} write schemas require exact menu identity`);
 
   const res: any = await client.callTool({ name: "get_profile", arguments: {} });
   const text = (res.content ?? []).map((content: any) => content.text ?? "").join("");

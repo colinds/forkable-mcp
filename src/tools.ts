@@ -24,15 +24,7 @@ import {
   type ToolResultLike,
 } from "./write-gate.ts";
 import { buildSelectionsHash, resolveItemModifiers } from "@/order/selections.ts";
-import {
-  evaluateGuards,
-  deliveryWindow,
-  findOwnMeal,
-  allPieces,
-  ownPieces,
-  allowanceFor,
-  orderForGuards,
-} from "@/order/guards.ts";
+import { evaluateGuards, findOwnMeal, allPieces, ownPieces } from "@/order/guards.ts";
 import { deliveryStatus, formatDeliveryStatus } from "@/order/status.ts";
 import {
   cancellationPending,
@@ -149,9 +141,6 @@ const ME_SELECTION =
   "id firstName lastName fullName email phone active isGuest mfaEnabled validCreditCard " +
   "remainingLateOrdersMonthOf mealClubAutoOrder";
 
-// Account capability signals used by write guards (card on file, monthly late-order budget).
-const ME_CAP = "id validCreditCard remainingLateOrdersMonthOf";
-
 /**
  * The club's actual spend/ordering policy. Read-only surface only — deliberately NOT on the write
  * path, where the delivery already carries the allowance fields and an extra round trip would slow
@@ -219,12 +208,6 @@ function fmtClubPolicy(c: ClubPolicy): string {
  * either. Both stay on plain `errors`.
  */
 const PIECE_WRITE_SEL = "errors errorDetails warningDetails";
-interface MeCap {
-  id: number;
-  validCreditCard?: boolean;
-  remainingLateOrdersMonthOf?: number;
-}
-
 // Shared between the lean and detail selections, so neither repeats a field in one document.
 // `orders.total` is deliberately absent: it's company-wide CENTS and nothing renders it.
 const DELIVERY_CORE =
@@ -416,16 +399,30 @@ export function deliveryRange(from?: string, to?: string): { from: string; to: s
   return { from: start, to: fromHorizon > todayHorizon ? fromHorizon : todayHorizon };
 }
 
-/** Hard spend ceiling (dollars) from FORKABLE_MAX_TOTAL, or undefined if unset/invalid. */
-function maxTotalCeiling(): number | undefined {
-  const n = Number(process.env.FORKABLE_MAX_TOTAL);
-  return Number.isFinite(n) && n > 0 ? n : undefined;
+/** Hard spend ceiling in cents, or undefined when the environment value is unset or invalid. */
+function maxTotalCeilingCents(): number | undefined {
+  const raw = process.env.FORKABLE_MAX_TOTAL;
+  if (raw == null || raw.trim() === "") return undefined;
+  const n = Number(raw);
+  const cents = Math.round(n * 100);
+  return Number.isSafeInteger(cents) && cents >= 0 ? cents : undefined;
+}
+
+function itemTotalCents(item: MenuItem, extra: number): number | undefined {
+  if (typeof item.price !== "number" || !Number.isFinite(item.price)) return undefined;
+  const cents = Math.round((item.price + extra) * 100);
+  return Number.isSafeInteger(cents) && cents >= 0 ? cents : undefined;
+}
+
+function formatKnownPrice(value: number | null | undefined): string {
+  return typeof value === "number" && Number.isFinite(value)
+    ? formatMoney(value)
+    : "price unavailable";
 }
 
 /**
- * Forkable's own dietary check for a candidate item PLUS its chosen options — authoritative where
- * `buildSelectionsHash`'s "first diet-safe option" only approximates. Run before minting a token so a
- * conflicting meal is refused in the preview rather than by the server after confirmation.
+ * Forkable's own dietary check for a candidate item and its chosen options. Run before minting a
+ * token so the preview can surface conflicts before the user confirms the exact request.
  *
  * Returns [] on any failure: an advisory check must never be the reason a legal write can't proceed.
  */
@@ -472,25 +469,24 @@ async function loadDeliveries(
   from?: string,
   sel: string = DELIVERY_SEL,
   to?: string,
-): Promise<{ deliveries: Delivery[]; userId?: number }> {
+): Promise<{ deliveries: Delivery[]; userId: number }> {
   // `deliveryRange` fills `to` whether or not one is passed, so a bare `from` can't reach the wire.
   // The safety lives there, not in the absence of this parameter — see deliveryRange.
   const doc = buildQuery("myDeliveries", deliveryRange(from, to), sel, ["me { id }"]);
   const data = await client.gql<{ myDeliveries?: Delivery[]; me?: { id: number } }>(doc);
-  return { deliveries: data.myDeliveries ?? [], userId: data.me?.id };
+  if (data.me?.id == null) throw new Error("Forkable did not report your user id.");
+  return { deliveries: data.myDeliveries ?? [], userId: data.me.id };
 }
 
 const findDelivery = (ds: Delivery[], id: number) => ds.find((d) => d.id === id);
 
 async function loadMenus(client: ForkableClient, d: Delivery): Promise<Menu[]> {
   if (!d.availableMenuIds?.length) return [];
-  return (
-    (await client.query<Menu[]>(
-      "menus",
-      { ids: d.availableMenuIds, clubId: d.club?.id },
-      MENU_SEL,
-    )) ?? []
-  );
+  return loadMenusByIds(client, d, d.availableMenuIds);
+}
+
+async function loadMenusByIds(client: ForkableClient, d: Delivery, ids: number[]): Promise<Menu[]> {
+  return (await client.query<Menu[]>("menus", { ids, clubId: d.club?.id }, MENU_SEL)) ?? [];
 }
 
 /**
@@ -558,21 +554,97 @@ function resolveOneItem(
   return matches[0]!;
 }
 
+function resolveExactItem(
+  menus: Menu[],
+  menuId: number,
+  itemId: number,
+  deliveryId: number,
+): ResolvedItem {
+  const matches = flattenItems(menus).filter(
+    (x) => x.menu.id === menuId && x.item.menuId === menuId && x.item.id === itemId,
+  );
+  if (matches.length !== 1) {
+    throw new Error(
+      matches.length
+        ? `Menu ${menuId} contains item ${itemId} more than once; refusing an ambiguous write.`
+        : `Item ${itemId} was not found on menu ${menuId} for delivery ${deliveryId}.`,
+    );
+  }
+  return matches[0]!;
+}
+
+interface PieceTarget {
+  order: Order;
+  piece: Piece;
+}
+
+function pieceTargets(d: Delivery): PieceTarget[] {
+  return (d.orders ?? []).flatMap((order) =>
+    (order.pieces ?? []).map((piece) => ({ order, piece })),
+  );
+}
+
+function resolveOwnedSource(
+  d: Delivery,
+  userId: number,
+  sourcePieceId?: string | number,
+  ambiguousMessage?: (count: number) => string,
+): PieceTarget | undefined {
+  const all = pieceTargets(d);
+  if (sourcePieceId != null) {
+    const matches = all.filter(({ piece }) => String(piece.id) === String(sourcePieceId));
+    if (matches.length !== 1)
+      throw new Error(`Piece ${sourcePieceId} was not found uniquely on delivery ${d.id}.`);
+    const target = matches[0]!;
+    if (target.piece.userId !== userId)
+      throw new Error(`Piece ${sourcePieceId} is not verified as belonging to you.`);
+    return target;
+  }
+
+  const owned = all.filter(({ piece }) => piece.userId === userId);
+  if (owned.length > 1) {
+    throw new Error(
+      ambiguousMessage?.(owned.length) ??
+        `You have ${owned.length} meals on delivery ${d.id}; pass sourcePieceId to choose which one to replace.`,
+    );
+  }
+  return owned[0];
+}
+
+function fulfillmentSummary(d: Delivery, userId?: number) {
+  const status = deliveryStatus(d, userId);
+  const tracked =
+    status.orders.find((order) => order.fulfillment === "delayed" && order.trackingUrl) ??
+    status.orders.find((order) => order.trackingUrl);
+  const completed = status.orders
+    .filter((order) => order.dropoffCompletedAt)
+    .toSorted((a, b) => Date.parse(b.dropoffCompletedAt!) - Date.parse(a.dropoffCompletedAt!))[0];
+  return { status, tracked, completed };
+}
+
 /** Fulfillment for the list line. Empty until the order is dispatched. */
 function arrivalNote(d: Delivery, userId?: number): string {
-  const order = findOwnMeal(d, userId)?.order;
-  const eta = order?.etaStatus;
+  const { status, tracked, completed } = fulfillmentSummary(d, userId);
   const iana = d.club?.market?.timezone;
-  const at =
-    (iana ? formatInstantIn(order?.dropoffCompletedAt, iana, eta?.shortTz) : "") ||
-    formatInstantLike(order?.dropoffCompletedAt, eta?.start ?? eta?.end, eta?.shortTz);
-  if (at) return `\n    arrived ${at}`;
-  if (!eta?.status) return "";
-  // `status` is a closed enum (delayed | ontime | delivered). A late courier is the one value worth
-  // shouting about, and the app promotes the tracking link alongside it.
-  if (eta.status === "delayed")
-    return `\n    ⚠ DELAYED${eta.trackingUrl ? ` — track: ${eta.trackingUrl}` : ""}`;
-  return `\n    ${eta.status}`;
+  if (status.delayed)
+    return `\n    ⚠ DELAYED${tracked?.trackingUrl ? ` — track: ${tracked.trackingUrl}` : ""}`;
+  if (status.fulfillment === "delivered") {
+    const at =
+      (iana
+        ? formatInstantIn(
+            completed?.dropoffCompletedAt ?? undefined,
+            iana,
+            completed?.etaShortTz ?? undefined,
+          )
+        : "") ||
+      formatInstantLike(
+        completed?.dropoffCompletedAt ?? undefined,
+        completed?.etaStart ?? completed?.etaEnd ?? undefined,
+        completed?.etaShortTz ?? undefined,
+      );
+    return `\n    ${at ? `arrived ${at}` : "delivered"}`;
+  }
+  return status.fulfillment ? `\n    ${status.fulfillment}` : "";
 }
 
 /** "lunch" / "dinner", so two deliveries on one date are tellable apart. */
@@ -605,17 +677,11 @@ export function fmtDelivery(d: Delivery, inFlight?: Set<number>, userId?: number
   const base = d.userConfirmed ? "confirmed" : d.state || "?";
   let status = d.simpleState && d.simpleState !== base ? `${base} · ${d.simpleState}` : base;
   if (inFlight?.has(d.id) && !d.simpleState) status = `${status} · in flight`;
-  const w = deliveryWindow(d);
-  // No timestamp: there is no member-facing deadline field. The window and its note carry the policy.
-  const cutoff = `  writes: ${w.window}`;
-  // Which allowance applies depends on the club; copayAmount alone is the daily figure.
-  const a = allowanceFor(d);
-  const covers = a.limit != null ? `  company covers ${formatMoney(a.limit)}` : "";
   const due = d.userReceipt?.due;
-  const oop = typeof due === "number" && due > 0 ? `  you pay ${formatMoney(due)}` : "";
+  const reportedDue = typeof due === "number" ? `  reported due ${formatMoney(due)}` : "";
   return (
-    `#${d.id}  ${formatDay(d.forDeliveryAt)}${deliveryTag(d)}  [${status}]${cutoff}${covers}${oop}\n` +
-    `    ${picked}${alsoHere}${arrivalNote(d, userId)}\n    ${w.note}`
+    `#${d.id}  ${formatDay(d.forDeliveryAt)}${deliveryTag(d)}  [${status}]${reportedDue}\n` +
+    `    ${picked}${alsoHere}${arrivalNote(d, userId)}\n`
   );
 }
 
@@ -625,8 +691,7 @@ export function fmtDelivery(d: Delivery, inFlight?: Set<number>, userId?: number
 export function compactDelivery(d: Delivery, inFlight?: Set<number>, userId?: number) {
   const own = findOwnMeal(d, userId);
   const pieces = own?.orders.flatMap((o) => o.pieces) ?? [];
-  const w = deliveryWindow(d);
-  const a = allowanceFor(d);
+  const { status: fulfillment, tracked, completed } = fulfillmentSummary(d, userId);
   return {
     id: d.id,
     date: formatDate(d.forDeliveryAt),
@@ -643,21 +708,16 @@ export function compactDelivery(d: Delivery, inFlight?: Set<number>, userId?: nu
     /** False when the pieces couldn't be matched by owner — treat `picked` as unattributed. */
     attributed: own?.byIdentity === true,
     otherMeals: allPieces(d).length - pieces.length,
-    pastLateOrderDeadline: w.pastLateOrderDeadline,
-    writeWindow: w.window,
-    arrivalWindow: d.deliveryWindow ?? null, // scheduled ["11:45","12:15"], NOT the write window
-    /** Closed enum: "delayed" | "ontime" | "delivered". Null before the courier is assigned. */
-    etaState: own?.order?.etaStatus?.status ?? null,
-    /**
-     * Broken out of `etaState` because it's the one value a caller should act on. Arrival outranks a
-     * stale `delayed`, matching `arrivalNote` and the status view.
-     */
-    delayed: own?.order?.etaStatus?.status === "delayed" && !own?.order?.dropoffCompletedAt,
-    trackingUrl: own?.order?.etaStatus?.trackingUrl ?? null,
-    arrivedAtRaw: own?.order?.dropoffCompletedAt ?? null,
-    youPay: d.userReceipt?.due ?? 0, // your out-of-pocket for the current pick
-    companyLimit: a.limit, // what the company covers; see companyLimitLabel for the period
-    companyLimitLabel: a.label,
+    isReadOnly: d.isReadOnly ?? null,
+    pastLateOrderDeadline: d.pastLateOrderDeadline ?? null,
+    canRequestChanges: d.canRequestChanges ?? null,
+    arrivalWindow: d.deliveryWindow ?? null, // scheduled service window
+    etaState: fulfillment.fulfillment,
+    delayed: fulfillment.delayed,
+    trackingUrl: tracked?.trackingUrl ?? null,
+    arrivedAtRaw:
+      fulfillment.fulfillment === "delivered" ? (completed?.dropoffCompletedAt ?? null) : null,
+    billing: fulfillment.billing,
     availableMenuIds: d.availableMenuIds ?? [],
     picked: pieces.map((p) => ({
       pieceId: p.id,
@@ -758,7 +818,7 @@ function itemDetail(item: MenuItem, menu: Menu) {
 /** Human-readable rendering of an itemDetail(). */
 function fmtItemDetail(d: ReturnType<typeof itemDetail>): string {
   return [
-    `${d.name}  ${formatMoney(d.price)}${d.description ? ` — ${d.description}` : ""}`,
+    `${d.name}  ${formatKnownPrice(d.price)}${d.description ? ` — ${d.description}` : ""}`,
     ...d.modifiers.map((mod) => {
       const req = mod.required ? " (required)" : "";
       const opts = mod.options
@@ -804,11 +864,10 @@ export function registerAllTools(server: McpServer, writeGate: WriteGate): void 
       title: "List deliveries",
       description:
         "List deliveries — past and upcoming — with date, weekday, meal service, club, status, what " +
-        "YOU have selected, write window, copay. A date can carry more than one delivery (lunch and " +
+        "YOU have selected, and reported billing. A date can carry more than one delivery (lunch and " +
         "dinner, or two clubs), so use the service/club labels to tell them apart. " +
-        "Start here to see the week and what still needs ordering. " +
-        "Branch on `writeWindow`, not the cutoff: `open` = freely editable, `grace` = past the " +
-        "editing cutoff but a late change request is still accepted, `closed` = no further changes. " +
+        "Start here to see the week and what still needs ordering. Forkable decides whether a write " +
+        "is currently accepted. " +
         "Called with no arguments it covers today through 21 days out, so ALREADY-DELIVERED days are " +
         "not included — to review what was eaten, pass `from` (and `to` to stop the window before " +
         "today, otherwise upcoming deliveries are appended and a past-only question looks answered " +
@@ -910,7 +969,7 @@ export function registerAllTools(server: McpServer, writeGate: WriteGate): void 
           .map((m) => {
             const items = m.sections.flatMap((s) => s.items);
             const lines = items.map(
-              (it) => `    ${it.id}  ${it.name}  ${formatMoney(it.price)}${imageMd(it)}`,
+              (it) => `    ${it.id}  ${it.name}  ${formatKnownPrice(it.price)}${imageMd(it)}`,
             );
             // Advisory, like the guard: Forkable decides, and a seat can free up when someone cancels.
             const cap = full.get(m.id) === true ? "  [venue at capacity]" : "";
@@ -959,7 +1018,7 @@ export function registerAllTools(server: McpServer, writeGate: WriteGate): void 
         });
         const lines = results.map(
           (r) =>
-            `  ${r.itemId}  ${r.name ?? "(item)"}  ${formatMoney(r.price)}  [menu ${r.menuId}]${imageMd({ name: r.name ?? "item", imageUrl: r.imageUrl })}`,
+            `  ${r.itemId}  ${r.name ?? "(item)"}  ${formatKnownPrice(r.price)}  [menu ${r.menuId}]${imageMd({ name: r.name ?? "item", imageUrl: r.imageUrl })}`,
         );
         return ok(`Matches for "${query}":\n${lines.join("\n")}`, { items: results });
       }),
@@ -1015,7 +1074,7 @@ export function registerAllTools(server: McpServer, writeGate: WriteGate): void 
         });
         const lines = enriched.map(
           (e, i) =>
-            `  ${i + 1}. ${e.name}  ${formatMoney(e.price)}  (score ${e.score.toFixed(2)})${imageMd(e)}`,
+            `  ${i + 1}. ${e.name}  ${formatKnownPrice(e.price)}  (score ${e.score.toFixed(2)})${imageMd(e)}`,
         );
         return ok(`Top picks for delivery ${deliveryId}:\n${lines.join("\n")}`, {
           recommendations: enriched,
@@ -1093,9 +1152,9 @@ export function registerAllTools(server: McpServer, writeGate: WriteGate): void 
     {
       title: "Get delivery status",
       description:
-        "Fulfillment detail for one delivery: scheduled window, courier ETA, when it actually " +
-        "arrived, tracking link, and the office access notes. Tracking fields are null until the " +
-        "order is dispatched. `list_deliveries` carries a one-line summary; this is the full view.",
+        "Fulfillment detail for one delivery: every owned order, its meal ids, courier ETA, arrival " +
+        "time, tracking link, and the office access notes. Tracking fields are null until an order " +
+        "is dispatched. `list_deliveries` carries a one-line summary; this is the full view.",
       inputSchema: z.object({
         deliveryId: z.number().int().describe("Delivery id from list_deliveries"),
         from: dateArg()
@@ -1133,8 +1192,8 @@ export function registerAllTools(server: McpServer, writeGate: WriteGate): void 
     {
       title: "Set the meal for a delivery",
       description:
-        "Set your meal for a delivery. If the day already has a pick (Forkable auto-selects one) this " +
-        "REPLACES it (replacePiece); if the day is empty it adds the meal (addPiece). " +
+        "Set an exact menu item for a delivery. With no owned meal this adds one; with one it " +
+        "replaces it. If you own several meals, pass sourcePieceId to choose which one. " +
         WRITE_NOTE,
       inputSchema: z.object({
         deliveryId: z.number().int(),
@@ -1145,10 +1204,11 @@ export function registerAllTools(server: McpServer, writeGate: WriteGate): void 
         menuId: z
           .number()
           .int()
+          .describe("Menu id paired with itemId by get_menus, search_items, or recommend_meals"),
+        sourcePieceId: z
+          .union([z.string(), z.number()])
           .optional()
-          .describe(
-            "Menu id — required only if the item id appears on more than one of the delivery's menus",
-          ),
+          .describe("Owned piece id to replace when you have more than one meal on this delivery"),
         modifiers: z
           .array(
             z.object({
@@ -1170,13 +1230,14 @@ export function registerAllTools(server: McpServer, writeGate: WriteGate): void 
     async (a) =>
       guard(async (client, session) => {
         const plan = async (): Promise<WritePlan> => {
-          const d = findDelivery((await loadDeliveries(client)).deliveries, a.deliveryId);
+          const { deliveries, userId } = await loadDeliveries(client);
+          const d = findDelivery(deliveries, a.deliveryId);
           if (!d)
             throw new Error(`Delivery ${a.deliveryId} not found in your upcoming deliveries.`);
-          const { item, menu } = resolveOneItem(
-            await loadMenus(client, d),
-            a.itemId,
+          const { item, menu } = resolveExactItem(
+            await loadMenusByIds(client, d, [a.menuId]),
             a.menuId,
+            a.itemId,
             a.deliveryId,
           );
           const built = buildSelectionsHash({
@@ -1187,34 +1248,23 @@ export function registerAllTools(server: McpServer, writeGate: WriteGate): void 
             modifiers: resolveItemModifiers(item, { includeHidden: true }),
             choices: a.modifiers,
           });
-          // `me` first: resolving the piece by OWNER is what keeps a guest's meal safe from replacement.
-          const me = await client.query<MeCap>("me", undefined, ME_CAP);
-          const own = findOwnMeal(d, me.id);
-          // Replace the meal AT THE TARGET VENUE when you already hold one there; otherwise this is a
-          // cross-venue move and the source is your primary order. Taking `pieces[0]` unconditionally
-          // would destroy a different venue's meal and leave the targeted one untouched.
-          const sameVenue = own?.orders.find((x) => x.order.menu?.id === menu.id);
-          const source = sameVenue ?? own?.orders[0];
-          const existing: Piece | undefined = source?.pieces[0];
-          // replacePiece touches two venue orders; gate on both.
-          const order: Order | undefined = orderForGuards(d, menu.id, me.id);
-          const total = (item.price ?? 0) + built.extra;
-          const diet = await dietConflicts(client, me.id, menu.id, a.itemId, built.selectionsHash);
+          const source = resolveOwnedSource(d, userId, a.sourcePieceId);
+          const existing = source?.piece;
+          const totalCents = itemTotalCents(item, built.extra);
+          const diet = await dietConflicts(client, userId, menu.id, item.id, built.selectionsHash);
           const guards = evaluateGuards({
-            intent: "select",
-            delivery: d,
-            order,
-            sourceOrder: source?.order,
-            menuId: menu.id,
             violations: built.violations,
-            user: {
-              id: me.id,
-              validCreditCard: me.validCreditCard,
-              remainingLateOrdersMonthOf: me.remainingLateOrdersMonthOf,
-            },
-            total,
-            maxTotal: maxTotalCeiling(),
+            totalCents,
+            maxTotalCents: maxTotalCeilingCents(),
           });
+          if (d.availableMenuIds && !d.availableMenuIds.includes(menu.id)) {
+            guards.push({
+              code: "menu_not_available",
+              level: "warn",
+              message: `Menu ${menu.id} isn't listed as available for delivery ${d.id}; Forkable may reject it.`,
+              data: { availableMenuIds: d.availableMenuIds },
+            });
+          }
           for (const c of diet.conflicts) {
             guards.push({
               code: "diet_conflict",
@@ -1244,18 +1294,16 @@ export function registerAllTools(server: McpServer, writeGate: WriteGate): void 
           const input: Record<string, unknown> = {
             deliveryId: a.deliveryId,
             menuId: menu.id,
-            itemId: a.itemId,
+            itemId: item.id,
             instructions: a.instructions ?? "",
             selectionsHash: built.selectionsHash,
             myMeals: true,
           };
-          // replacePiece overrides an existing (usually auto-selected) piece; addPiece uses a
-          // different shape (replacedPieceId + userId), never oldPieceId.
           if (existing) {
             input.oldPieceId = existing.id;
           } else {
             input.replacedPieceId = null;
-            input.userId = me.id;
+            input.userId = userId;
           }
           if (a.autoConfirm) input.confirm = true;
           const extras = built.summary.length
@@ -1263,7 +1311,7 @@ export function registerAllTools(server: McpServer, writeGate: WriteGate): void 
             : "";
           const summary =
             `${existing ? "Replace with" : "Add"} ${item.name}${extras} on delivery ${a.deliveryId}` +
-            `${a.autoConfirm ? " and confirm" : ""} — ${formatMoney(total)}`;
+            `${a.autoConfirm ? " and confirm" : ""} — ${totalCents == null ? "price unavailable" : formatMoney(totalCents / 100)}`;
           return {
             op,
             selection: PIECE_WRITE_SEL,
@@ -1271,7 +1319,7 @@ export function registerAllTools(server: McpServer, writeGate: WriteGate): void 
             summary,
             deliveryIds: [a.deliveryId],
             guards,
-            details: { selectionsHash: built.selectionsHash },
+            details: { selectionsHash: built.selectionsHash, totalCents: totalCents ?? null },
           };
         };
         return toCallToolResult(
@@ -1293,8 +1341,8 @@ export function registerAllTools(server: McpServer, writeGate: WriteGate): void 
     {
       title: "Set the same meal across multiple deliveries",
       description:
-        "Apply one item to several delivery days at once (replaceAllPieces). Days that don't offer " +
-        "the item are flagged as blockers. " +
+        "Apply one exact menu item to several delivery days at once (replaceAllPieces). Duplicate " +
+        "delivery ids are ignored. A day with multiple owned meals must be handled individually. " +
         WRITE_NOTE,
       inputSchema: z.object({
         deliveryIds: z
@@ -1302,11 +1350,7 @@ export function registerAllTools(server: McpServer, writeGate: WriteGate): void 
           .min(1)
           .describe("Delivery ids to set (from list_deliveries)"),
         itemId: z.number().int(),
-        menuId: z
-          .number()
-          .int()
-          .optional()
-          .describe("Disambiguate itemId if it appears on more than one menu"),
+        menuId: z.number().int().describe("Menu id paired with itemId by a menu read tool"),
         modifiers: z
           .array(
             z.object({
@@ -1323,48 +1367,66 @@ export function registerAllTools(server: McpServer, writeGate: WriteGate): void 
     async (a) =>
       guard(async (client, session) => {
         const plan = async (): Promise<WritePlan> => {
-          const all = (await loadDeliveries(client)).deliveries;
-          const targets = a.deliveryIds.map((id) => {
+          const { deliveries: all, userId } = await loadDeliveries(client);
+          const deliveryIds = [...new Set(a.deliveryIds)];
+          const targets = deliveryIds.map((id) => {
             const d = findDelivery(all, id);
             if (!d) throw new Error(`Delivery ${id} not found in your upcoming deliveries.`);
             return d;
           });
-          // Resolve the item across the union of the target days' menus, deduped by menu id
-          // (two days can share a menu — without dedup that looks like a false "ambiguous" match).
-          const menusByDelivery = await Promise.all(targets.map((d) => loadMenus(client, d)));
+          const menusByDelivery = await Promise.all(
+            targets.map((d) => loadMenusByIds(client, d, [a.menuId])),
+          );
           const unionMenus = [...new Map(menusByDelivery.flat().map((m) => [m.id, m])).values()];
-          const { item, menu } = resolveOneItem(unionMenus, a.itemId, a.menuId, a.deliveryIds[0]!);
+          const { item, menu } = resolveExactItem(unionMenus, a.menuId, a.itemId, deliveryIds[0]!);
           const built = buildSelectionsHash({
             menu,
             item,
             modifiers: resolveItemModifiers(item, { includeHidden: true }),
             choices: a.modifiers,
           });
-          const me = await client.query<MeCap>("me", undefined, ME_CAP);
-          const total = (item.price ?? 0) + built.extra;
-          const maxTotal = maxTotalCeiling();
-          // Guard each target day; prefix messages with the delivery id so blockers are attributable.
-          const guards = targets.flatMap((d) =>
-            evaluateGuards({
-              intent: "select",
-              delivery: d,
-              order: orderForGuards(d, menu.id, me.id),
-              menuId: menu.id,
-              violations: built.violations,
-              user: {
-                id: me.id,
-                validCreditCard: me.validCreditCard,
-                remainingLateOrdersMonthOf: me.remainingLateOrdersMonthOf,
-              },
-              total,
-              maxTotal,
-            }).map((gd) => ({
-              code: gd.code,
-              level: gd.level,
-              message: `#${d.id}: ${gd.message}`,
-              data: gd.data,
-            })),
-          );
+          for (const d of targets) {
+            const owned = pieceTargets(d).filter(({ piece }) => piece.userId === userId);
+            if (owned.length > 1) {
+              throw new Error(
+                `You have ${owned.length} meals on delivery ${d.id}; set them individually with set_meal and sourcePieceId.`,
+              );
+            }
+          }
+          const totalCents = itemTotalCents(item, built.extra);
+          const guards = evaluateGuards({
+            violations: built.violations,
+            totalCents,
+            maxTotalCents: maxTotalCeilingCents(),
+          });
+          for (const d of targets) {
+            if (d.availableMenuIds && !d.availableMenuIds.includes(menu.id)) {
+              guards.push({
+                code: "menu_not_available",
+                level: "warn",
+                message: `#${d.id}: Menu ${menu.id} isn't listed as available; Forkable may reject it.`,
+                data: { deliveryId: d.id, availableMenuIds: d.availableMenuIds },
+              });
+            }
+          }
+          const diet = await dietConflicts(client, userId, menu.id, item.id, built.selectionsHash);
+          for (const conflict of diet.conflicts) {
+            guards.push({
+              code: "diet_conflict",
+              level: "warn",
+              message: `Conflicts with your dietary preferences: ${conflict}.`,
+              data: { conflict },
+            });
+          }
+          if (!diet.checked) {
+            guards.push({
+              code: "diet_check_unavailable",
+              level: "warn",
+              message:
+                "Couldn't check this against your dietary preferences — proceeding unchecked.",
+              data: undefined,
+            });
+          }
           const notesDropped = Boolean(a.instructions && menu.disableSpecialInstructions);
           if (notesDropped) {
             guards.push({
@@ -1375,7 +1437,8 @@ export function registerAllTools(server: McpServer, writeGate: WriteGate): void 
             });
           }
           const newPiece = {
-            itemId: a.itemId,
+            deliveryId: deliveryIds[0],
+            itemId: item.id,
             menuId: menu.id,
             instructions: a.instructions ?? "",
             selectionsHash: built.selectionsHash,
@@ -1385,18 +1448,21 @@ export function registerAllTools(server: McpServer, writeGate: WriteGate): void 
             : "";
           return {
             op: "replaceAllPieces",
-            selection: PIECE_WRITE_SEL,
-            input: { deliveryIds: a.deliveryIds, newPiece, myMeals: true },
-            summary: `Set ${item.name}${extras} on ${a.deliveryIds.length} deliveries (${a.deliveryIds.join(", ")})`,
-            deliveryIds: a.deliveryIds,
+            selection: "errors",
+            input: { deliveryIds, newPiece, myMeals: true },
+            summary: `Set ${item.name}${extras} on ${deliveryIds.length} deliveries (${deliveryIds.join(", ")})`,
+            deliveryIds,
             guards,
-            details: { selectionsHash: built.selectionsHash },
+            details: { selectionsHash: built.selectionsHash, totalCents: totalCents ?? null },
           };
         };
         return toCallToolResult(
           await writeGate(gateCtx(client, session), {
             tool: "set_meal_all",
-            argsHash: hashWriteArgs({ ...a }, { modifiers: [], instructions: "" }),
+            argsHash: hashWriteArgs(
+              { ...a, deliveryIds: [...new Set(a.deliveryIds)] },
+              { modifiers: [], instructions: "" },
+            ),
             confirmToken: a.confirmToken,
             plan,
           }),
@@ -1408,9 +1474,7 @@ export function registerAllTools(server: McpServer, writeGate: WriteGate): void 
     "remove_meal",
     {
       title: "Remove the meal from a delivery",
-      description:
-        "Remove a selected piece from a delivery's order (you'll get nothing that day). " +
-        WRITE_NOTE,
+      description: "Remove a piece only when Forkable identifies it as yours. " + WRITE_NOTE,
       inputSchema: z.object({
         deliveryId: z.number().int(),
         pieceId: z.union([z.string(), z.number()]).describe("Piece id from list_deliveries"),
@@ -1424,30 +1488,23 @@ export function registerAllTools(server: McpServer, writeGate: WriteGate): void 
           const { deliveries, userId } = await loadDeliveries(client);
           const d = findDelivery(deliveries, a.deliveryId);
           if (!d) throw new Error(`Delivery ${a.deliveryId} not found.`);
-          const order = d.orders?.find((o) =>
-            o.pieces?.some((p) => String(p.id) === String(a.pieceId)),
+          const matches = pieceTargets(d).filter(
+            ({ piece }) => String(piece.id) === String(a.pieceId),
           );
-          if (!order) throw new Error(`Piece ${a.pieceId} not found on delivery ${a.deliveryId}.`);
-          const piece = order.pieces?.find((p) => String(p.id) === String(a.pieceId));
-          // A delivery carries every venue's order, including other people's. Removing by a raw id
-          // would happily delete a colleague's lunch, so refuse before anything is minted.
-          if (piece?.userId != null && userId != null && piece.userId !== userId)
+          if (matches.length !== 1)
             throw new Error(
-              `Piece ${a.pieceId} belongs to another member, not you — refusing to remove it.`,
+              `Piece ${a.pieceId} was not found uniquely on delivery ${a.deliveryId}.`,
             );
-          const guards = evaluateGuards({
-            intent: "remove",
-            delivery: d,
-            order,
-            user: { id: userId },
-          });
+          const { order, piece } = matches[0]!;
+          if (piece.userId !== userId)
+            throw new Error(`Piece ${a.pieceId} is not verified as belonging to you.`);
           return {
             op: "removePiece",
             selection: "errors",
-            input: { orderId: order.id, pieceId: a.pieceId, myMeals: true },
-            summary: `Remove ${piece?.name || `piece ${a.pieceId}`} from delivery ${a.deliveryId}`,
+            input: { orderId: order.id, pieceId: piece.id, myMeals: true },
+            summary: `Remove ${piece.name || `piece ${piece.id}`} from delivery ${a.deliveryId}`,
             deliveryIds: [a.deliveryId],
-            guards,
+            guards: [],
           };
         };
         return toCallToolResult(
@@ -1466,8 +1523,8 @@ export function registerAllTools(server: McpServer, writeGate: WriteGate): void 
     {
       title: "Skip a delivery",
       description:
-        "Decline a whole day: removes your meal(s) from that delivery, so nothing is ordered for you. " +
-        "Use `remove_meal` instead when you know the pieceId and want to drop just one. " +
+        "Decline a day by removing its single positively-owned meal. If you own several, remove " +
+        "them individually with remove_meal. " +
         WRITE_NOTE,
       inputSchema: z.object({
         deliveryId: z.number().int(),
@@ -1478,37 +1535,27 @@ export function registerAllTools(server: McpServer, writeGate: WriteGate): void 
     async (a) =>
       guard(async (client, session) => {
         const plan = async (): Promise<WritePlan> => {
-          const d = findDelivery((await loadDeliveries(client)).deliveries, a.deliveryId);
+          const { deliveries, userId } = await loadDeliveries(client);
+          const d = findDelivery(deliveries, a.deliveryId);
           if (!d) throw new Error(`Delivery ${a.deliveryId} not found.`);
-          // Skipping a day IS removing your piece — there is no delivery-level member mutation.
-          // `removeDelivery` exists but is an admin operation and is deliberately not used here.
-          const me = await client.query<MeCap>("me", undefined, ME_CAP);
-          const own = findOwnMeal(d, me.id);
-          if (!own) throw new Error(`You have no meal on delivery ${a.deliveryId} to skip.`);
-          // Count PIECES, not venues: a single venue can carry two of your meals, and removing one
-          // while reporting the day skipped would leave the other ordered.
-          const all = own.orders.flatMap((x) => x.pieces);
-          if (all.length > 1) {
-            throw new Error(
-              `You have ${all.length} meals on delivery ${a.deliveryId} ` +
-                `(${all.map((x) => x.name ?? x.id).join(", ")}); remove them individually with ` +
-                `remove_meal so the right one goes.`,
-            );
-          }
-          const piece = all[0]!;
-          const guards = evaluateGuards({
-            intent: "remove",
-            delivery: d,
-            order: own.order,
-            user: { id: me.id },
-          });
+          if (userId == null) throw new Error("Forkable did not report your user id.");
+          const source = resolveOwnedSource(
+            d,
+            userId,
+            undefined,
+            (count) =>
+              `You have ${count} verified meals on delivery ${d.id}; remove them individually with remove_meal and pieceId.`,
+          );
+          if (!source)
+            throw new Error(`You have no verified meal on delivery ${a.deliveryId} to skip.`);
+          const { order, piece } = source;
           return {
             op: "removePiece",
             selection: "errors",
-            input: { orderId: own.order.id, pieceId: piece.id, myMeals: true },
+            input: { orderId: order.id, pieceId: piece.id, myMeals: true },
             summary: `Skip delivery ${a.deliveryId} (${formatDay(d.forDeliveryAt)}) — removes ${piece.name ?? `piece ${piece.id}`}`,
             deliveryIds: [a.deliveryId],
-            guards,
+            guards: [],
           };
         };
         return toCallToolResult(
@@ -1539,22 +1586,16 @@ export function registerAllTools(server: McpServer, writeGate: WriteGate): void 
       guard(async (client, session) => {
         const confirm = a.confirm ?? true;
         const plan = async (): Promise<WritePlan> => {
-          const { deliveries, userId } = await loadDeliveries(client);
+          const { deliveries } = await loadDeliveries(client);
           const d = findDelivery(deliveries, a.deliveryId);
           if (!d) throw new Error(`Delivery ${a.deliveryId} not found.`);
-          const guards = evaluateGuards({
-            intent: "confirm",
-            delivery: d,
-            order: orderForGuards(d, undefined, userId),
-            user: { id: userId },
-          });
           return {
             op: "confirmDelivery",
             selection: "errors",
             input: { deliveryId: a.deliveryId, confirm, changeFrom: "dashboard" },
             summary: `${confirm ? "Confirm" : "Unconfirm"} delivery ${a.deliveryId} (${formatDay(d.forDeliveryAt)})`,
             deliveryIds: [a.deliveryId],
-            guards,
+            guards: [],
           };
         };
         return toCallToolResult(

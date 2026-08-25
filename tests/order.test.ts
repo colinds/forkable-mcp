@@ -1,16 +1,6 @@
 import { expect, test, describe } from "bun:test";
 import { buildSelectionsHash, resolveItemModifiers } from "@/order/selections.ts";
-import {
-  evaluateGuards,
-  blockers,
-  deliveryWindow,
-  findOwnMeal,
-  allPieces,
-  orderForGuards,
-  ownPieces,
-  allowanceFor,
-  isFamilyStyle,
-} from "@/order/guards.ts";
+import { evaluateGuards, blockers, findOwnMeal, allPieces, ownPieces } from "@/order/guards.ts";
 import { deliveryStatus, formatDeliveryStatus } from "@/order/status.ts";
 import {
   formatMoney,
@@ -133,8 +123,7 @@ describe("buildSelectionsHash", () => {
     expect(r.violations).toEqual([]);
   });
 
-  test("required single-select default is diet-aware (skips restricted options)", () => {
-    // Reorder so the restricted option is first; a soy restriction should skip it.
+  test("required single-select uses the API's first option as its default", () => {
     const soyFirst = {
       ...protein,
       options: [
@@ -143,8 +132,63 @@ describe("buildSelectionsHash", () => {
       ],
     };
     const it: MenuItem = { ...item, modifierIds: [16], modifiers: [soyFirst] };
-    const r = buildSelectionsHash({ item: it, choices: [], restrictedIngredients: ["soy"] });
-    expect(r.selectionsHash["16"]).toEqual([10]); // skips Tofu, picks Chicken
+    const r = buildSelectionsHash({ item: it, choices: [] });
+    expect(r.selectionsHash["16"]).toEqual([12]);
+  });
+
+  test("names match only after trimming and case folding", () => {
+    const r = buildSelectionsHash({
+      item,
+      choices: [{ modifier: "  choose PROTEIN ", options: [" steak "] }],
+    });
+    expect(r.selectionsHash["16"]).toEqual([11]);
+    expect(r.violations).toEqual([]);
+  });
+
+  test("ambiguous modifier and option names are violations", () => {
+    const duplicateModifier: MenuModifier = { ...extras, id: 19, display: " Choose Protein " };
+    const ambiguousModifier = buildSelectionsHash({
+      item: { ...item, modifiers: [protein, duplicateModifier] },
+      choices: [{ modifier: "choose protein", options: [] }],
+    });
+    expect(ambiguousModifier.violations.some((v) => v.code === "ambiguous_modifier")).toBe(true);
+
+    const duplicateOption: MenuModifier = {
+      ...protein,
+      options: [...protein.options, { id: 13, name: " chicken " }],
+    };
+    const ambiguousOption = buildSelectionsHash({
+      item: { ...item, modifierIds: [16], modifiers: [duplicateOption] },
+      choices: [{ modifier: 16, options: ["CHICKEN"] }],
+    });
+    expect(ambiguousOption.violations.some((v) => v.code === "ambiguous_option")).toBe(true);
+  });
+
+  test("duplicate resolved modifiers and options are violations", () => {
+    const r = buildSelectionsHash({
+      item,
+      choices: [
+        { modifier: 17, options: [20, " avocado "] },
+        { modifier: "add-ons", options: [21] },
+      ],
+    });
+    expect(r.violations.some((v) => v.code === "duplicate_option")).toBe(true);
+    expect(r.violations.some((v) => v.code === "duplicate_modifier")).toBe(true);
+  });
+
+  test("explicit empty single choices do not preserve or default", () => {
+    const previous = { "16": [11], "18": [31] };
+    const r = buildSelectionsHash({
+      item,
+      previous,
+      choices: [
+        { modifier: 16, options: [] },
+        { modifier: 18, options: [] },
+      ],
+    });
+    expect(r.selectionsHash["16"]).toEqual([-1]);
+    expect(r.selectionsHash["18"]).toEqual([-1]);
+    expect(r.violations.some((v) => v.modifierId === 16 && v.code === "required")).toBe(true);
   });
 
   test("multi-select above max → violation", () => {
@@ -177,83 +221,40 @@ describe("buildSelectionsHash", () => {
 });
 
 describe("evaluateGuards", () => {
-  const baseDelivery: Delivery = { id: 1, availableMenuIds: [6290], orders: [] };
-
-  test("blocks read-only delivery", () => {
+  test("leaves Forkable policy decisions to the server", () => {
     const g = evaluateGuards({
-      intent: "select",
-      delivery: { ...baseDelivery, isReadOnly: true },
-      menuId: 6290,
+      totalCents: 10_000,
     });
-    expect(g.some((x) => x.code === "delivery_read_only")).toBe(true);
-  });
-
-  test("blocks a menu not in availableMenuIds", () => {
-    const g = evaluateGuards({ intent: "select", delivery: baseDelivery, menuId: 999 });
-    expect(g.some((x) => x.code === "menu_not_available")).toBe(true);
-  });
-
-  test("blocks over-capacity venue", () => {
-    const g = evaluateGuards({
-      intent: "select",
-      delivery: baseDelivery,
-      menuId: 6290,
-      order: { id: 1, isOverVenueCapacity: true },
-    });
-    expect(g.some((x) => x.code === "over_venue_capacity")).toBe(true);
-  });
-
-  test("past deadline warns either way: no late orders left, or a late order still available", () => {
-    const exhausted = evaluateGuards({
-      intent: "select",
-      delivery: { ...baseDelivery, pastLateOrderDeadline: true },
-      menuId: 6290,
-      order: { id: 1, changeRequestAllowed: true, lateOrdersRemaining: 0 },
-    });
-    // Advisory, not a refusal: the server owns this policy and reports it authoritatively.
-    expect(exhausted.some((x) => x.code === "no_late_orders_remaining")).toBe(true);
-    expect(blockers(exhausted).length).toBe(0);
-
-    const warned = evaluateGuards({
-      intent: "select",
-      delivery: { ...baseDelivery, pastLateOrderDeadline: true },
-      menuId: 6290,
-      order: { id: 1, changeRequestAllowed: true, lateOrdersRemaining: 3 },
-    });
-    expect(blockers(warned).length).toBe(0);
-    expect(warned.some((x) => x.code === "past_late_order_deadline" && x.level === "warn")).toBe(
-      true,
-    );
+    expect(g).toEqual([]);
   });
 
   test("selection violations become blocking guards", () => {
     const g = evaluateGuards({
-      intent: "select",
-      delivery: baseDelivery,
-      menuId: 6290,
       violations: [{ modifierId: 16, label: "Choose Protein", code: "required", selected: 0 }],
     });
     expect(blockers(g).some((x) => x.code === "selection_invalid")).toBe(true);
   });
 
-  test("maxTotal: blocks over the ceiling, allows at/under, ignores unknown total", () => {
-    const base = { intent: "select" as const, delivery: baseDelivery, menuId: 6290, maxTotal: 30 };
+  test("the cents ceiling blocks over and allows exactly at the limit", () => {
+    const base = {
+      maxTotalCents: 3_000,
+    };
     expect(
-      blockers(evaluateGuards({ ...base, total: 31 })).some((x) => x.code === "over_total_ceiling"),
+      blockers(evaluateGuards({ ...base, totalCents: 3_001 })).some(
+        (x) => x.code === "over_total_ceiling",
+      ),
     ).toBe(true);
-    expect(blockers(evaluateGuards({ ...base, total: 30 })).length).toBe(0); // at ceiling is allowed
-    expect(blockers(evaluateGuards({ ...base })).length).toBe(0); // unknown total never blocks
+    expect(blockers(evaluateGuards({ ...base, totalCents: 3_000 }))).toEqual([]);
   });
 
-  test("no maxTotal: warns when over the company limit (copayAmount), silent when within", () => {
-    const del: Delivery = { ...baseDelivery, copayAmount: 20 };
-    const over = evaluateGuards({ intent: "select", delivery: del, menuId: 6290, total: 25 });
-    const w = over.find((x) => x.code === "over_company_limit");
-    expect(w?.level).toBe("warn");
-    expect((w?.data as { outOfPocket?: number } | undefined)?.outOfPocket).toBe(5);
-    expect(blockers(over).length).toBe(0); // it's a warning, never a block
-    const within = evaluateGuards({ intent: "select", delivery: del, menuId: 6290, total: 18 });
-    expect(within.some((x) => x.code === "over_company_limit")).toBe(false);
+  test("unknown total blocks only when a ceiling is configured", () => {
+    const base = {};
+    expect(blockers(evaluateGuards(base))).toEqual([]);
+    expect(
+      blockers(evaluateGuards({ ...base, maxTotalCents: 3_000 })).some(
+        (x) => x.code === "price_unknown_for_ceiling",
+      ),
+    ).toBe(true);
   });
 });
 
@@ -357,65 +358,6 @@ describe("isPast", () => {
   });
 });
 
-describe("deliveryWindow", () => {
-  test("open while not read-only and not past the late deadline", () => {
-    const d: Delivery = {
-      id: 1234200,
-      state: "initial",
-      isReadOnly: false,
-      pastLateOrderDeadline: false,
-      canRequestChanges: false,
-    };
-    const w = deliveryWindow(d);
-    expect(w.window).toBe("open");
-    expect(w.note).toContain("Editable");
-  });
-
-  test("grace: read-only but a late change request still lands", () => {
-    const d: Delivery = {
-      id: 1234199,
-      state: "grace_period",
-      isReadOnly: true,
-      pastLateOrderDeadline: false,
-      canRequestChanges: true,
-    };
-    const w = deliveryWindow(d);
-    expect(w.window).toBe("grace");
-    expect(w.pastLateOrderDeadline).toBe(false);
-    expect(w.note).toContain("late order or change request is still accepted");
-  });
-
-  test("closed once past the late-order deadline", () => {
-    const d: Delivery = {
-      id: 1234197,
-      state: "receipt_sent",
-      isReadOnly: true,
-      pastLateOrderDeadline: true,
-      canRequestChanges: false,
-    };
-    const w = deliveryWindow(d);
-    expect(w.window).toBe("closed");
-    expect(w.pastLateOrderDeadline).toBe(true);
-  });
-
-  test("an order-level late deadline closes the window too", () => {
-    const d: Delivery = {
-      id: 9,
-      isReadOnly: true,
-      orders: [{ id: 1, pastLateOrderDeadline: true }],
-    };
-    expect(deliveryWindow(d).window).toBe("closed");
-  });
-
-  test("no timestamp is consulted or reported — the window is booleans only", () => {
-    const w = deliveryWindow({ id: 1, isReadOnly: false });
-    expect(w.window).toBe("open");
-    expect(Object.keys(w).toSorted()).toEqual(["note", "pastLateOrderDeadline", "window"]);
-    // The policy lives in the note; the API exposes no member-facing deadline field.
-    expect(w.note).toContain("2pm the day before");
-  });
-});
-
 describe("formatDate", () => {
   test("keeps the calendar date the API named", () => {
     expect(formatDate(FOR_DELIVERY)).toBe("2026-08-11");
@@ -489,153 +431,6 @@ describe("findOwnMeal / allPieces", () => {
   });
 });
 
-describe("orderForGuards", () => {
-  test("a cross-venue switch keys off the venue you're JOINING, not your current one", () => {
-    // Your meal is on order 4 (menu 4); you're switching to menu 1. Capacity and the late-order
-    // budget belong to menu 1's venue, so that order is the one guards must read.
-    expect(orderForGuards(fourOrders, 1)?.id).toBe(1);
-  });
-
-  test("no menuId (remove/skip/confirm) → your own order", () => {
-    expect(orderForGuards(fourOrders)?.id).toBe(4);
-  });
-
-  test("re-ordering the same venue resolves to your own order either way", () => {
-    expect(orderForGuards(fourOrders, 4)?.id).toBe(4);
-  });
-
-  test("nothing selected → the venue you're ordering FROM", () => {
-    const empty: Delivery = {
-      id: 1,
-      orders: [
-        { id: 1, menu: { id: 10 } },
-        { id: 2, menu: { id: 20 } },
-      ],
-    };
-    expect(orderForGuards(empty, 20)?.id).toBe(2);
-  });
-
-  test("multi-order with no match → undefined, NOT an arbitrary venue", () => {
-    const empty: Delivery = {
-      id: 1,
-      orders: [
-        { id: 1, menu: { id: 10 } },
-        { id: 2, menu: { id: 20 } },
-      ],
-    };
-    expect(orderForGuards(empty, 999)).toBeUndefined();
-    expect(orderForGuards(empty)).toBeUndefined();
-  });
-
-  test("a single-order club falls back to that order", () => {
-    expect(orderForGuards({ id: 1, orders: [{ id: 7, menu: { id: 10 } }] })?.id).toBe(7);
-  });
-});
-
-describe("evaluateGuards on a multi-order delivery", () => {
-  // The regression: reading orders[0] looked clean while the target venue was over capacity.
-  test("capacity is read off the venue you're JOINING, not orders[0]", () => {
-    const d: Delivery = {
-      ...fourOrders,
-      availableMenuIds: [1, 4],
-      orders: [
-        { id: 1, menu: { id: 1 }, isOverVenueCapacity: false, pieces: [myPiece] },
-        { id: 4, menu: { id: 4 }, isOverVenueCapacity: true },
-      ],
-    };
-    const g = evaluateGuards({
-      intent: "select",
-      delivery: d,
-      order: orderForGuards(d, 4),
-      menuId: 4,
-    });
-    expect(g.some((x) => x.code === "over_venue_capacity")).toBe(true);
-
-    // ...and the clean venue does NOT inherit the other one's capacity problem.
-    const clean = evaluateGuards({
-      intent: "select",
-      delivery: d,
-      order: orderForGuards(d, 1),
-      menuId: 1,
-    });
-    expect(blockers(clean).some((x) => x.code === "over_venue_capacity")).toBe(false);
-  });
-
-  test("capacity never blocks the venue you already hold — re-customizing isn't a new seat", () => {
-    const ME = 501;
-    const d: Delivery = {
-      ...fourOrders,
-      availableMenuIds: [4],
-      orders: [
-        { id: 4, menu: { id: 4 }, isOverVenueCapacity: true, pieces: [{ ...myPiece, userId: ME }] },
-      ],
-    };
-    const g = evaluateGuards({
-      intent: "select",
-      delivery: d,
-      order: orderForGuards(d, 4),
-      menuId: 4,
-      user: { id: ME },
-    });
-    expect(g.some((x) => x.code === "over_venue_capacity")).toBe(false);
-  });
-
-  test("a GUEST's meal at that venue does not make it 'yours' — capacity still blocks", () => {
-    const d: Delivery = {
-      ...fourOrders,
-      availableMenuIds: [4],
-      orders: [
-        // No userId on the piece, so identity matching can't succeed; the fallback must not be
-        // mistaken for "you are already at this venue".
-        { id: 4, menu: { id: 4 }, isOverVenueCapacity: true, pieces: [myPiece] },
-      ],
-    };
-    const g = evaluateGuards({
-      intent: "select",
-      delivery: d,
-      order: orderForGuards(d, 4),
-      menuId: 4,
-      user: { id: 501 },
-    });
-    expect(g.some((x) => x.code === "over_venue_capacity")).toBe(true);
-  });
-
-  test("late-order budget comes from your order, so a stale orders[0] can't block", () => {
-    const d: Delivery = { ...fourOrders, pastLateOrderDeadline: true };
-    const g = evaluateGuards({
-      intent: "select",
-      delivery: d,
-      order: orderForGuards(d, 3),
-      menuId: 3,
-    });
-    expect(g.some((x) => x.code === "no_late_orders_remaining")).toBe(false);
-    expect(g.some((x) => x.code === "past_late_order_deadline" && x.level === "warn")).toBe(true);
-  });
-
-  test("pieces on two orders raises a warn, never a block", () => {
-    const d: Delivery = {
-      id: 1,
-      availableMenuIds: [1],
-      orders: [
-        { id: 1, pieces: [myPiece] },
-        { id: 2, pieces: [myPiece] },
-      ],
-    };
-    const g = evaluateGuards({
-      intent: "select",
-      delivery: d,
-      order: orderForGuards(d),
-      menuId: 1,
-    });
-    const w = g.find((x) => x.code === "multiple_own_orders");
-    expect(w?.level).toBe("warn");
-    expect(blockers(g).some((x) => x.code === "multiple_own_orders")).toBe(false);
-  });
-});
-
-// --- Honest-UTC display ----------------------------------------------------------------------
-// dropoffCompletedAt's `Z` is real, unlike forDeliveryAt's. Verified from the live payload:
-// 18:41:44Z lines up exactly with etaStatus.end 11:50:00-07:00.
 const ETA_START = "2026-08-11T11:35:00-07:00";
 
 describe("formatInstantLike", () => {
@@ -673,6 +468,7 @@ describe("formatInstantLike", () => {
 
 // --- Delivery status view --------------------------------------------------------------------
 
+const STATUS_USER = 501;
 const DELIVERED: Delivery = {
   id: 1234199,
   state: "grace_period",
@@ -699,35 +495,49 @@ const DELIVERED: Delivery = {
         status: "delivered",
         trackingUrl: "https://onf.lt/cfa6b0a0c0",
       },
-      pieces: [myPiece],
+      pieces: [{ ...myPiece, userId: STATUS_USER }],
     },
   ],
 };
 
 describe("deliveryStatus", () => {
-  test("reads fulfillment and the courier trail off YOUR order", () => {
-    const s = deliveryStatus(DELIVERED);
+  test("returns the owned order's raw fulfillment and courier fields", () => {
+    const s = deliveryStatus(DELIVERED, STATUS_USER);
     expect(s.fulfillment).toBe("delivered");
-    expect(s.arrivedAt).toBe("Tue 2026-08-11 11:41 AM PT");
-    expect(s.etaWindow).toBe("11:35–11:50 AM PT");
-    expect(s.arrivalWindow).toBe("11:45–12:15");
+    expect(s.orders).toEqual([
+      {
+        orderId: 4,
+        venue: "Placeholder Kitchen",
+        pieceIds: ["p1"],
+        state: null,
+        etaStatus: "delivered",
+        fulfillment: "delivered",
+        dropoffCompletedAt: "2026-08-11T18:41:44.000Z",
+        etaStart: ETA_START,
+        etaEnd: "2026-08-11T11:50:00-07:00",
+        etaShortTz: "PT",
+        trackingUrl: "https://onf.lt/cfa6b0a0c0",
+      },
+    ]);
+    expect(s.deliveryWindow).toEqual(["11:45", "12:15"]);
     expect(s.service).toBe("lunch, base 12:00");
-    expect(s.trackingUrl).toBe("https://onf.lt/cfa6b0a0c0");
     expect(s.meal[0]?.venue).toBe("Placeholder Kitchen");
     expect(s.meal[0]?.autoOrder).toBe(true);
   });
 
   test("a pre-dispatch day degrades to nulls, not throws", () => {
-    const s = deliveryStatus({
-      id: 7,
-      forDeliveryAt: FOR_DELIVERY,
-      deliveryWindow: ["11:45", "12:15"],
-      orders: [],
-    });
-    expect(s.fulfillment).toBe("not yet dispatched");
-    expect(s.arrivedAt).toBeNull();
-    expect(s.etaWindow).toBeNull();
-    expect(s.arrivalWindow).toBe("11:45–12:15");
+    const s = deliveryStatus(
+      {
+        id: 7,
+        forDeliveryAt: FOR_DELIVERY,
+        deliveryWindow: ["11:45", "12:15"],
+        orders: [],
+      },
+      STATUS_USER,
+    );
+    expect(s.fulfillment).toBeNull();
+    expect(s.orders).toEqual([]);
+    expect(s.deliveryWindow).toEqual(["11:45", "12:15"]);
     expect(s.meal).toEqual([]);
   });
 
@@ -736,26 +546,155 @@ describe("deliveryStatus", () => {
       id: 8,
       forDeliveryAt: FOR_DELIVERY,
       club: { id: 1, market: { timezone: "America/Los_Angeles" } },
-      orders: [{ id: 1, dropoffCompletedAt: "2026-08-11T18:41:44.000Z", pieces: [myPiece] }],
+      orders: [
+        {
+          id: 1,
+          dropoffCompletedAt: "2026-08-11T18:41:44.000Z",
+          pieces: [{ ...myPiece, userId: STATUS_USER }],
+        },
+      ],
     };
     // No shortTz to label it with, so the clock comes through unsuffixed.
-    expect(deliveryStatus(d).arrivedAt).toBe("Tue 2026-08-11 11:41 AM");
+    expect(formatDeliveryStatus(deliveryStatus(d, STATUS_USER))).toContain(
+      "Arrived    : Tue 2026-08-11 11:41 AM",
+    );
   });
 
   test("with no zone and no etaStatus it renders nothing rather than guessing", () => {
     const d: Delivery = {
       id: 8,
       forDeliveryAt: FOR_DELIVERY,
-      orders: [{ id: 1, dropoffCompletedAt: "2026-08-11T18:41:44.000Z", pieces: [myPiece] }],
+      orders: [
+        {
+          id: 1,
+          dropoffCompletedAt: "2026-08-11T18:41:44.000Z",
+          pieces: [{ ...myPiece, userId: STATUS_USER }],
+        },
+      ],
     };
-    expect(deliveryStatus(d).arrivedAt).toBeNull();
-    expect(deliveryStatus(d).arrivedAtRaw).toBe("2026-08-11T18:41:44.000Z");
+    const status = deliveryStatus(d, STATUS_USER);
+    expect(status.orders[0]?.dropoffCompletedAt).toBe("2026-08-11T18:41:44.000Z");
+    expect(formatDeliveryStatus(status)).not.toContain("Arrived");
+  });
+
+  test("keeps every owned order and tracker", () => {
+    const d: Delivery = {
+      id: 9,
+      forDeliveryAt: FOR_DELIVERY,
+      deliveryWindow: ["11:45", "12:15"],
+      orders: [
+        {
+          id: 10,
+          state: "ready",
+          venue: { id: 10, displayName: "First Cafe" },
+          etaStatus: {
+            status: "ontime",
+            start: ETA_START,
+            end: "2026-08-11T11:50:00-07:00",
+            shortTz: "PT",
+            trackingUrl: "https://track.test/first",
+          },
+          dropoffCompletedAt: "2026-08-11T18:00:00Z",
+          pieces: [{ ...myPiece, id: "first", userId: STATUS_USER }],
+        },
+        {
+          id: 20,
+          state: "ready",
+          venue: { id: 20, displayName: "Second Cafe" },
+          etaStatus: {
+            status: "delayed",
+            start: ETA_START,
+            end: "2026-08-11T12:05:00-07:00",
+            shortTz: "PT",
+            trackingUrl: "https://track.test/second",
+          },
+          pieces: [{ ...myPiece, id: "second", userId: STATUS_USER }],
+        },
+      ],
+    };
+
+    const status = deliveryStatus(d, STATUS_USER);
+    expect(status.deliveryWindow).toEqual(["11:45", "12:15"]);
+    expect(status.fulfillment).toBe("partially delivered");
+    expect(status.delayed).toBe(true);
+    expect(
+      status.orders.map(({ orderId, pieceIds, trackingUrl }) => ({
+        orderId,
+        pieceIds,
+        trackingUrl,
+      })),
+    ).toEqual([
+      { orderId: 10, pieceIds: ["first"], trackingUrl: "https://track.test/first" },
+      { orderId: 20, pieceIds: ["second"], trackingUrl: "https://track.test/second" },
+    ]);
+    expect(status.meal.map(({ pieceId, orderId }) => ({ pieceId, orderId }))).toEqual([
+      { pieceId: "first", orderId: 10 },
+      { pieceId: "second", orderId: 20 },
+    ]);
+    const rendered = formatDeliveryStatus(status);
+    expect(rendered).toContain("https://track.test/first");
+    expect(rendered).toContain("https://track.test/second");
+
+    const compact = compactDelivery(d, undefined, STATUS_USER);
+    expect(compact.etaState).toBe("partially delivered");
+    expect(compact.delayed).toBe(true);
+    expect(compact.trackingUrl).toBe("https://track.test/second");
+    expect(compact.arrivedAtRaw).toBeNull();
+    expect(fmtDelivery(d, undefined, STATUS_USER)).toContain(
+      "⚠ DELAYED — track: https://track.test/second",
+    );
+
+    const allDelivered: Delivery = {
+      ...d,
+      orders: d.orders?.map((order, index) =>
+        Object.assign({}, order, {
+          dropoffCompletedAt: index === 0 ? "2026-08-11T18:00:00Z" : "2026-08-11T19:00:00Z",
+        }),
+      ),
+    };
+    const completed = compactDelivery(allDelivered, undefined, STATUS_USER);
+    expect(completed.etaState).toBe("delivered");
+    expect(completed.delayed).toBe(false);
+    expect(completed.arrivedAtRaw).toBe("2026-08-11T19:00:00Z");
+    expect(fmtDelivery(allDelivered, undefined, STATUS_USER)).toContain(
+      "arrived Tue 2026-08-11 12:00 PM PT",
+    );
+  });
+
+  test.each([
+    [
+      "all delivered",
+      [{ dropoffCompletedAt: "2026-08-11T18:00:00Z" }, { eta: "delivered" }],
+      "delivered",
+    ],
+    [
+      "partial",
+      [{ dropoffCompletedAt: "2026-08-11T18:00:00Z" }, { eta: "ontime" }],
+      "partially delivered",
+    ],
+    ["delayed", [{ eta: "delayed" }, {}], "delayed"],
+    ["one shared non-null status", [{ eta: "ontime" }, {}], "ontime"],
+    ["mixed", [{ eta: "ontime" }, { state: "preparing" }], "mixed"],
+    ["delivery fallback", [{}, {}], "scheduled"],
+  ] as const)("uses the conservative %s aggregate", (_label, inputs, expected) => {
+    const d: Delivery = {
+      id: 10,
+      simpleState: "scheduled",
+      orders: inputs.map((input, index) => ({
+        id: index + 1,
+        state: "state" in input ? input.state : undefined,
+        dropoffCompletedAt: "dropoffCompletedAt" in input ? input.dropoffCompletedAt : undefined,
+        etaStatus: "eta" in input ? { status: input.eta } : undefined,
+        pieces: [{ ...myPiece, id: index + 1, userId: STATUS_USER }],
+      })),
+    };
+    expect(deliveryStatus(d, STATUS_USER).fulfillment).toBe(expected);
   });
 });
 
 describe("formatDeliveryStatus", () => {
   test("renders the delivered shape", () => {
-    const out = formatDeliveryStatus(deliveryStatus(DELIVERED));
+    const out = formatDeliveryStatus(deliveryStatus(DELIVERED, STATUS_USER));
     expect(out).toContain("Delivery 1234199 — Tue 2026-08-11 — delivered");
     expect(out).toContain("Nebula Noodles $18.99 — Placeholder Kitchen");
     expect(out).toContain("Arrived    : Tue 2026-08-11 11:41 AM PT");
@@ -764,7 +703,7 @@ describe("formatDeliveryStatus", () => {
   });
 
   test("the missing-item deadline renders as a clock in the delivery's zone", () => {
-    const s = deliveryStatus(DELIVERED);
+    const s = deliveryStatus(DELIVERED, STATUS_USER);
     // Honest UTC: 20:00Z is 1 PM Pacific, matching how the product itself displays it.
     expect(s.reportMissingItemCutoff).toBe("Tue 2026-08-11 1:00 PM PT");
     expect(formatDeliveryStatus(s)).toContain("Report by  : Tue 2026-08-11 1:00 PM PT");
@@ -775,7 +714,7 @@ describe("formatDeliveryStatus", () => {
 
   test("optional lines are omitted, not blanked", () => {
     const out = formatDeliveryStatus(
-      deliveryStatus({ id: 7, forDeliveryAt: FOR_DELIVERY, orders: [] }),
+      deliveryStatus({ id: 7, forDeliveryAt: FOR_DELIVERY, orders: [] }, STATUS_USER),
     );
     expect(out).not.toContain("Tracking");
     expect(out).not.toContain("Arrived");
@@ -948,79 +887,7 @@ describe("meal groups", () => {
   });
 });
 
-// --- Cross-venue writes touch TWO orders -------------------------------------------------------
-
-describe("cross-venue select gates both orders", () => {
-  // replacePiece removes from the source venue's order and adds to the target's, so a refusal on
-  // EITHER has to block. Reading only the target lost this.
-  const sourceRefuses: Delivery = {
-    id: 9,
-    availableMenuIds: [1, 4],
-    pastLateOrderDeadline: false,
-    orders: [
-      { id: 1, menu: { id: 1 }, changeRequestAllowed: true, lateOrdersRemaining: 6 },
-      {
-        id: 4,
-        menu: { id: 4 },
-        changeRequestAllowed: false,
-        lateOrdersRemaining: 0,
-        pastLateOrderDeadline: true,
-        pieces: [myPiece],
-      },
-    ],
-  };
-
-  test("a source order that refuses changes blocks the move", () => {
-    const g = evaluateGuards({
-      intent: "select",
-      delivery: sourceRefuses,
-      order: orderForGuards(sourceRefuses, 1), // target: order 1, clean
-      sourceOrder: findOwnMeal(sourceRefuses)?.order, // source: order 4, refuses
-      menuId: 1,
-    });
-    expect(g.some((x) => x.code === "change_request_not_allowed")).toBe(true);
-  });
-
-  test("the deadline rolls up across all orders, so it survives an unresolved target", () => {
-    // Nothing selected and no order sells menu 3, so no order resolves at all. The deadline lives on
-    // a sibling order; before the rollup it was read off the resolved order only and vanished here.
-    const nothingSelected: Delivery = {
-      id: 9,
-      availableMenuIds: [1, 3],
-      orders: [
-        { id: 1, menu: { id: 1 } },
-        { id: 2, menu: { id: 2 }, pastLateOrderDeadline: true },
-      ],
-    };
-    expect(orderForGuards(nothingSelected, 3)).toBeUndefined();
-    const g = evaluateGuards({
-      intent: "select",
-      delivery: nothingSelected,
-      order: orderForGuards(nothingSelected, 3),
-      menuId: 1,
-    });
-    expect(g.some((x) => x.code === "past_late_order_deadline")).toBe(true);
-  });
-
-  test("both orders clean → no blockers", () => {
-    const clean: Delivery = {
-      id: 9,
-      availableMenuIds: [1, 4],
-      orders: [
-        { id: 1, menu: { id: 1 }, changeRequestAllowed: true },
-        { id: 4, menu: { id: 4 }, changeRequestAllowed: true, pieces: [myPiece] },
-      ],
-    };
-    const g = evaluateGuards({
-      intent: "select",
-      delivery: clean,
-      order: orderForGuards(clean, 1),
-      sourceOrder: findOwnMeal(clean)?.order,
-      menuId: 1,
-    });
-    expect(blockers(g).length).toBe(0);
-  });
-});
+// --- Ownership across venues ------------------------------------------------------------------
 
 describe("findOwnMeal with a guest order", () => {
   const ME = 501;
@@ -1063,130 +930,6 @@ describe("findOwnMeal with a guest order", () => {
   });
 });
 
-describe("replacement-driven gates", () => {
-  const myPieceOn = (menuId: number) => ({ ...myPiece, menuId });
-
-  test("a venue-replacement re-opens a read-only delivery", () => {
-    const d: Delivery = {
-      id: 9,
-      isReadOnly: true,
-      availableMenuIds: [1],
-      orders: [{ id: 1, menu: { id: 1 }, replaces: { id: 99, menu: { id: 1 } } }],
-    };
-    const g = evaluateGuards({
-      intent: "select",
-      delivery: d,
-      order: orderForGuards(d, 1),
-      menuId: 1,
-    });
-    expect(g.some((x) => x.code === "delivery_read_only")).toBe(false);
-  });
-
-  test("...and bypasses an exhausted late-order budget", () => {
-    const d: Delivery = {
-      id: 9,
-      pastLateOrderDeadline: true,
-      availableMenuIds: [1],
-      orders: [
-        { id: 1, menu: { id: 1 }, lateOrdersRemaining: 0, replaces: { id: 99, menu: { id: 1 } } },
-      ],
-    };
-    const g = evaluateGuards({
-      intent: "select",
-      delivery: d,
-      order: orderForGuards(d, 1),
-      menuId: 1,
-    });
-    expect(g.some((x) => x.code === "no_late_orders_remaining")).toBe(false);
-  });
-
-  test("a sibling order's pending replacement warns that the day may be frozen", () => {
-    const d: Delivery = {
-      id: 9,
-      availableMenuIds: [1, 2],
-      orders: [
-        { id: 1, menu: { id: 1 }, pieces: [myPieceOn(1)] },
-        { id: 2, menu: { id: 2 }, replaces: { id: 99, menu: { id: 2 } } },
-      ],
-    };
-    const g = evaluateGuards({
-      intent: "select",
-      delivery: d,
-      order: orderForGuards(d, 1),
-      menuId: 1,
-    });
-    const w = g.find((x) => x.code === "sibling_replacement_pending");
-    expect(w?.level).toBe("warn"); // warn, not block — modelled but not yet observed live
-    expect(blockers(g).some((x) => x.code === "sibling_replacement_pending")).toBe(false);
-  });
-
-  test("a late_replacement piece anywhere on the delivery warns too", () => {
-    const d: Delivery = {
-      id: 9,
-      availableMenuIds: [1],
-      orders: [
-        { id: 1, menu: { id: 1 }, pieces: [myPieceOn(1)] },
-        { id: 2, menu: { id: 2 }, pieces: [{ ...myPiece, flowType: "late_replacement" }] },
-      ],
-    };
-    const g = evaluateGuards({
-      intent: "select",
-      delivery: d,
-      order: orderForGuards(d, 1),
-      menuId: 1,
-    });
-    expect(g.some((x) => x.code === "sibling_replacement_pending")).toBe(true);
-  });
-});
-
-describe("removal gates", () => {
-  test("an `initial` delivery still accepts a removal past the late deadline", () => {
-    const d: Delivery = {
-      id: 9,
-      state: "initial",
-      pastLateOrderDeadline: true,
-      orders: [{ id: 1, lateRemovalsRemaining: 0, pieces: [myPiece] }],
-    };
-    const g = evaluateGuards({ intent: "remove", delivery: d, order: orderForGuards(d) });
-    expect(g.some((x) => x.code === "no_late_removals_remaining")).toBe(false);
-  });
-
-  test("a club with late removal disabled blocks past the deadline", () => {
-    const d: Delivery = {
-      id: 9,
-      state: "grace_period",
-      pastLateOrderDeadline: true,
-      club: { id: 1, isLateRemovalEnabled: false },
-      orders: [{ id: 1, lateRemovalsRemaining: 6, pieces: [myPiece] }],
-    };
-    const g = evaluateGuards({ intent: "remove", delivery: d, order: orderForGuards(d) });
-    expect(g.some((x) => x.code === "late_removal_disabled")).toBe(true);
-  });
-
-  test("a pending change request warns rather than blocks", () => {
-    const d: Delivery = {
-      id: 9,
-      orders: [{ id: 1, hasChangeRequest: true, pieces: [myPiece] }],
-    };
-    const g = evaluateGuards({ intent: "remove", delivery: d, order: orderForGuards(d) });
-    expect(g.find((x) => x.code === "change_request_pending")?.level).toBe("warn");
-  });
-});
-
-describe("the monthly late-order counter is advisory", () => {
-  test("zero remaining warns, never blocks", () => {
-    const d: Delivery = { id: 1, availableMenuIds: [1], pastLateOrderDeadline: true, orders: [] };
-    const g = evaluateGuards({
-      intent: "select",
-      delivery: d,
-      menuId: 1,
-      user: { id: 7, remainingLateOrdersMonthOf: 0 },
-    });
-    expect(g.find((x) => x.code === "no_monthly_late_orders")?.level).toBe("warn");
-    expect(blockers(g).some((x) => x.code === "no_monthly_late_orders")).toBe(false);
-  });
-});
-
 describe("findOwnMeal across venues", () => {
   const ME = 501;
   const twoVenues: Delivery = {
@@ -1212,44 +955,6 @@ describe("findOwnMeal across venues", () => {
   test("one venue is not ambiguous", () => {
     const one: Delivery = { id: 9, orders: [{ id: 1, pieces: [{ ...myPiece, userId: ME }] }] };
     expect(findOwnMeal(one, ME)?.ambiguous).toBe(false);
-  });
-});
-
-describe("the replacement escape hatch is venue-scoped", () => {
-  // A replacement at ONE venue must not unlock writes to a different venue on the same delivery.
-  const d: Delivery = {
-    id: 9,
-    isReadOnly: true,
-    availableMenuIds: [1, 2],
-    orders: [
-      { id: 1, menu: { id: 1 }, replaces: { id: 99, menu: { id: 1 } } },
-      { id: 2, menu: { id: 2 } },
-    ],
-  };
-
-  test("unlocks the venue that has the replacement", () => {
-    const g = evaluateGuards({
-      intent: "select",
-      delivery: d,
-      order: orderForGuards(d, 1),
-      menuId: 1,
-    });
-    expect(g.some((x) => x.code === "delivery_read_only")).toBe(false);
-  });
-
-  test("does NOT unlock a different venue", () => {
-    const g = evaluateGuards({
-      intent: "select",
-      delivery: d,
-      order: orderForGuards(d, 2),
-      menuId: 2,
-    });
-    expect(g.some((x) => x.code === "delivery_read_only")).toBe(true);
-  });
-
-  test("does NOT unlock a remove/skip, which names no target venue", () => {
-    const g = evaluateGuards({ intent: "remove", delivery: d, order: orderForGuards(d) });
-    expect(g.some((x) => x.code === "delivery_read_only")).toBe(true);
   });
 });
 
@@ -1289,114 +994,6 @@ describe("multi-venue writes target the right meal", () => {
 // Club configurations this account can't reach: weekly allowances, family-style
 // service, and deliveries carrying other members' orders.
 // ---------------------------------------------------------------------------
-
-describe("allowanceFor", () => {
-  test("a daily club reads the daily copay and names it that", () => {
-    const a = allowanceFor({ id: 1, allowanceType: "daily", copayAmount: 20 });
-    expect(a).toEqual({ kind: "daily", limit: 20, label: "daily limit" });
-  });
-
-  test("a weekly club reads what's LEFT this week, not the daily copay", () => {
-    const a = allowanceFor({
-      id: 1,
-      allowanceType: "weekly",
-      copayAmount: 20,
-      weeklyAllowance: 100,
-      weeklyAllowanceAvailable: 35,
-    });
-    expect(a.limit).toBe(35);
-    expect(a.label).toBe("remaining weekly allowance");
-  });
-
-  test("weekly with nothing left falls back to the weekly cap rather than reporting 0", () => {
-    const a = allowanceFor({
-      id: 1,
-      allowanceType: "weekly_by_day",
-      weeklyAllowance: 100,
-      weeklyAllowanceAvailable: 0,
-    });
-    expect(a.limit).toBe(100);
-    expect(a.label).toBe("weekly allowance");
-  });
-
-  test("an unknown allowance type never claims to be daily", () => {
-    const a = allowanceFor({ id: 1, copayAmount: 20 });
-    expect(a.label).toBe("company coverage");
-    expect(a.label).not.toContain("daily");
-  });
-
-  test("a missing limit stays null so nothing is warned about", () => {
-    expect(allowanceFor({ id: 1, allowanceType: "weekly" }).limit).toBeNull();
-    expect(allowanceFor({ id: 1, allowanceType: "daily", copayAmount: 0 }).limit).toBeNull();
-  });
-
-  test("the receipt's clubCopay is the member's entitlement, beating the club-level copay", () => {
-    // A club-level 20 with a member entitled to 35 — the club field can't express a per-member or
-    // per-weekday allowance, so the receipt wins.
-    const a = allowanceFor({
-      id: 1,
-      allowanceType: "daily",
-      copayAmount: 20,
-      userReceipt: { id: 1, clubCopay: 35 },
-    });
-    expect(a).toEqual({ kind: "daily", limit: 35, label: "daily limit" });
-  });
-
-  test("clubCopay wins for an unknown allowance type too, still without saying 'daily'", () => {
-    const a = allowanceFor({ id: 1, copayAmount: 20, userReceipt: { id: 1, clubCopay: 31 } });
-    expect(a.limit).toBe(31);
-    expect(a.label).toBe("company coverage");
-  });
-
-  test("copayAmount is the fallback only when the receipt reports no entitlement at all", () => {
-    const base = { id: 1, allowanceType: "daily", copayAmount: 20 };
-    // No receipt yet, and a receipt that simply doesn't carry the field.
-    expect(allowanceFor(base).limit).toBe(20);
-    expect(allowanceFor({ ...base, userReceipt: { id: null, due: 0 } }).limit).toBe(20);
-  });
-
-  test("a member entitled to ZERO is not handed the club's figure", () => {
-    // Zero means "unknown, stay silent" for a club-wide field, but a per-member receipt reporting 0
-    // is a real answer: this member isn't covered on this delivery. Falling back to the club's $20
-    // would promise coverage they don't have — so the limit goes null and nothing is claimed.
-    const d: Delivery = {
-      id: 1,
-      forDeliveryAt: FOR_DELIVERY,
-      allowanceType: "daily",
-      copayAmount: 20,
-      userReceipt: { id: 1, clubCopay: 0 },
-      orders: [],
-    };
-    expect(allowanceFor(d).limit).toBeNull();
-    // And nothing is rendered — silence, not "$0.00" and not the club's $20.
-    expect(fmtDelivery(d)).not.toContain("company covers");
-    expect(fmtDelivery(d)).not.toContain("$0.00");
-  });
-
-  test("the APPLIED copay is never mistaken for the limit", () => {
-    // Measured live: clubCopay 20 (entitlement) alongside copayAmount 14.95 (what was applied).
-    // Reading the receipt's copayAmount would shrink the allowance to the last thing ordered.
-    const a = allowanceFor({
-      id: 1,
-      allowanceType: "daily",
-      copayAmount: 20,
-      userReceipt: { id: 1, clubCopay: 20, copayAmount: 14.95, subtotal: 14.95, due: 0 },
-    });
-    expect(a.limit).toBe(20);
-  });
-
-  test("a weekly club ignores clubCopay — the weekly pair still decides", () => {
-    const a = allowanceFor({
-      id: 1,
-      allowanceType: "weekly",
-      weeklyAllowance: 100,
-      weeklyAllowanceAvailable: 35,
-      userReceipt: { id: 1, clubCopay: 20 },
-    });
-    expect(a.limit).toBe(35);
-    expect(a.label).toBe("remaining weekly allowance");
-  });
-});
 
 describe("per-piece state badges", () => {
   const ME = 501;
@@ -1617,7 +1214,7 @@ describe("a delayed courier is loud", () => {
   test("no courier yet is not a delay", () => {
     const d: Delivery = { id: 6, forDeliveryAt: FOR_DELIVERY, orders: [] };
     expect(deliveryStatus(d).delayed).toBe(false);
-    expect(formatDeliveryStatus(deliveryStatus(d))).toContain("not yet dispatched");
+    expect(formatDeliveryStatus(deliveryStatus(d))).toContain("status unavailable");
   });
 });
 
@@ -1757,100 +1354,52 @@ describe("money reaches the rendered line", () => {
     orders: [{ id: 1, pieces: [{ ...myPiece, userId: ME }] }],
   });
 
-  test("the list line shows the company limit and any out-of-pocket", () => {
+  test("the list line shows the direct reported due", () => {
     const line = fmtDelivery(withReceipt({ id: 1, clubCopay: 20, due: 4.5 }), undefined, ME);
-    expect(line).toContain("company covers $20.00");
-    expect(line).toContain("you pay $4.50");
-  });
-
-  test("nothing out of pocket prints no 'you pay' at all", () => {
-    const line = fmtDelivery(withReceipt({ id: 1, clubCopay: 20, due: 0 }), undefined, ME);
-    expect(line).toContain("company covers $20.00");
+    expect(line).toContain("reported due $4.50");
+    expect(line).not.toContain("company covers");
     expect(line).not.toContain("you pay");
   });
 
-  test("the status view renders the same figures", () => {
+  test("a reported zero due is preserved", () => {
+    const line = fmtDelivery(withReceipt({ id: 1, clubCopay: 20, due: 0 }), undefined, ME);
+    expect(line).toContain("reported due $0.00");
+    expect(line).not.toContain("company covers");
+    expect(line).not.toContain("you pay");
+  });
+
+  test("the status view exposes direct billing values as cents", () => {
     const s = deliveryStatus(withReceipt({ id: 1, clubCopay: 20, due: 4.5 }), ME);
-    expect(s.companyLimit).toBe(20);
-    expect(s.companyLimitLabel).toBe("daily limit");
-    expect(s.youPay).toBe(4.5);
-    expect(formatDeliveryStatus(s)).toContain("You pay    : $4.50");
+    expect(s.billing).toEqual({
+      reportedDueCents: 450,
+      allowanceType: "daily",
+      copayAmountCents: 2000,
+      weeklyAllowanceCents: null,
+      weeklyAllowanceAvailableCents: null,
+      memberClubCopayCents: 2000,
+    });
+    expect(formatDeliveryStatus(s)).toContain("Reported due: $4.50");
+    expect(s).not.toHaveProperty("companyLimit");
+    expect(s).not.toHaveProperty("writeWindow");
+    expect(s).not.toHaveProperty("youPay");
   });
 
   test("an unknown limit renders no coverage claim rather than $0.00", () => {
     const d: Delivery = { id: 3, forDeliveryAt: FOR_DELIVERY, orders: [] };
     expect(fmtDelivery(d)).not.toContain("company covers");
-    expect(compactDelivery(d).companyLimit).toBeNull();
+    expect(compactDelivery(d)).not.toHaveProperty("companyLimit");
   });
-});
 
-describe("the over-company-limit warning follows the club's allowance type", () => {
-  test("a weekly club is measured against the weekly remainder, and says so", () => {
-    const g = evaluateGuards({
-      intent: "select",
-      delivery: {
-        id: 1,
-        allowanceType: "weekly",
-        copayAmount: 20,
-        weeklyAllowance: 100,
-        weeklyAllowanceAvailable: 12,
-      },
-      total: 18,
+  test("the compact read preserves Forkable's raw late-deadline signal", () => {
+    const compact = compactDelivery({
+      id: 4,
+      isReadOnly: true,
+      pastLateOrderDeadline: true,
+      canRequestChanges: false,
     });
-    const w = g.find((x) => x.code === "over_company_limit");
-    expect(w?.message).toContain("remaining weekly allowance");
-    expect(w?.message).not.toContain("daily");
-    expect(w?.data?.outOfPocket).toBe(6); // 18 - 12, not 18 - 20
-  });
-
-  test("an unknown limit warns about nothing", () => {
-    const g = evaluateGuards({ intent: "select", delivery: { id: 1 }, total: 99 });
-    expect(g.some((x) => x.code === "over_company_limit")).toBe(false);
-  });
-
-  test("a spend ceiling no longer suppresses the company-limit note", () => {
-    const g = evaluateGuards({
-      intent: "select",
-      delivery: { id: 1, allowanceType: "daily", copayAmount: 20 },
-      total: 25,
-      maxTotal: 100,
-    });
-    expect(g.some((x) => x.code === "over_company_limit")).toBe(true);
-    expect(blockers(g).length).toBe(0);
-  });
-});
-
-describe("family-style deliveries", () => {
-  const familyDay: Delivery = {
-    id: 7,
-    isReadOnly: true,
-    canRequestChanges: true,
-    forFamily: true,
-    orders: [{ id: 1, menu: { id: 1 } }],
-  };
-
-  test("isFamilyStyle sees each of the four signals", () => {
-    expect(isFamilyStyle(familyDay)).toBe(true);
-    expect(isFamilyStyle({ id: 7, forBuffet: true })).toBe(true);
-    expect(isFamilyStyle({ id: 7, club: { id: 1, familyHub: true } })).toBe(true);
-    expect(isFamilyStyle({ id: 7, orders: [{ id: 1, venue: { id: 2, familyHub: true } }] })).toBe(
-      true,
-    );
-    expect(isFamilyStyle({ id: 7, forFamily: null })).toBe(false);
-  });
-
-  test("a locked family day does not claim a change request is still accepted", () => {
-    expect(deliveryWindow(familyDay).window).not.toBe("grace");
-    expect(deliveryWindow(familyDay).note).not.toContain("change request");
-  });
-
-  test("the same day WITHOUT the family flag still reports grace", () => {
-    expect(deliveryWindow({ ...familyDay, forFamily: false }).window).toBe("grace");
-  });
-
-  test("a remaining late-order budget still opens grace on a family day", () => {
-    const w = deliveryWindow({ ...familyDay, orders: [{ id: 1, lateOrdersRemaining: 2 }] });
-    expect(w.window).toBe("grace");
+    expect(compact.isReadOnly).toBe(true);
+    expect(compact.pastLateOrderDeadline).toBe(true);
+    expect(compact.canRequestChanges).toBe(false);
   });
 });
 
@@ -1882,21 +1431,22 @@ describe("a delivery carrying another member's order", () => {
   test("get_delivery_status reports MY meal, not the first one ordered", () => {
     const s = deliveryStatus(shared, ME);
     expect(s.meal.map((m) => m.name)).toEqual(["My Noodles"]);
-    expect(s.attributed).toBe(true);
+    expect(s.orders.map((order) => order.orderId)).toEqual([2]);
   });
 
   test("their courier tracking is not reported as mine", () => {
     const s = deliveryStatus(shared, ME);
-    expect(s.arrivedAt).toBeNull();
-    expect(s.fulfillment).toBe("not yet dispatched");
-    // Without an id it silently takes theirs — which is exactly the bug.
-    expect(deliveryStatus(shared).fulfillment).toBe("delivered");
+    expect(s.orders[0]?.dropoffCompletedAt).toBeNull();
+    expect(s.orders[0]?.trackingUrl).toBeNull();
+    expect(s.fulfillment).toBeNull();
+    // Without positive ownership, no order is attributed to the member.
+    expect(deliveryStatus(shared).orders).toEqual([]);
   });
 
-  test("an unattributable meal is not called 'Your meal'", () => {
+  test("an unattributable delivery does not expose another member's meal", () => {
     const out = formatDeliveryStatus(deliveryStatus(shared));
-    expect(out).toContain("couldn't tell which meal is yours");
-    expect(out).not.toContain("Your meal");
+    expect(out).toContain("Your meal  : — nothing selected");
+    expect(out).not.toContain("Their Burrito");
   });
 
   test("the list shows only my pick, and counts the rest", () => {
@@ -1910,11 +1460,6 @@ describe("a delivery carrying another member's order", () => {
     const theirsOnly: Delivery = { id: 9, orders: [shared.orders![0]!] };
     expect(compactDelivery(theirsOnly, undefined, ME).needsOrder).toBe(true);
     expect(compactDelivery(theirsOnly, undefined, ME).otherMeals).toBe(1);
-  });
-
-  test("a remove/skip resolves MY order, not the first with pieces", () => {
-    expect(orderForGuards(shared, undefined, ME)?.id).toBe(2);
-    expect(orderForGuards(shared)?.id).toBe(1); // the old, identity-free answer
   });
 });
 
