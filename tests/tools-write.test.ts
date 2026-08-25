@@ -47,12 +47,6 @@ function delivery(
   };
 }
 
-function inputOf(result: CallToolResult): Record<string, unknown> {
-  const variables = structured(result).variables as { input?: Record<string, unknown> } | undefined;
-  if (!variables?.input) throw new Error("result has no preview input");
-  return variables.input;
-}
-
 function structured(result: CallToolResult): Record<string, unknown> {
   return (result.structuredContent ?? {}) as Record<string, unknown>;
 }
@@ -149,7 +143,17 @@ describe("write tool planning", () => {
       itemId: ITEM_ID,
     });
     expect(structured(exact).mode).toBe("preview");
-    expect(inputOf(exact).menuId).toBe(MENU_ID);
+    expect(structured(exact)).not.toHaveProperty("variables");
+    await handlers.get("set_meal")!({
+      deliveryId: 1,
+      menuId: MENU_ID,
+      itemId: ITEM_ID,
+      modifiers: [],
+      instructions: "",
+      autoConfirm: false,
+      confirmToken: structured(exact).confirmToken,
+    });
+    expect(mutations[0]?.input.menuId).toBe(MENU_ID);
 
     const result = await handlers.get("set_meal")!({
       deliveryId: 1,
@@ -183,10 +187,23 @@ describe("write tool planning", () => {
       menuId: MENU_ID,
       itemId: ITEM_ID,
       sourcePieceId: "mine",
+      instructions: "no onions",
     });
     expect(structured(result).mode).toBe("preview");
-    expect(inputOf(result).oldPieceId).toBe("mine");
-    expect(inputOf(result)).not.toHaveProperty("sourcePieceId");
+    expect(structured(result).summary).toContain("Replace Old Bowl with Test Bowl");
+    expect(structured(result).summary).toContain('instructions: "no onions"');
+    await handlers.get("set_meal")!({
+      deliveryId: 1,
+      menuId: MENU_ID,
+      itemId: ITEM_ID,
+      sourcePieceId: "mine",
+      modifiers: [],
+      instructions: "no onions",
+      autoConfirm: false,
+      confirmToken: structured(result).confirmToken,
+    });
+    expect(mutations[0]?.input.oldPieceId).toBe("mine");
+    expect(mutations[0]?.input).not.toHaveProperty("sourcePieceId");
 
     deliveries = [delivery(1, [{ id: "theirs", itemId: 1, menuId: MENU_ID, userId: USER_ID + 1 }])];
     const foreign = await handlers.get("set_meal")!({
@@ -219,19 +236,17 @@ describe("write tool planning", () => {
       deliveryIds: [1, 1, 2],
       menuId: MENU_ID,
       itemId: ITEM_ID,
+      instructions: "sauce on the side",
     });
     expect(structured(result).mode).toBe("preview");
-    expect(inputOf(result).deliveryIds).toEqual([1, 2]);
-    expect(inputOf(result).newPiece).toEqual(
-      expect.objectContaining({ deliveryId: 1, menuId: MENU_ID, itemId: ITEM_ID }),
-    );
+    expect(structured(result).summary).toContain('instructions: "sauce on the side"');
     expect(dietChecks).toBe(1);
     const confirmed = await handlers.get("set_meal_all")!({
       deliveryIds: [1, 2],
       menuId: MENU_ID,
       itemId: ITEM_ID,
       modifiers: [],
-      instructions: "",
+      instructions: "sauce on the side",
       confirmToken: structured(result).confirmToken,
     });
     expect(structured(confirmed).mode).toBe("executed");
@@ -239,7 +254,14 @@ describe("write tool planning", () => {
       expect.objectContaining({
         name: "replaceAllPieces",
         selection: "errors",
-        input: expect.objectContaining({ deliveryIds: [1, 2] }),
+        input: expect.objectContaining({
+          deliveryIds: [1, 2],
+          newPiece: expect.objectContaining({
+            deliveryId: 1,
+            menuId: MENU_ID,
+            itemId: ITEM_ID,
+          }),
+        }),
       }),
     ]);
     expect(dietChecks).toBe(1);
@@ -344,10 +366,10 @@ describe("write tool planning", () => {
       itemId: ITEM_ID,
     });
     expect(structured(withoutCeiling).mode).toBe("preview");
-    expect(structured(withoutCeiling).details).toEqual({
-      selectionsHash: {},
-      totalCents: null,
-    });
+    expect(structured(withoutCeiling)).not.toHaveProperty("details");
+    expect(
+      withoutCeiling.content[0]?.type === "text" ? withoutCeiling.content[0].text : "",
+    ).toContain("price unavailable");
 
     process.env.FORKABLE_MAX_TOTAL = "20";
     const withCeiling = await handlers.get("set_meal")!({

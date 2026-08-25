@@ -21,7 +21,6 @@ const basePlan: WritePlan = {
   },
   summary: "Replace lunch",
   deliveryIds: [1],
-  details: { item: "Lunch" },
 };
 
 function clonePlan(): WritePlan {
@@ -36,7 +35,6 @@ function context(
   return {
     resolveActor: async () => ({ userId, delegationSessionId }),
     execute,
-    buildMutationText: (op, selection) => `mutation ${op} { ${selection} }`,
   };
 }
 
@@ -126,6 +124,16 @@ describe("createWriteGate", () => {
     );
     expect(preview.structuredContent?.mode).toBe("preview");
     expect(confirmToken(preview)).toBe("token-1");
+    expect(preview.structuredContent).toEqual({
+      mode: "preview",
+      summary: "Replace lunch",
+      deliveryIds: [1],
+      warnings: [],
+      confirmToken: "token-1",
+      expiresAt: "1970-01-01T00:10:01.000Z",
+    });
+    expect(preview.content[0]?.text).not.toContain("mutation");
+    expect(preview.content[0]?.text).not.toContain("selectionsHash");
     expect(previewExecutions).toBe(0);
     planned.input.itemId = 999;
 
@@ -145,7 +153,11 @@ describe("createWriteGate", () => {
       },
     );
 
-    expect(result.structuredContent?.mode).toBe("executed");
+    expect(result.structuredContent).toEqual({
+      mode: "executed",
+      summary: "Replace lunch",
+      deliveryIds: [1],
+    });
     expect(executed?.input.itemId).toBe(4);
     expect(executed?.input).toEqual(basePlan.input);
   });
@@ -319,6 +331,8 @@ describe("createWriteGate", () => {
     });
     expect(result.structuredContent?.mode).toBe("blocked");
     expect(result.structuredContent).not.toHaveProperty("confirmToken");
+    expect(result.structuredContent).not.toHaveProperty("variables");
+    expect(result.content[0]?.text).not.toContain("Would-be mutation");
     expect(actorResolutions).toBe(0);
   });
 
@@ -346,19 +360,24 @@ describe("createWriteGate", () => {
     };
 
     const rejected = await resultFor(
-      new MutationError("replacePiece", ["not allowed"], { base: [] }),
+      new MutationError("replacePiece", ["not allowed", "not allowed"], {
+        base: [{ error: "venue_capacity_overage" }],
+      }),
     );
     expect(rejected.isError).toBe(true);
     expect(rejected.structuredContent?.mode).toBe("rejected");
-    expect(rejected.structuredContent?.errors).toEqual(["not allowed"]);
+    expect(rejected.structuredContent?.reasons).toEqual(["not allowed", "venue_capacity_overage"]);
+    expect(rejected.structuredContent).not.toHaveProperty("errorDetails");
 
     const unknown = await resultFor(
       new MutationOutcomeUnknownError("replacePiece", "connection closed", 502),
     );
     expect(unknown.isError).toBe(true);
     expect(unknown.structuredContent?.mode).toBe("outcome_unknown");
-    expect(unknown.structuredContent?.status).toBe(502);
+    expect(unknown.structuredContent).not.toHaveProperty("status");
     expect(unknown.structuredContent?.retrySafe).toBe(false);
+    expect(unknown.structuredContent?.message).toBe("connection closed");
+    expect(unknown.content[0]?.text).toStartWith("Outcome unknown: connection closed.");
     expect(unknown.structuredContent?.reconciliation).toEqual({
       tool: "list_deliveries",
       deliveryIds: [1],

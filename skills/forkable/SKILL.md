@@ -116,7 +116,7 @@ Review the replacement preview before using its new token.
 - `blocked`: no token was issued. Correct the target, selection, ownership issue, or local preview
   ceiling problem.
 - `executed`: Forkable returned success.
-- `rejected`: Forkable definitively refused the write. Stop and report the structured errors; do
+- `rejected`: Forkable definitively refused the write. Stop and report the reasons; do
   not reuse the consumed token.
 - `outcome_unknown`: Forkable may have applied the write. Do not retry. Refresh the delivery IDs
   named in `reconciliation` with `list_deliveries`, then compare the current state.

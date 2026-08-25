@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from "node:crypto";
-import { MutationError, MutationOutcomeUnknownError } from "@/net/errors.ts";
+import { baseCodes, MutationError, MutationOutcomeUnknownError } from "@/net/errors.ts";
 import { type Guard } from "@/order/guards.ts";
 
 export interface ExecutableWritePlan {
@@ -11,7 +11,6 @@ export interface ExecutableWritePlan {
 }
 
 export interface WritePlan extends ExecutableWritePlan {
-  details?: Record<string, unknown>;
   guards?: Guard[];
 }
 
@@ -23,7 +22,6 @@ export interface WriteActor {
 export interface GateCtx {
   resolveActor: () => Promise<WriteActor>;
   execute: (plan: ExecutableWritePlan) => Promise<unknown>;
-  buildMutationText: (op: string, selection: string) => string;
 }
 
 export interface ToolResultLike {
@@ -104,11 +102,11 @@ function warnings(guards: Guard[] | undefined): Guard[] {
   return (guards ?? []).filter((guard) => guard.level === "warn");
 }
 
-function payloadFor(plan: WritePlan): {
-  op: string;
-  variables: { input: Record<string, unknown> };
-} {
-  return { op: plan.op, variables: { input: plan.input } };
+function withoutOperation(message: string, operation: string): string {
+  const prefix = `${operation}: `;
+  const clean = message.startsWith(prefix) ? message.slice(prefix.length) : message;
+  const unknown = "outcome unknown — ";
+  return clean.startsWith(unknown) ? clean.slice(unknown.length) : clean;
 }
 
 /** Create one process-local, single-use pending-write gate. */
@@ -174,28 +172,18 @@ export function createWriteGate(options: WriteGateOptions = {}): WriteGate {
   return async (ctx, call) => {
     const blockedResult = (plan: WritePlan, note?: string): ToolResultLike => {
       const blocking = blockers(plan.guards);
-      const payload = payloadFor(plan);
       return {
         isError: true,
         content: text(
-          [
-            note,
-            "Blocked — this write cannot proceed:",
-            ...blocking.map((guard) => `  ✗ ${guard.message}`),
-            "",
-            "Would-be mutation (not sent):",
-            ctx.buildMutationText(plan.op, plan.selection),
-            "",
-            JSON.stringify(payload.variables, null, 2),
-          ]
+          [note, `Blocked — ${plan.summary}`, ...blocking.map((guard) => `  ✗ ${guard.message}`)]
             .filter((line): line is string => line !== undefined)
             .join("\n"),
         ),
         structuredContent: {
           mode: "blocked",
-          op: plan.op,
+          summary: plan.summary,
+          deliveryIds: plan.deliveryIds,
           blockers: blocking.map((guard) => ({ code: guard.code, message: guard.message })),
-          variables: payload.variables,
         },
       };
     };
@@ -210,16 +198,9 @@ export function createWriteGate(options: WriteGateOptions = {}): WriteGate {
       const binding = { actor, tool: call.tool, argsHash: call.argsHash };
       const { token, expiresAt } = issue(binding, plan);
       const advisory = warnings(plan.guards);
-      const payload = payloadFor(plan);
       const lines = [
         confirmationError?.message,
         `PREVIEW — nothing was sent. ${plan.summary}`,
-        "",
-        "Mutation:",
-        ctx.buildMutationText(plan.op, plan.selection),
-        "",
-        "Variables:",
-        JSON.stringify(payload.variables, null, 2),
       ].filter((line): line is string => line !== undefined);
       if (advisory.length) {
         lines.push("", "Warnings:", ...advisory.map((guard) => `  ⚠ ${guard.message}`));
@@ -233,14 +214,12 @@ export function createWriteGate(options: WriteGateOptions = {}): WriteGate {
         content: text(lines.join("\n")),
         structuredContent: {
           mode: "preview",
-          op: plan.op,
-          variables: payload.variables,
           summary: plan.summary,
+          deliveryIds: plan.deliveryIds,
           warnings: advisory.map((guard) => ({ code: guard.code, message: guard.message })),
           confirmToken: token,
           expiresAt: new Date(expiresAt).toISOString(),
           ...(confirmationError ? { confirmationError } : {}),
-          details: plan.details ?? {},
         },
       };
     };
@@ -273,24 +252,27 @@ export function createWriteGate(options: WriteGateOptions = {}): WriteGate {
 
     const plan = taken.pending.plan;
     try {
-      const result = await ctx.execute(plan);
+      await ctx.execute(plan);
       return {
-        content: text(`✓ Sent ${plan.op}. ${plan.summary}`),
-        structuredContent: { mode: "executed", op: plan.op, result: result ?? null },
+        content: text(`Sent. ${plan.summary}`),
+        structuredContent: {
+          mode: "executed",
+          summary: plan.summary,
+          deliveryIds: plan.deliveryIds,
+        },
       };
     } catch (error) {
       if (error instanceof MutationOutcomeUnknownError) {
+        const message = withoutOperation(error.message, error.op);
         return {
           isError: true,
           content: text(
-            `Outcome unknown for ${plan.op}: ${error.message}. Forkable may have applied it. ` +
+            `Outcome unknown: ${message}. Forkable may have applied the change. ` +
               `Refresh ${plan.deliveryIds.map((id) => `delivery ${id}`).join(", ")} before trying again.`,
           ),
           structuredContent: {
             mode: "outcome_unknown",
-            op: plan.op,
-            error: error.message,
-            status: error.status ?? null,
+            message,
             retrySafe: false,
             reconciliation: {
               tool: "list_deliveries",
@@ -300,17 +282,16 @@ export function createWriteGate(options: WriteGateOptions = {}): WriteGate {
         };
       }
       if (error instanceof MutationError) {
+        const message = withoutOperation(error.message, error.op);
+        const reasons = [...new Set([...error.errors, ...baseCodes(error.errorDetails)])];
         return {
           isError: true,
-          content: text(`Forkable rejected ${plan.op}: ${error.message}`),
+          content: text(`Forkable rejected the change: ${message}`),
           structuredContent: {
             mode: "rejected",
-            op: plan.op,
-            error: error.message,
-            errors: error.errors,
-            errorDetails: error.errorDetails ?? null,
-            errorAttributes: error.errorAttributes ?? null,
-            warningDetails: error.warningDetails ?? null,
+            message,
+            reasons,
+            deliveryIds: plan.deliveryIds,
           },
         };
       }
