@@ -39,7 +39,7 @@ async function assertPasswordLoginAllowed(email: string, fetchImpl: FetchImpl): 
   if (identities.length && !identities.some((i) => i.integration?.allowSsoPasswordLogin)) {
     throw new Error(
       "This account uses SSO and doesn't allow password login. Import a browser cookie instead " +
-        "(bun run auth --chrome / --file, or set FORKABLE_COOKIE).",
+        "(forkable-mcp --auth --chrome / --file, or set FORKABLE_COOKIE).",
     );
   }
 }

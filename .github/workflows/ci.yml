@@ -16,9 +16,7 @@ jobs:
       - run: bun install --frozen-lockfile
       - run: bun run check
 
-  # `check` only ever sees the source tree. This packs the tarball, installs it elsewhere, and drives
-  # the installed binary — the only way to catch a `files` allowlist or import-resolution regression.
-  smoke:
+  package:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -26,4 +24,39 @@ jobs:
         with:
           bun-version: latest
       - run: bun install --frozen-lockfile
-      - run: bun run smoke
+      - run: mkdir artifacts
+      - run: bun pm pack --destination artifacts
+      - run: bun build scripts/smoke.ts --target=node --format=esm --outfile=artifacts/smoke.mjs
+      - uses: actions/upload-artifact@v4
+        with:
+          name: package
+          path: artifacts
+
+  smoke:
+    name: smoke (${{ matrix.runtime }})
+    needs: package
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runtime: Bun
+            runner: bunx
+            command: bun
+          - runtime: Node
+            runner: npx
+            command: node
+    steps:
+      - uses: oven-sh/setup-bun@v2
+        if: matrix.runner == 'bunx'
+        with:
+          bun-version: latest
+      - uses: actions/setup-node@v7
+        if: matrix.runner == 'npx'
+        with:
+          node-version: "22"
+      - uses: actions/download-artifact@v4
+        with:
+          name: package
+          path: artifacts
+      - run: ${{ matrix.command }} artifacts/smoke.mjs ${{ matrix.runner }} artifacts

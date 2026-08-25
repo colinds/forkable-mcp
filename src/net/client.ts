@@ -20,6 +20,7 @@ import {
 import { buildQuery, buildMutation, type LiteralArgs } from "./gql.ts";
 import { type SessionRecord, patchSession, requireSession } from "@/auth/session.ts";
 import { mergeSetCookies } from "@/auth/cookies.ts";
+import { setTimeout as delay } from "node:timers/promises";
 
 // ---------------------------------------------------------------------------
 // CSRF + verification (low-level; the full client adds retries/error mapping)
@@ -168,7 +169,7 @@ export class ForkableClient {
     }
 
     if (res.status >= 500 && retried < 1) {
-      await Bun.sleep(250);
+      await delay(250);
       return this.gqlRaw<T>(query, variables, { public: isPublic, retried: retried + 1 });
     }
 

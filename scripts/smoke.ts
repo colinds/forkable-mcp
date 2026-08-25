@@ -11,10 +11,14 @@
 
 import { Client } from "@modelcontextprotocol/client";
 import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
-import { mkdtemp, rm } from "node:fs/promises";
+import { execFile } from "node:child_process";
+import { access, mkdir, mkdtemp, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
+import { promisify } from "node:util";
 import pkg from "../package.json" with { type: "json" };
+
+const exec = promisify(execFile);
 
 const EXPECTED_TOOLS = [
   "confirm_delivery",
@@ -32,6 +36,7 @@ const EXPECTED_TOOLS = [
 ];
 
 const log = (msg: string) => console.log(`  ${msg}`);
+type Runner = "bunx" | "npx";
 
 function fail(msg: string): never {
   console.error(`\n✗ ${msg}`);
@@ -39,74 +44,105 @@ function fail(msg: string): never {
 }
 
 async function run(cmd: string[], cwd: string): Promise<void> {
-  const p = Bun.spawn(cmd, { cwd, stdout: "pipe", stderr: "pipe" });
-  const [out, err, code] = await Promise.all([
-    new Response(p.stdout).text(),
-    new Response(p.stderr).text(),
-    p.exited,
-  ]);
-  if (code !== 0) fail(`\`${cmd.join(" ")}\` exited ${code}\n${err || out}`);
+  const [command, ...args] = cmd;
+  try {
+    await exec(command!, args, { cwd });
+  } catch (error) {
+    const result = error as Error & { code?: number; stdout?: string; stderr?: string };
+    fail(
+      `\`${cmd.join(" ")}\` exited ${result.code ?? "unknown"}\n${result.stderr || result.stdout || result.message}`,
+    );
+  }
 }
 
-const tmp = await mkdtemp(join(tmpdir(), "forkable-smoke-"));
-try {
-  log(`packing ${pkg.name}@${pkg.version}`);
-  await run(["bun", "pm", "pack", "--destination", tmp], process.cwd());
-  const tgz = [...new Bun.Glob("*.tgz").scanSync(tmp)][0];
-  if (!tgz) fail("bun pm pack produced no tarball");
-
-  const consumer = join(tmp, "consumer");
-  await Bun.write(
-    join(consumer, "package.json"),
-    JSON.stringify({ name: "smoke-consumer", private: true }),
+async function exists(path: string): Promise<boolean> {
+  return access(path).then(
+    () => true,
+    () => false,
   );
+}
 
-  log(`installing ${tgz} into a scratch project`);
-  await run(["bun", "add", join(tmp, tgz)], consumer);
+async function findTarball(path: string): Promise<string> {
+  const input = resolve(path);
+  if ((await stat(input)).isFile()) return input;
+  const file = (await readdir(input)).find((name) => name.endsWith(".tgz"));
+  if (!file) fail(`no package tarball found in ${input}`);
+  return join(input, file);
+}
 
-  const bin = join(consumer, "node_modules", ".bin", "forkable-mcp");
-  if (!(await Bun.file(bin).exists())) fail(`no binary at ${bin} — check package.json "bin"`);
-
-  log("connecting a real MCP client to the installed binary");
-  const client = new Client({ name: "smoke", version: "0" });
+async function checkInstalled(runner: Runner, cwd: string, home: string): Promise<void> {
+  log(`connecting with ${runner}`);
+  const client = new Client({ name: `smoke-${runner}`, version: "0" });
   const transport = new StdioClientTransport({
-    command: bin,
-    cwd: consumer,
-    env: { PATH: process.env.PATH ?? "", FORKABLE_MCP_HOME: join(tmp, "home") },
+    command: runner,
+    args: runner === "bunx" ? ["--bun", "forkable-mcp"] : ["forkable-mcp"],
+    cwd,
+    env: { PATH: process.env.PATH ?? "", FORKABLE_MCP_HOME: home },
     stderr: "pipe",
   });
-  // A startup crash surfaces as a bare "Connection closed", so keep the child's stderr to report
-  // the actual cause. The stream only exists once connect() has started the transport.
   const connecting = client.connect(transport);
   let childErr = "";
   transport.stderr?.on("data", (d: Buffer) => {
     childErr += d.toString();
   });
-  const timer = setTimeout(() => fail("timed out connecting — the server never came up"), 30_000);
-  await connecting.catch((e: Error) => fail(`connect failed: ${e.message}\n${childErr.trim()}`));
+  const timer = setTimeout(() => fail(`timed out connecting with ${runner}`), 30_000);
+  await connecting.catch((e: Error) =>
+    fail(`${runner} connect failed: ${e.message}\n${childErr.trim()}`),
+  );
   clearTimeout(timer);
 
   const version = client.getServerVersion()?.version;
   if (version !== pkg.version)
-    fail(`server reports v${version}, package.json says v${pkg.version}`);
-  log(`serverInfo.version = ${version}`);
+    fail(`${runner} server reports v${version}, package.json says v${pkg.version}`);
+  log(`${runner} serverInfo.version = ${version}`);
 
-  const names = (await client.listTools()).tools.map((t) => t.name).toSorted();
-  const missing = EXPECTED_TOOLS.filter((t) => !names.includes(t));
-  const extra = names.filter((t) => !EXPECTED_TOOLS.includes(t));
-  if (missing.length) fail(`missing tools: ${missing.join(", ")}`);
-  if (extra.length) fail(`unexpected tools (update EXPECTED_TOOLS?): ${extra.join(", ")}`);
-  log(`${names.length} tools registered`);
+  const names = (await client.listTools()).tools.map((tool) => tool.name).toSorted();
+  const missing = EXPECTED_TOOLS.filter((tool) => !names.includes(tool));
+  const extra = names.filter((tool) => !EXPECTED_TOOLS.includes(tool));
+  if (missing.length) fail(`${runner} missing tools: ${missing.join(", ")}`);
+  if (extra.length) fail(`${runner} unexpected tools: ${extra.join(", ")}`);
+  log(`${runner} registered ${names.length} tools`);
 
-  // Prove a tool actually dispatches. Unauthenticated, so the re-auth message is the pass condition —
-  // what matters is that the handler ran instead of the process falling over.
   const res: any = await client.callTool({ name: "get_profile", arguments: {} });
-  const text = (res.content ?? []).map((c: any) => c.text ?? "").join("");
-  if (!text.trim()) fail("get_profile returned no content");
-  log(`get_profile responded (${text.split("\n")[0].slice(0, 60)}…)`);
+  const text = (res.content ?? []).map((content: any) => content.text ?? "").join("");
+  if (!text.trim()) fail(`${runner}: get_profile returned no content`);
+  log(`${runner} get_profile responded (${text.split("\n")[0].slice(0, 60)}…)`);
 
   await client.close();
-  console.log("\n✓ packaged install works");
+}
+
+async function checkPackage(runner: Runner, root: string, tarball: string): Promise<void> {
+  const consumer = join(root, `consumer-${runner}`);
+  await mkdir(consumer, { recursive: true });
+  await writeFile(join(consumer, "package.json"), JSON.stringify({ private: true }));
+
+  log(`installing with ${runner === "bunx" ? "bun" : "npm"}`);
+  if (runner === "bunx") await run(["bun", "add", tarball], consumer);
+  else await run(["npm", "install", "--cache", join(root, "npm-cache"), tarball], consumer);
+
+  const bin = join(consumer, "node_modules", ".bin", "forkable-mcp");
+  if (!(await exists(bin))) fail(`no binary at ${bin} — check package.json "bin"`);
+  await checkInstalled(runner, consumer, join(root, `home-${runner}`));
+}
+
+const tmp = await mkdtemp(join(tmpdir(), "forkable-smoke-"));
+try {
+  const requested = process.argv[2];
+  if (requested && requested !== "bunx" && requested !== "npx") {
+    fail(`unknown runner ${requested}; expected bunx or npx`);
+  }
+  const runners: Runner[] =
+    requested === "bunx" || requested === "npx" ? [requested] : ["bunx", "npx"];
+  let tarball: string;
+  if (process.argv[3]) {
+    tarball = await findTarball(process.argv[3]);
+  } else {
+    log(`packing ${pkg.name}@${pkg.version}`);
+    await run(["bun", "pm", "pack", "--destination", tmp], process.cwd());
+    tarball = await findTarball(tmp);
+  }
+  await Promise.all(runners.map((runner) => checkPackage(runner, tmp, tarball)));
+  console.log(`\n✓ packaged install works with ${runners.join(" and ")}`);
 } finally {
   await rm(tmp, { recursive: true, force: true });
 }
