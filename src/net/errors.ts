@@ -19,7 +19,7 @@ export interface GqlResponse<T = unknown> {
   httpErrorCode?: number;
 }
 
-/** Codes the API returns in `errorDetails.base`, mapped to something a caller can act on. */
+/** Codes returned in `errorDetails.base`. */
 const ERROR_CODE_HELP: Record<string, string> = {
   venue_capacity_overage: "that venue is full — pick another",
   exceeded_allowance: "this meal is over your allowance and there's no card on file",
@@ -35,13 +35,7 @@ export function baseCodes(details: unknown): string[] {
     .filter((e): e is string => typeof e === "string");
 }
 
-/**
- * Thrown when a mutation payload carries `errors` (Relay-style).
- *
- * `errorDetails` carries machine-readable codes that `errors` often doesn't — a refusal can arrive
- * with an empty `errors` array and the real reason only in `errorDetails.base[].error`, so the
- * message is built from both.
- */
+/** Mutation refusal assembled from Relay errors and errorDetails codes. */
 export class MutationError extends Error {
   constructor(
     public op: string,

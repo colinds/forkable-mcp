@@ -1,13 +1,4 @@
-// MCP tool registration. Each tool reads the current session per call and builds a
-// ForkableClient, and maps a ReauthRequiredError into an actionable message.
-//
-// Interface conventions (kept consistent across every tool):
-//   • delivery-scoped tools take `deliveryId` as the first argument
-//   • reads are get_/list_/search_/recommend_/explain_ ; writes are set_/remove_/skip_/confirm_
-//   • every write tool takes `confirmToken?` and is dry-run by default (preview → token → send)
-//   • the domain model: Forkable auto-selects meals, so `set_meal` OVERRIDES the auto-pick,
-//     `remove_meal` clears one piece, `skip_delivery` drops your whole meal for a day (also a
-//     removePiece — there is no delivery-level member mutation), `confirm_delivery` locks a day in
+// MCP tool registration. Each call reads the current session; writes preview before confirmation.
 
 import { z } from "zod";
 import type { McpServer, CallToolResult } from "@modelcontextprotocol/server";
@@ -39,8 +30,6 @@ import {
 } from "@/order/format.ts";
 import { type Delivery, type Menu, type MenuItem, type Order, type Piece } from "@/order/types.ts";
 
-// --- Result helpers (return the SDK's CallToolResult directly; it carries an index signature) ---
-
 const text = (t: string) => [{ type: "text" as const, text: t }];
 
 function ok(t: string, structured?: Record<string, unknown>): CallToolResult {
@@ -57,7 +46,7 @@ function toCallToolResult(r: ToolResultLike): CallToolResult {
   };
 }
 
-// --- Dish images: always include the URL (as markdown) so clients that render images show them. ---
+// Markdown keeps dish images visible in clients that render tool text.
 function imageMd(item: { name: string; imageUrl?: string | null }): string {
   return item.imageUrl ? `\n      ![${item.name}](${item.imageUrl})` : "";
 }
@@ -99,7 +88,7 @@ async function guard(
   try {
     return await run();
   } catch (e) {
-    // A dead/missing session self-heals when password creds are in env: re-login + one retry.
+    // Environment credentials permit one session refresh and retry.
     if (e instanceof ReauthRequiredError && (await tryEnvRelogin())) {
       try {
         return await run();
@@ -132,22 +121,12 @@ const WRITE_NOTE =
   "Dry-run by default: returns the exact mutation + a confirmToken. Call again with that token to " +
   "actually send.";
 
-// --- GraphQL selection fragments (fields requested per query) ---
-
-// No `roles`: it's a JSON scalar carrying the app's ~60 internal build/feature flags
-// (`{features: [...]}`), not a list of member roles — see CLAUDE.md. Nothing member-facing lives
-// there, and the capabilities that matter come from the club/user flags below.
+// `roles` is a feature-flag JSON scalar, not a member-role list.
 const ME_SELECTION =
   "id firstName lastName fullName email phone active isGuest mfaEnabled validCreditCard " +
   "remainingLateOrdersMonthOf mealClubAutoOrder";
 
-/**
- * The club's actual spend/ordering policy. Read-only surface only — deliberately NOT on the write
- * path, where the delivery already carries the allowance fields and an extra round trip would slow
- * every preview.
- *
- * `allowanceMealLimit` is a BOOLEAN: true means the company covers one meal a day, not a count.
- */
+/** Read-only club policy. `allowanceMealLimit` is a boolean, not a count. */
 const CLUB_POLICY_SEL =
   "id name copay copayAllowance allowanceType allowanceMealLimit dailyAllowances " +
   "allowLateMeals isLateRemovalEnabled deliveryDays hidePrices hiddenPriceLimit " +
@@ -163,7 +142,7 @@ interface ClubPolicy {
   isLateRemovalEnabled?: boolean;
   deliveryDays?: Record<string, boolean>;
   hidePrices?: boolean;
-  /** The club forbids auto-order; the member must confirm each delivery whatever their own flag says. */
+  /** Club-level auto-order override. */
   disableAutoOrder?: boolean;
   familyHub?: boolean;
 }
@@ -199,68 +178,43 @@ function fmtClubPolicy(c: ClubPolicy): string {
     .join("\n");
 }
 
-/**
- * Write selection for add/replace. Those carry the structured refusal codes (capacity, allowance).
- *
- * Do NOT copy this to `removePiece`: the fields exist on its payload — an unknown field there returns
- * a clean validation error, these don't — but requesting them makes the server 503. Measured, twice.
- * `confirmDelivery` accepts `errorDetails` and returns it empty, so there's nothing to gain there
- * either. Both stay on plain `errors`.
- */
+/** Add/replace refusal details. Requesting these fields from `removePiece` causes a server 503. */
 const PIECE_WRITE_SEL = "errors errorDetails warningDetails";
-// Shared between the lean and detail selections, so neither repeats a field in one document.
-// `orders.total` is deliberately absent: it's company-wide CENTS and nothing renders it.
+// Shared fields prevent duplicate selections. `orders.total` is company-wide cents and is omitted.
 const DELIVERY_CORE =
   "id state simpleState forDeliveryAt isReadOnly userConfirmed copayAmount availableMenuIds " +
   "pastLateOrderDeadline canRequestChanges " +
-  // Which allowance field actually applies, plus the weekly pair. copayAmount alone is the DAILY
-  // figure and is wrong for a weekly club — see allowanceFor.
+  // Preserve Forkable's direct billing fields without deriving coverage.
   "allowanceType weeklyAllowance weeklyAllowanceAvailable " +
-  // Family-style service; a per-member change request never applies there.
   "forFamily forBuffet " +
-  // serviceWindow is here rather than the detail selection so the list can tell a lunch from a
-  // dinner on the same date.
+  // The list uses serviceWindow to distinguish lunch and dinner on the same date.
   "deliveryWindow serviceWindow { baseTime name } " +
   "club { id name allowanceMealLimit allowanceType familyHub isLateRemovalEnabled " +
   "market { timezone currencySettings { currency } } }";
 
-// `replaces` is the venue-replacement predecessor: its presence both UNLOCKS a late order at that
-// venue and FREEZES every sibling meal on the delivery, so both guards need it.
-//
-// `group` is the dropoff group ("A1"). It rides in the SHARED selection rather than the detail one
-// because a member checking the list wants to know where to collect lunch, and it's one scalar. The
-// order-level `mealGroups` roster stays unselected: admin view, and its `value` has no established
-// meaning (CLAUDE.md).
-//
-// The per-piece state flags are what the app itself renders per meal (`isConfirmed` gates "will this
-// be ordered", `isLateSwappable` offers a swap on a locked delivery, `isRemoval`+`requestStatus`
-// report a pending cancellation) — all of it member-facing, so it belongs in the shared selection.
+// Group and state are per-piece member fields; the order-level mealGroups roster is administrative.
 const PIECE_CORE =
   "id itemId menuId userId name state instructions price selections autoOrder flowType group " +
   "isConfirmed isLateSwappable isRemoval requestStatus isLateOrder";
 
-// No `pieces` here — each selection appends its own, so neither document repeats the field.
+// Each delivery selection appends its own `pieces` shape.
 const ORDER_CORE =
   "id state isOverVenueCapacity lateOrdersRemaining lateGuestOrdersRemaining " +
   "lateRemovalsRemaining changeRequestAllowed pastLateOrderDeadline hasChangeRequest " +
   "menu { id name } replaces { id }";
 
-/** Lean: the hot path for every read and every write preview. */
+/** Lean selection used by reads and write previews. */
 const DELIVERY_SEL =
   `${DELIVERY_CORE} ` +
-  // `start`/`end` are the fallback zone source for clubs that expose no IANA timezone.
+  // ETA offsets provide a timezone fallback when the club has no IANA zone.
   `orders { ${ORDER_CORE} pieces { ${PIECE_CORE} } ` +
-  // `familyHub` so a single family venue is caught here too, `displayName` so the multi-venue
-  // guard message can name it rather than falling back to the menu.
   "venue { id displayName familyHub } " +
-  // `trackingUrl` so a DELAYED list line can hand over the courier link, which is what a member
-  // reaches for next — the one status worth acting on from the list.
+  // The list exposes tracking for delayed owned orders.
   "dropoffCompletedAt etaStatus { start end status shortTz trackingUrl } } " +
-  // `clubCopay` is the member's own entitlement and the allowance source; `copayAmount` here is the
-  // amount APPLIED, kept only so the two can't be confused by a future reader.
+  // Receipt fields are returned directly; no coverage projection is derived.
   "userReceipt { id due copayAmount clubCopay }";
 
-/** Tracking extras — fetched by get_delivery_status alone. (serviceWindow is in CORE.) */
+/** Tracking detail fetched only by get_delivery_status. */
 const DELIVERY_DETAIL_SEL =
   `${DELIVERY_CORE} reportMissingItemCutoff ` +
   "address { street city postalCode formatted notes } " +
@@ -280,8 +234,6 @@ const MENU_SEL =
   "modifiers { id name display optionSetId min max required hidden options { id name price ingredientTags } } } } " +
   "optionSets { id price }";
 
-// --- Small helpers ---
-
 interface Me {
   id: number;
   mealClubAutoOrder?: boolean;
@@ -295,11 +247,7 @@ interface Me {
   remainingLateOrdersMonthOf?: number;
 }
 
-/**
- * A club can forbid auto-order outright, and then the member's own flag doesn't matter: an
- * unconfirmed meal is simply not ordered. There is no user-level override field, so the club flags
- * are the whole rule.
- */
+/** Club disableAutoOrder overrides the member setting. */
 function autoOrderState(me: Me, clubs: ClubPolicy[]): string {
   if (me.mealClubAutoOrder == null) return "";
   const disabledBy = clubs.find((c) => c.disableAutoOrder === true);
@@ -323,49 +271,33 @@ function fmtProfile(me: Me, clubs: ClubPolicy[] = []): string {
     me.remainingLateOrdersMonthOf != null
       ? `  late orders remaining this month: ${me.remainingLateOrdersMonthOf}`
       : "",
-    // Decides whether the member must confirm each day: with auto-order off, an unconfirmed meal
-    // is not ordered.
     autoOrderState(me, clubs),
   ]
     .filter(Boolean)
     .join("\n");
 }
 
-/** Today's date as YYYY-MM-DD in LOCAL time (not UTC — avoids an off-by-one near midnight). */
+/** Today's local calendar date. */
 function todayLocal(): string {
   return new Date().toLocaleDateString("en-CA"); // en-CA formats as YYYY-MM-DD
 }
 
-/**
- * A local calendar date N days from `date`, YYYY-MM-DD in and out (negative for the past).
- *
- * The explicit `T00:00:00` is load-bearing: a bare `YYYY-MM-DD` parses as UTC, which lands on the
- * previous day west of Greenwich. Parsing and formatting both stay local, so the same input yields
- * the same output on every host — what `bun run test:tz` checks.
- */
+/** Local calendar arithmetic. The explicit midnight prevents date-only UTC parsing. */
 export function addDaysLocal(date: string, days: number): string {
   const d = new Date(`${date}T00:00:00`);
   d.setDate(d.getDate() + days);
   return d.toLocaleDateString("en-CA");
 }
 
-/** A local calendar date N days from today, YYYY-MM-DD (negative for the past). */
+/** A local calendar date relative to today. */
 function dateOffsetLocal(days: number): string {
   return addDaysLocal(todayLocal(), days);
 }
 
-/** How far ahead a delivery lookup reaches — three weeks, so a week boundary is never the limit. */
+/** Default delivery lookup horizon. */
 const DELIVERY_HORIZON_DAYS = 21;
 
-/**
- * A real `YYYY-MM-DD` calendar day.
- *
- * The round-trip is the point: `Date` rolls a nonexistent date over silently, so `2026-02-30` would
- * become `2026-03-02` and shift the window a caller thought it had set. The regex alone can't catch
- * that, and `Date` alone accepts neither `2026-8-3` nor a trailing space. Rejecting here turns what
- * was an opaque `Invalid argument` from Forkable — sent after we'd already serialized the literal
- * string "Invalid Date" — into a validation error naming the parameter.
- */
+/** Strict YYYY-MM-DD validation; the round trip rejects dates that Date would normalize. */
 export const isCalendarDate = (s: string): boolean =>
   /^\d{4}-\d{2}-\d{2}$/.test(s) && addDaysLocal(s, 0) === s;
 
@@ -373,22 +305,8 @@ const dateArg = () =>
   z.string().refine(isCalendarDate, "must be a real calendar date in YYYY-MM-DD form");
 
 /**
- * The inclusive range for `myDeliveries` — ALWAYS both bounds, never a bare `from`.
- *
- * `myDeliveries(from:)` alone is week-bucketed: it returns only the calendar week containing `from`,
- * so on a Friday every delivery from Monday on is invisible. Adding `to` switches it to a true
- * inclusive range (verified: `from` Aug 3 alone → 0, but `{from: Aug 3, to: Aug 24}` → all five
- * Aug 10–14 deliveries). Filling `to` here rather than leaving it to the caller is the invariant that
- * matters: nine lookups once omitted it and could not resolve a single id past the current week.
- *
- * An explicit `to` wins outright, which is the only way to express a window that ENDS in the past.
- * Without that, `to` floors at `today + 21` and a historical question comes back padded with
- * upcoming deliveries — "what did I eat last week" answered with next week, and no way to tell.
- *
- * Defaulted, `to` is the LATER of `from + 21` and `today + 21`. The second term holds the horizon
- * steady for the default and for a backdated `from` (`get_delivery_status` looks back 14 days and
- * still needs to reach forward); the first keeps a `from` beyond that horizon from producing a
- * backwards range, which matches nothing.
+ * Inclusive myDeliveries range. Forkable week-buckets a bare `from`, so both bounds are required.
+ * An explicit `to` is preserved; otherwise the later of `from + 21` and `today + 21` is used.
  */
 export function deliveryRange(from?: string, to?: string): { from: string; to: string } {
   const start = from ?? todayLocal();
@@ -420,12 +338,7 @@ function formatKnownPrice(value: number | null | undefined): string {
     : "price unavailable";
 }
 
-/**
- * Forkable's own dietary check for a candidate item and its chosen options. Run before minting a
- * token so the preview can surface conflicts before the user confirms the exact request.
- *
- * Returns [] on any failure: an advisory check must never be the reason a legal write can't proceed.
- */
+/** Forkable dietary check for the exact item and selections; failures remain advisory. */
 async function dietConflicts(
   client: ForkableClient,
   userId: number,
@@ -441,13 +354,12 @@ async function dietConflicts(
     );
     return { conflicts: r?.conflicts ?? [], checked: true };
   } catch {
-    // Fails OPEN — an advisory check must never be why a legal write can't proceed — but the caller
-    // surfaces `checked: false` as a warn so the preview never implies a check that didn't happen.
+    // Report an unavailable advisory check without blocking the write.
     return { conflicts: [], checked: false };
   }
 }
 
-/** Delivery ids already dispatched. Cheap: a bare id list, no tracking selection needed. */
+/** Delivery ids already dispatched. */
 async function inProgressIds(client: ForkableClient): Promise<Set<number>> {
   try {
     return new Set((await client.query<number[]>("myInProgressDeliveryIds", undefined, "")) ?? []);
@@ -456,22 +368,14 @@ async function inProgressIds(client: ForkableClient): Promise<Set<number>> {
   }
 }
 
-/**
- * Load the user's deliveries, WITH the id of the user asking.
- *
- * A delivery carries one order per venue and can carry other people's, so every renderer downstream
- * needs an owner to resolve against — without one it can only guess "first order with pieces" and
- * will report someone else's meal, ETA and tracking as the member's own. `me { id }` rides in the
- * same document as a second root, so identity costs no extra request.
- */
+/** Load deliveries with the effective user id required for ownership attribution. */
 async function loadDeliveries(
   client: ForkableClient,
   from?: string,
   sel: string = DELIVERY_SEL,
   to?: string,
 ): Promise<{ deliveries: Delivery[]; userId: number }> {
-  // `deliveryRange` fills `to` whether or not one is passed, so a bare `from` can't reach the wire.
-  // The safety lives there, not in the absence of this parameter — see deliveryRange.
+  // Never send Forkable a bare `from`; it changes the query to week-bucket semantics.
   const doc = buildQuery("myDeliveries", deliveryRange(from, to), sel, ["me { id }"]);
   const data = await client.gql<{ myDeliveries?: Delivery[]; me?: { id: number } }>(doc);
   if (data.me?.id == null) throw new Error("Forkable did not report your user id.");
@@ -489,10 +393,7 @@ async function loadMenusByIds(client: ForkableClient, d: Delivery, ids: number[]
   return (await client.query<Menu[]>("menus", { ids, clubId: d.club?.id }, MENU_SEL)) ?? [];
 }
 
-/**
- * `dietLevel` → a word. The table is public and static (omnivore 4 … vegan 1), so it's fetched once
- * per process rather than per call; a failure just leaves the numeric level showing.
- */
+/** Cache public diet-level labels after the first successful fetch. */
 let dietLabels: Map<number, string> | undefined;
 async function loadDietLabels(client: ForkableClient): Promise<Map<number, string>> {
   if (dietLabels) return dietLabels;
@@ -508,8 +409,7 @@ async function loadDietLabels(client: ForkableClient): Promise<Map<number, strin
       ),
     );
   } catch {
-    // Deliberately NOT cached: caching the failure would disable labels for the whole process life,
-    // and an MCP server is spawned once and lives for the session.
+    // Do not cache failures.
     return new Map();
   }
   return dietLabels;
@@ -523,8 +423,7 @@ function flattenItems(menus: Menu[]): ResolvedItem[] {
   );
 }
 
-// Item ids are NOT unique across a delivery's menus, so searchMenuItems/mealGenerationScores
-// return (menuId, itemId) pairs — resolve on BOTH, never itemId alone.
+// Item ids are not unique across menus; identity is the (menuId, itemId) pair.
 function findItem(items: ResolvedItem[], menuId: number, itemId: number): ResolvedItem | undefined {
   return items.find((x) => x.menu.id === menuId && x.item.id === itemId);
 }
@@ -533,7 +432,7 @@ function matchItemId(items: ResolvedItem[], itemId: number, menuId?: number): Re
   return items.filter((x) => x.item.id === itemId && (menuId == null || x.menu.id === menuId));
 }
 
-/** Resolve exactly one (item, menu) for a delivery; throws a friendly Error on none or ambiguous. */
+/** Resolve exactly one item/menu pair. */
 function resolveOneItem(
   menus: Menu[],
   itemId: number,
@@ -622,7 +521,7 @@ function fulfillmentSummary(d: Delivery, userId?: number) {
   return { status, tracked, completed };
 }
 
-/** Fulfillment for the list line. Empty until the order is dispatched. */
+/** Fulfillment summary for the list line. */
 function arrivalNote(d: Delivery, userId?: number): string {
   const { status, tracked, completed } = fulfillmentSummary(d, userId);
   const iana = d.club?.market?.timezone;
@@ -647,13 +546,13 @@ function arrivalNote(d: Delivery, userId?: number): string {
   return status.fulfillment ? `\n    ${status.fulfillment}` : "";
 }
 
-/** "lunch" / "dinner", so two deliveries on one date are tellable apart. */
+/** Member-facing service name. */
 function windowName(d: Delivery): string {
   const n = d.serviceWindow?.name;
   return n === "afternoon" ? "dinner" : (n ?? "");
 }
 
-/** A date can carry a lunch and a dinner, and several clubs' days land in one list — label them. */
+/** Distinguish same-date deliveries by service and club. */
 function deliveryTag(d: Delivery): string {
   const bits = [windowName(d), d.club?.name].filter(Boolean);
   return bits.length ? `  ${bits.join(" · ")}` : "";
@@ -662,18 +561,15 @@ function deliveryTag(d: Delivery): string {
 export function fmtDelivery(d: Delivery, inFlight?: Set<number>, userId?: number): string {
   const own = findOwnMeal(d, userId)?.orders.flatMap((o) => o.pieces) ?? [];
   const others = allPieces(d).length - own.length;
-  // Group and state are per piece, so they hang off the dish rather than the line — two meals can
-  // sit in different groups, or one be confirmed and the other not. Both suffixes are shared with
-  // the status view, so the two renderings never diverge.
+  // Group and state attach to each piece.
   const picked = own.length
     ? own
         .map((p) => `${p.name || `item ${p.itemId}`}${groupSuffix(p.group)}${pieceBadges(p)}`)
         .join(", ")
     : "— nothing selected";
-  // Other people's meals are real and worth knowing about, but they are not the member's pick.
+  // Count other members' meals without exposing their details.
   const alsoHere = others > 0 ? `  (+${others} other ${others === 1 ? "meal" : "meals"})` : "";
-  // Fulfillment (simpleState) and ordering state are orthogonal — show both rather than letting one
-  // mask the other, since the bracket is what a reader judges editability from.
+  // Ordering and fulfillment states are independent.
   const base = d.userConfirmed ? "confirmed" : d.state || "?";
   let status = d.simpleState && d.simpleState !== base ? `${base} · ${d.simpleState}` : base;
   if (inFlight?.has(d.id) && !d.simpleState) status = `${status} · in flight`;
@@ -685,8 +581,6 @@ export function fmtDelivery(d: Delivery, inFlight?: Set<number>, userId?: number
   );
 }
 
-// --- Compact projections (keep structuredContent small; full trees are opt-in) ---
-
 /** A lean delivery: keeps piece/menu ids callers need, drops the giant orders/receipt nesting. */
 export function compactDelivery(d: Delivery, inFlight?: Set<number>, userId?: number) {
   const own = findOwnMeal(d, userId);
@@ -696,16 +590,16 @@ export function compactDelivery(d: Delivery, inFlight?: Set<number>, userId?: nu
     id: d.id,
     date: formatDate(d.forDeliveryAt),
     weekday: weekdayOf(d.forDeliveryAt),
-    /** "lunch" | "dinner" — a date can carry both. */
+    /** "lunch" | "dinner". */
     service: windowName(d) || null,
     club: d.club?.name ?? null,
     status: d.userConfirmed ? "confirmed" : (d.state ?? null),
     /** Fulfillment track, null until delivered — orthogonal to `status`. */
     simpleState: d.simpleState ?? null,
     inFlight: inFlight?.has(d.id) ?? null,
-    /** The MEMBER has no meal. Someone else's order on the day doesn't make this false. */
+    /** Whether the effective user has a meal. */
     needsOrder: pieces.length === 0,
-    /** False when the pieces couldn't be matched by owner — treat `picked` as unattributed. */
+    /** Whether pieces were matched by owner id. */
     attributed: own?.byIdentity === true,
     otherMeals: allPieces(d).length - pieces.length,
     isReadOnly: d.isReadOnly ?? null,
@@ -724,30 +618,20 @@ export function compactDelivery(d: Delivery, inFlight?: Set<number>, userId?: nu
       itemId: p.itemId,
       menuId: p.menuId,
       name: p.name,
-      /** Dropoff group, e.g. "A1" — where to collect it. Null until the delivery is grouped. */
+      /** Dropoff group; null until grouping. */
       group: p.group ?? null,
-      /** Will this meal actually be ordered? Finer-grained than the delivery's `userConfirmed`. */
+      /** Per-piece confirmation state. */
       isConfirmed: p.isConfirmed ?? null,
-      /** Swappable even on a locked delivery; a pending cancellation hasn't landed yet. */
       isLateSwappable: p.isLateSwappable ?? null,
       cancellationPending: cancellationPending(p),
       isLateOrder: p.isLateOrder ?? null,
-      // The MEMBER's account is on auto-order (meals order without per-meal confirmation) — not
-      // "Forkable picked this dish". Mirrors user.mealClubAutoOrder; true even on a hand-set piece.
+      // Account auto-order state, not meal-selection provenance.
       autoOrder: p.autoOrder ?? null,
     })),
   };
 }
 
-/**
- * Menu ids whose venue reads as full, so a member planning lunch can see where a seat is still
- * going. Reuses `isOverVenueCapacity` — already fetched for the `over_venue_capacity` guard — rather
- * than the app's separate `venueUsage` query, which would cost another round trip for a count.
- *
- * Two rules copied from the guard: the order must be the one actually SELLING that menu (never the
- * `orderForGuards` fallback, which would blame this menu for another venue's crowd), and the venue
- * you already hold a meal at is never full — re-customizing doesn't consume a new seat.
- */
+/** Capacity signals keyed by the order's menu; held menus do not consume another seat. */
 function atCapacityMenuIds(d: Delivery, userId?: number): Map<number, boolean> {
   const own = findOwnMeal(d, userId);
   const held = new Set(
@@ -755,9 +639,7 @@ function atCapacityMenuIds(d: Delivery, userId?: number): Map<number, boolean> {
       ? own.orders.map((x) => x.order.menu?.id).filter((id): id is number => id != null)
       : [],
   );
-  // Keyed by menu, so a menu with NO order on this delivery is absent rather than reported as having
-  // room: `undefined` there means "no data", the same distinction the per-piece flags keep. Claiming
-  // a seat is free on the strength of a missing order is the one wrong answer available here.
+  // A missing order yields no capacity claim.
   const seats = new Map<number, boolean>();
   for (const o of d.orders ?? []) {
     const id = o.menu?.id;
@@ -776,10 +658,7 @@ function compactMenus(
   return menus.map((m) => ({
     id: m.id,
     name: m.displayName || m.name || `menu ${m.id}`,
-    /**
-     * The venue reads as full. Advisory — Forkable decides, and a venue you already hold is never
-     * full. **Null means unknown**, not "there's room".
-     */
+    /** Advisory capacity signal; null means unknown. */
     atCapacity: atCapacity?.get(m.id) ?? null,
     items: m.sections
       .flatMap((s) => s.items)
@@ -795,7 +674,7 @@ function compactMenus(
   }));
 }
 
-/** Full detail for ONE item — modifiers + options — returned only when an itemId is requested. */
+/** Full modifiers and options for one requested item. */
 function itemDetail(item: MenuItem, menu: Menu) {
   return {
     menuId: menu.id,
@@ -829,11 +708,7 @@ function fmtItemDetail(d: ReturnType<typeof itemDetail>): string {
   ].join("\n");
 }
 
-// ---------------------------------------------------------------------------
-
 export function registerAllTools(server: McpServer, writeGate: WriteGate): void {
-  // ---- Reads ----
-
   server.registerTool(
     "get_profile",
     {
@@ -893,10 +768,7 @@ export function registerAllTools(server: McpServer, writeGate: WriteGate): void 
     },
     async (args) =>
       guard(async (client) => {
-        // Check the RESOLVED window, not the raw arguments: `to` alone with a past date inverts
-        // against the defaulted `from` and would otherwise sail through. Refuse rather than return
-        // the empty list a backwards range produces — that is indistinguishable from "you had no
-        // deliveries", which is a claim about the account rather than about the query.
+        // Validate after defaults so a past `to` without `from` cannot invert the range.
         const w = deliveryRange(args.from, args.to);
         if (w.to < w.from)
           return errResult(
@@ -909,7 +781,6 @@ export function registerAllTools(server: McpServer, writeGate: WriteGate): void 
           loadDeliveries(client, args.from, DELIVERY_SEL, args.to),
           inProgressIds(client),
         ]);
-        // Echo the window, so "nothing that week" can't be read as "the query was wrong".
         if (!deliveries.length) return ok(`No deliveries between ${w.from} and ${w.to}.`);
         return ok(deliveries.map((d) => fmtDelivery(d, inFlight, userId)).join("\n\n"), {
           deliveries: deliveries.map((d) => compactDelivery(d, inFlight, userId)),
@@ -949,11 +820,9 @@ export function registerAllTools(server: McpServer, writeGate: WriteGate): void 
         if (!d) return errResult(`Delivery ${deliveryId} not found in your upcoming deliveries.`);
         const menus = await loadMenus(client, d);
         if (!menus.length) return ok(`Delivery ${deliveryId} has no available menus.`);
-        // `userId` so a venue the MEMBER already holds isn't reported as full to them.
         const full = atCapacityMenuIds(d, userId);
 
-        // Detail mode: one item's modifiers/options. Carries the capacity marker too — a member
-        // customizing an item deserves the same warning the list gives them.
+        // Detail mode includes modifiers, options, and the same capacity signal as the list.
         if (itemId != null) {
           const { item, menu } = resolveOneItem(menus, itemId, menuId, deliveryId);
           const detail = itemDetail(item, menu);
@@ -964,14 +833,12 @@ export function registerAllTools(server: McpServer, writeGate: WriteGate): void 
           });
         }
 
-        // Compact list mode.
         const summary = menus
           .map((m) => {
             const items = m.sections.flatMap((s) => s.items);
             const lines = items.map(
               (it) => `    ${it.id}  ${it.name}  ${formatKnownPrice(it.price)}${imageMd(it)}`,
             );
-            // Advisory, like the guard: Forkable decides, and a seat can free up when someone cancels.
             const cap = full.get(m.id) === true ? "  [venue at capacity]" : "";
             return `${m.displayName || m.name || `menu ${m.id}`} (${items.length} items)${cap}:\n${lines.join("\n")}`;
           })
@@ -1108,8 +975,7 @@ export function registerAllTools(server: McpServer, writeGate: WriteGate): void 
         const items = flattenItems(await loadMenus(client, d));
         const nameOf = (menuId: number, itemId: number) =>
           findItem(items, menuId, itemId)?.item.name ?? `item ${itemId}`;
-        // Scores are personalised to `me`; matching them against everyone's pieces would explain
-        // someone else's dish under the header "Your pick".
+        // Match personalized scores only against the effective user's pieces.
         const pieces = ownPieces(d, me.id);
         if (!pieces.length)
           return ok(`Delivery ${deliveryId} has no meal selected yet.`, { picked: null });
@@ -1169,8 +1035,7 @@ export function registerAllTools(server: McpServer, writeGate: WriteGate): void 
     },
     async ({ deliveryId, from }) =>
       guard(async (client) => {
-        // Backdated so an already-arrived day stays reachable; `deliveryRange` supplies the `to`,
-        // which still lands on today + 21 (the horizon floor), not 7 days after `since`.
+        // The default includes recent completed deliveries and the forward horizon.
         const since = from ?? dateOffsetLocal(-14);
         const { deliveries: ds, userId } = await loadDeliveries(client, since, DELIVERY_DETAIL_SEL);
         const d = findDelivery(ds, deliveryId);
@@ -1184,8 +1049,6 @@ export function registerAllTools(server: McpServer, writeGate: WriteGate): void 
         return ok(formatDeliveryStatus(s), { status: s });
       }),
   );
-
-  // ---- Writes (dry-run by default via the preview-then-token gate) ----
 
   server.registerTool(
     "set_meal",
@@ -1243,8 +1106,7 @@ export function registerAllTools(server: McpServer, writeGate: WriteGate): void 
           const built = buildSelectionsHash({
             menu,
             item,
-            // Include hidden modifiers: they still need defaults (a hidden *required* modifier
-            // omitted here would trip a server-side "required option" rejection).
+            // Hidden required modifiers still need wire defaults.
             modifiers: resolveItemModifiers(item, { includeHidden: true }),
             choices: a.modifiers,
           });
@@ -1281,7 +1143,7 @@ export function registerAllTools(server: McpServer, writeGate: WriteGate): void 
                 "Couldn't check this against your dietary preferences — proceeding unchecked.",
             });
           }
-          // The venue drops notes server-side; send them anyway and just say so.
+          // Preserve the requested mutation while warning that Forkable drops the note.
           const notesDropped = Boolean(a.instructions && menu.disableSpecialInstructions);
           if (notesDropped) {
             guards.push({

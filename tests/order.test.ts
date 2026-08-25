@@ -24,7 +24,7 @@ import {
 } from "@/tools.ts";
 import { type MenuItem, type MenuModifier, type Delivery } from "@/order/types.ts";
 
-// A protein single-select (required, max 1, >1 options) + a "extras" multi-select.
+// Required single-select and optional multi-select fixtures.
 const protein: MenuModifier = {
   id: 16,
   name: "Choose Protein",
@@ -49,7 +49,7 @@ const extras: MenuModifier = {
     { id: 22, name: "Egg", price: 1 },
   ],
 };
-// A non-required single-select (should emit the [-1] sentinel when unset).
+// Optional single-select fixture.
 const sauce: MenuModifier = {
   id: 18,
   name: "Sauce",
@@ -95,7 +95,7 @@ describe("resolveItemModifiers", () => {
     const it: MenuItem = { ...item, modifierIds: [16, 99], modifiers: [protein, hidden] };
     const mods = resolveItemModifiers(it, { includeHidden: true });
     expect(mods.map((m) => m.id)).toEqual([16, 99]);
-    // A hidden required single-select must get its default option in the hash, not be omitted.
+    // Hidden required modifiers still require a wire value.
     const r = buildSelectionsHash({ item: it, modifiers: mods, choices: [] });
     expect(r.selectionsHash["99"]).toEqual([1]);
   });
@@ -208,7 +208,6 @@ describe("buildSelectionsHash", () => {
   });
 
   test("round-trips an existing piece's selections byte-for-byte", () => {
-    // Simulate a stored piece: steak + avocado, no sauce.
     const stored = { "16": [11], "17": [20], "18": [-1] };
     const rebuilt = buildSelectionsHash({ item, previous: stored }).selectionsHash;
     expect(rebuilt).toEqual(stored);
@@ -269,9 +268,7 @@ describe("formatMoney", () => {
   });
 });
 
-// Real payloads observed from the API on 2026-08-10. Note the inconsistency the parser has to
-// absorb: editingCutoffAt carries a true -07:00 offset, forDeliveryAt claims `Z` but is really a
-// floating local wall-clock time (lunch is not delivered at 5:01 AM Pacific).
+// Forkable emits delivery times as floating local clocks despite the trailing `Z`.
 const FOR_DELIVERY = "2026-08-11T12:01:00.000Z";
 const CUTOFF = "2026-08-10T11:45:00-07:00";
 
@@ -286,7 +283,7 @@ describe("weekdayOf", () => {
   });
 
   test("is not shifted by a UTC-tagged floating timestamp", () => {
-    // The bug this guards: forDeliveryAt says 12:01Z, which is the previous evening in UTC-12.
+    // Weekday follows the named calendar date, not a timezone conversion.
     expect(weekdayOf(FOR_DELIVERY)).toBe("Tue");
     expect(formatDay(FOR_DELIVERY)).toBe("Tue 2026-08-11");
   });
@@ -324,8 +321,7 @@ describe("parseFloating", () => {
 });
 
 describe("formatDateTime", () => {
-  // Rendered in the offset Forkable sent, like the dashboard. No Date involved, so no host-zone
-  // dependence and nothing to pin — `bun test` runs at UTC and these hold anyway.
+  // Rendering uses the timestamp's named wall clock without host-zone conversion.
   test("shows the cutoff as the dashboard does", () => {
     expect(formatDateTime(CUTOFF)).toBe("Mon 2026-08-10 11:45 AM");
   });
@@ -366,9 +362,7 @@ describe("formatDate", () => {
   });
 });
 
-// --- Multi-order deliveries ------------------------------------------------------------------
-// A delivery carries one order PER VENUE and your pieces sit on exactly one of them, at an index
-// that moves day to day. These fixtures are transcribed from the real Aug 11 / Aug 13 payloads.
+// Deliveries contain one order per venue; ownership is not positional.
 
 const myPiece = {
   id: "p1",
@@ -379,7 +373,7 @@ const myPiece = {
   autoOrder: true,
 };
 
-/** 4 venue orders, the user's meal on the LAST one — the shape that breaks `orders[0]`. */
+/** Four venue orders with the user's meal last. */
 const fourOrders: Delivery = {
   id: 1234199,
   availableMenuIds: [1, 2, 3, 4],
@@ -459,14 +453,12 @@ describe("formatInstantLike", () => {
   test('"" rather than a wrong clock when anything is missing', () => {
     expect(formatInstantLike(undefined, ETA_START)).toBe("");
     expect(formatInstantLike("2026-08-11T18:41:44.000Z", undefined)).toBe("");
-    // A lying `Z` carries no offset, so it can't be a zone source.
+    // A floating `Z` is not an offset source.
     expect(formatInstantLike("2026-08-11T18:41:44.000Z", "2026-08-11T12:01:00.000Z")).toBe("");
-    // A floating value is refused outright — shifting it would move the wall clock.
+    // Offset-less values cannot identify an instant.
     expect(formatInstantLike("2026-08-11T11:41:44", ETA_START)).toBe("");
   });
 });
-
-// --- Delivery status view --------------------------------------------------------------------
 
 const STATUS_USER = 501;
 const DELIVERED: Delivery = {
@@ -554,7 +546,7 @@ describe("deliveryStatus", () => {
         },
       ],
     };
-    // No shortTz to label it with, so the clock comes through unsuffixed.
+    // No short timezone label is available.
     expect(formatDeliveryStatus(deliveryStatus(d, STATUS_USER))).toContain(
       "Arrived    : Tue 2026-08-11 11:41 AM",
     );
@@ -704,10 +696,10 @@ describe("formatDeliveryStatus", () => {
 
   test("the missing-item deadline renders as a clock in the delivery's zone", () => {
     const s = deliveryStatus(DELIVERED, STATUS_USER);
-    // Honest UTC: 20:00Z is 1 PM Pacific, matching how the product itself displays it.
+    // 20:00Z is 1 PM Pacific on this date.
     expect(s.reportMissingItemCutoff).toBe("Tue 2026-08-11 1:00 PM PT");
     expect(formatDeliveryStatus(s)).toContain("Report by  : Tue 2026-08-11 1:00 PM PT");
-    // The raw value stays available for a caller that wants to resolve the zone itself.
+    // Preserve the raw instant alongside the formatted value.
     expect(s.reportMissingItemCutoffRaw).toBe("2026-08-11T20:00:00.000Z");
     expect(formatDeliveryStatus(s)).not.toContain("20:00");
   });
@@ -723,12 +715,10 @@ describe("formatDeliveryStatus", () => {
   });
 });
 
-// --- Dropoff meal groups ----------------------------------------------------------------------
-
 describe("meal groups", () => {
   const ME = 501;
 
-  /** The observed single-meal shape: one piece, bagged into group A1. */
+  /** One owned piece in group A1. */
   const grouped: Delivery = {
     id: 1234200,
     forDeliveryAt: FOR_DELIVERY,
@@ -756,7 +746,7 @@ describe("meal groups", () => {
           ...grouped.orders![0]!,
           pieces: [
             { ...myPiece, id: "a", userId: ME, name: "Comet Curry", group: "A1" },
-            // Same venue, DIFFERENT group — a per-delivery group field would flatten these.
+            // Group remains per piece within one venue.
             { ...myPiece, id: "b", userId: ME, name: "Meteor Melt", group: "A3" },
           ],
         },
@@ -782,7 +772,7 @@ describe("meal groups", () => {
     const d: Delivery = {
       id: 4,
       forDeliveryAt: FOR_DELIVERY,
-      // Measured on a next-day delivery: the piece exists, grouping hasn't happened.
+      // The piece exists before grouping.
       orders: [{ id: 1, pieces: [{ ...myPiece, userId: ME, group: null }] }],
     };
     const s = deliveryStatus(d, ME);
@@ -823,7 +813,7 @@ describe("meal groups", () => {
     expect(groupSuffix("A1")).toBe(" — group A1");
     expect(groupSuffix(null)).toBe("");
     expect(groupSuffix(undefined)).toBe("");
-    // Both renderers spell it identically because both go through groupSuffix.
+    // Both renderers use the shared suffix helper.
     const suffix = groupSuffix("A1");
     expect(fmtDelivery(grouped, undefined, ME)).toContain(`Comet Curry${suffix}`);
     expect(formatDeliveryStatus(deliveryStatus(grouped, ME))).toContain(
@@ -887,8 +877,6 @@ describe("meal groups", () => {
   });
 });
 
-// --- Ownership across venues ------------------------------------------------------------------
-
 describe("findOwnMeal with a guest order", () => {
   const ME = 501;
   const guestFirst: Delivery = {
@@ -922,10 +910,9 @@ describe("findOwnMeal with a guest order", () => {
   });
 
   test("pieces with no userId are not claimed for anyone", () => {
-    // fourOrders' piece carries no owner, so an identified lookup finds no meal rather than
-    // guessing — guessing is what handed replacePiece a stranger's oldPieceId.
+    // An unattributed piece does not satisfy an identified lookup.
     expect(findOwnMeal(fourOrders, ME)).toBeUndefined();
-    // Without an id there's no claim being made, so the day's meal is still shown.
+    // An unidentified display lookup remains explicitly unattributed.
     expect(findOwnMeal(fourOrders)?.order.id).toBe(4);
   });
 });
@@ -945,7 +932,7 @@ describe("findOwnMeal across venues", () => {
     const own = findOwnMeal(twoVenues, ME);
     expect(own?.orders.map((o) => o.order.id)).toEqual([1, 3]);
     expect(own?.ambiguous).toBe(true);
-    expect(own?.order.id).toBe(1); // primary — writes act here
+    expect(own?.order.id).toBe(1);
   });
 
   test("a guest's piece is never collected", () => {
@@ -960,7 +947,7 @@ describe("findOwnMeal across venues", () => {
 
 describe("multi-venue writes target the right meal", () => {
   const ME = 501;
-  // Meals at two venues: replacing the one at menu 2 must not destroy the one at menu 1.
+  // Two owned meals exercise per-venue identity.
   const twoVenues: Delivery = {
     id: 9,
     availableMenuIds: [1, 2],
@@ -972,7 +959,7 @@ describe("multi-venue writes target the right meal", () => {
 
   test("findOwnMeal exposes the per-venue split needed to pick the right piece", () => {
     const own = findOwnMeal(twoVenues, ME)!;
-    // The primary is venue 1, but a write to menu 2 must resolve to the venue-2 piece.
+    // Menu 2 resolves to its own piece rather than the first order.
     expect(own.order.menu?.id).toBe(1);
     const target = own.orders.find((x) => x.order.menu?.id === 2);
     expect(target?.pieces[0]?.id).toBe("at-venue-2");
@@ -985,15 +972,10 @@ describe("multi-venue writes target the right meal", () => {
       orders: [{ id: 1, pieces: [{ ...myPiece, userId: 999 }] }],
     };
     expect(findOwnMeal(theirsOnly, ME)).toBeUndefined();
-    // Without an id there is no identity claim, so the result is flagged unattributed.
+    // Missing identity is reflected in the attribution flag.
     expect(findOwnMeal(theirsOnly)?.byIdentity).toBe(false);
   });
 });
-
-// ---------------------------------------------------------------------------
-// Club configurations this account can't reach: weekly allowances, family-style
-// service, and deliveries carrying other members' orders.
-// ---------------------------------------------------------------------------
 
 describe("per-piece state badges", () => {
   const ME = 501;
@@ -1035,7 +1017,7 @@ describe("per-piece state badges", () => {
     expect(pieceBadges({ isRemoval: true, requestStatus: "pending" })).toBe(
       " [cancellation requested]",
     );
-    // Either half alone means nothing landed.
+    // Both wire fields are required.
     expect(pieceBadges({ isRemoval: true, requestStatus: "confirmed" })).toBe("");
     expect(pieceBadges({ isRemoval: null, requestStatus: "pending" })).toBe("");
     const d = deliveryWith({ isRemoval: true, requestStatus: "pending" });
@@ -1053,8 +1035,7 @@ describe("per-piece state badges", () => {
   });
 
   test("several states stack inside ONE bracket, worst news first", () => {
-    // A bracketed group, not more em dashes: the dash already separates dish/venue/group, so
-    // stacking states onto it left no way to see where the facts ended and the state began.
+    // State badges remain distinct from dish segments.
     expect(
       pieceBadges({
         isConfirmed: false,
@@ -1195,8 +1176,7 @@ describe("a delayed courier is loud", () => {
       orders: [
         {
           id: 1,
-          // A stale `delayed` alongside a real arrival: the list already ranked arrival first, and
-          // the status headline used to shout DELAYED directly above "Arrived".
+          // Arrival takes precedence over a stale delayed status.
           etaStatus: { status: "delayed", start: ETA_START, shortTz: "PT" },
           dropoffCompletedAt: "2026-08-11T18:41:44.000Z",
           pieces: [{ ...myPiece, userId: ME }],
@@ -1225,8 +1205,7 @@ describe("formatCountdown / the replacement clock", () => {
   test("renders hours and minutes, then minutes alone", () => {
     expect(formatCountdown("2026-08-12T20:14:00Z", NOW)).toBe("2h 14m");
     expect(formatCountdown("2026-08-12T18:14:00Z", NOW)).toBe("14m");
-    // A true offset is honoured as the instant it names (20:30Z), same as the app's fromISO —
-    // NOT re-read as a host-local wall clock, which is what parseFloating would have done.
+    // The explicit offset names the instant 20:30Z.
     expect(formatCountdown("2026-08-12T13:30:00-07:00", NOW)).toBe("2h 30m");
   });
 
@@ -1258,9 +1237,7 @@ describe("formatCountdown / the replacement clock", () => {
   });
 
   test("an offset-less cutoff is refused rather than read as host-local", () => {
-    // The family is unproven, so a value with no `Z` and no ±HH:MM has no instant to count down to.
-    // Reading it with `new Date` would make the SAME wire value differ by host — which `test:tz`
-    // could never catch, since every fixture we can write carries an offset.
+    // Offset-less values are rejected to avoid host-dependent countdowns.
     expect(formatCountdown("2026-08-12T20:14:00", NOW)).toBe("");
     expect(formatCountdown("2026-08-12", NOW)).toBe("");
   });
@@ -1270,8 +1247,7 @@ describe("formatCountdown / the replacement clock", () => {
   });
 
   test("the countdown scans every venue the member holds, not just the primary order", () => {
-    // The member's SECOND venue is the one that cancelled — reading orders[0] said nothing about it
-    // while happily rendering that venue's dish.
+    // The cancellation belongs to the second owned venue.
     const d: Delivery = {
       id: 11,
       forDeliveryAt: FOR_DELIVERY,
@@ -1295,8 +1271,7 @@ describe("formatCountdown / the replacement clock", () => {
       id: 12,
       forDeliveryAt: FOR_DELIVERY,
       orders: [
-        // Same instant expressed two ways, plus a later one: "13:30-07:00" is 20:30Z, so sorting
-        // these as strings would put the "19:30Z" order last and pick the wrong deadline.
+        // Equivalent offsets must sort by instant rather than source text.
         {
           id: 1,
           replacementCutoffTs: "2026-08-12T13:30:00-07:00",
@@ -1326,7 +1301,7 @@ describe("formatCountdown / the replacement clock", () => {
     };
     const s = deliveryStatus(d, ME, NOW);
     expect(s.replacementCountdown).toBeNull();
-    // Not null: a caller can still tell "the re-pick window closed" from "no replacement at all".
+    // Preserve the raw cutoff after the countdown expires.
     expect(s.replacementCutoffRaw).toBe("2026-08-12T17:00:00Z");
     expect(formatDeliveryStatus(s)).not.toContain("Re-pick");
   });
@@ -1406,7 +1381,7 @@ describe("money reaches the rendered line", () => {
 describe("a delivery carrying another member's order", () => {
   const ME = 501;
   const THEM = 999;
-  /** Their venue is listed first and is the only one with tracking — the shape that misattributes. */
+  /** Another member's tracked order precedes the owned order. */
   const shared: Delivery = {
     id: 9,
     forDeliveryAt: "2026-08-11T12:01:00.000Z",
@@ -1439,7 +1414,7 @@ describe("a delivery carrying another member's order", () => {
     expect(s.orders[0]?.dropoffCompletedAt).toBeNull();
     expect(s.orders[0]?.trackingUrl).toBeNull();
     expect(s.fulfillment).toBeNull();
-    // Without positive ownership, no order is attributed to the member.
+    // Attribution requires positive ownership.
     expect(deliveryStatus(shared).orders).toEqual([]);
   });
 
@@ -1491,12 +1466,7 @@ describe("two deliveries on one date", () => {
   });
 });
 
-/**
- * `myDeliveries(from:)` alone is week-bucketed — it answers with only the calendar week containing
- * `from`. Nine lookups once called the loader without a `to` and so could not resolve any id past
- * the current week: on a Friday, every delivery from Monday on was invisible to `get_menus`,
- * `set_meal` and the rest, while `list_deliveries` (which did pass a `to`) listed them happily.
- */
+/** Forkable week-buckets myDeliveries when `to` is omitted. */
 describe("delivery lookups always query a range", () => {
   test("both bounds are always present — the omission that caused the bug", () => {
     for (const r of [deliveryRange(), deliveryRange("2026-08-14")]) {
@@ -1507,7 +1477,7 @@ describe("delivery lookups always query a range", () => {
 
   test("the default window reaches past the end of the current week, whatever day it is", () => {
     const r = deliveryRange();
-    // 21 days clears a week boundary from any weekday — the condition that failed on a Friday.
+    // The default horizon crosses a week boundary from every weekday.
     expect(r.to).toBe(addDaysLocal(r.from, 21));
     expect(r.to > r.from).toBe(true);
   });
@@ -1524,22 +1494,20 @@ describe("delivery lookups always query a range", () => {
   });
 
   test("a `from` beyond the horizon still yields a forwards range, not a backwards one", () => {
-    // The old code paired a far-future `from` with a `to` of today+21, which is a range that
-    // matches nothing at all.
+    // A far-future start must not produce a backwards range.
     const r = deliveryRange("2099-12-01");
     expect(r.to > r.from).toBe(true);
     expect(r.to).toBe("2099-12-22");
   });
 
   test("a backdated `from` keeps the horizon at today+21 rather than 21 days after `from`", () => {
-    // get_delivery_status looks back 14 days; its window must still reach upcoming deliveries.
+    // Backdated lookups retain the forward horizon.
     const r = deliveryRange(addDaysLocal(deliveryRange().from, -14));
     expect(r.to).toBe(deliveryRange().to);
   });
 
   test("an explicit `to` wins outright, so a window can END in the past", () => {
-    // The whole point: without this, `to` floors at today+21 and a historical question comes back
-    // padded with upcoming deliveries, which reads as an answer.
+    // An explicit end bounds historical queries.
     expect(deliveryRange("2026-08-03", "2026-08-07")).toEqual({
       from: "2026-08-03",
       to: "2026-08-07",
@@ -1553,8 +1521,7 @@ describe("delivery lookups always query a range", () => {
   });
 
   test("a past `to` with no `from` resolves to a backwards window, which the tool refuses", () => {
-    // The inversion the raw-argument check missed: `from` defaults to today, so this only shows up
-    // once the window is resolved.
+    // Defaults are applied before checking range direction.
     const r = deliveryRange(undefined, "2020-01-01");
     expect(r.to < r.from).toBe(true);
   });
@@ -1562,7 +1529,7 @@ describe("delivery lookups always query a range", () => {
   test("isCalendarDate rejects what Date would silently roll over or reinterpret", () => {
     for (const good of ["2026-08-03", "2028-02-29", "2026-12-31"])
       expect(isCalendarDate(good)).toBe(true);
-    // 2026-02-30 is the dangerous one: Date turns it into 2026-03-02 and shifts the window.
+    // Date would otherwise normalize 2026-02-30 into March.
     for (const bad of ["2026-02-30", "2026-13-45", "2026-8-3", "20260803", " 2026-08-03", "", "x"])
       expect(isCalendarDate(bad)).toBe(false);
   });

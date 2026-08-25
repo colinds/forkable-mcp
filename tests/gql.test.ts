@@ -16,7 +16,7 @@ describe("serializeLiteral", () => {
 
   test("strings are escaped (injection-safe)", () => {
     expect(serializeLiteral('hi "there"')).toBe('"hi \\"there\\""');
-    // A malicious attempt to break out of the string stays inside it.
+    // Escaping keeps injected syntax inside the string literal.
     expect(serializeLiteral('") { evil } #')).toBe('"\\") { evil } #"');
     expect(serializeLiteral("line\nbreak")).toBe('"line\\nbreak"');
   });
@@ -32,9 +32,7 @@ describe("serializeLiteral", () => {
   });
 
   test("object keys must be valid GraphQL names", () => {
-    // selectionsHash (keyed by numeric modifier ids) is NOT serialized as a literal — it rides
-    // in the JSON `$input` variable of a mutation. GraphQL literal object keys can't be numeric,
-    // and the serializer correctly refuses them, so a numeric key can never leak into a query.
+    // Numeric selectionsHash keys belong in mutation variables, not GraphQL literals.
     expect(() => serializeLiteral({ "10": [100] })).toThrow();
     expect(serializeLiteral({ clubId: 6290 })).toBe("{ clubId: 6290 }");
   });

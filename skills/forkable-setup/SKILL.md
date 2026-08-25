@@ -1,103 +1,120 @@
 ---
 name: forkable-setup
 description: >-
-  Install, authenticate, and register forkable-mcp — the MCP server for Forkable corporate lunch —
-  with Claude Code, Codex, Cursor, Claude Desktop, or VS Code. Use when the Forkable tools aren't
-  connected yet, when a call comes back needing re-authentication, or when the user asks to set up
-  or reconnect Forkable.
+  Install, authenticate, and register forkable-mcp with an MCP client. Use when Forkable tools are
+  unavailable, authentication has expired, or the user asks to connect or reconnect Forkable.
 ---
 
-# Setting up forkable-mcp
+# Set up forkable-mcp
 
-Unofficial MCP server for [Forkable](https://forkable.com): <https://github.com/colinds/forkable-mcp>.
-It acts on the user's behalf with their own Forkable session — there is no API key.
+`forkable-mcp` is an unofficial MCP server that uses the user's Forkable web session. It does not
+use an API key. Use Bun or Node.
 
-**Check first.** If `list_deliveries` and friends already answer, it's set up; stop here and use the
-`forkable-lunch` skill. If a call fails with a re-auth message, redo step 1 alone — the session
-expired, nothing needs reinstalling.
+If `get_profile` or `list_deliveries` already works, setup is complete. For an authentication
+error, repeat only the authentication step.
 
-Use Bun or Node.js. The package runs without a clone or global install.
+Authentication handles account credentials or may unlock the operating system's credential store.
+Give the command to the user to run in a terminal. Do not place a password in command-line arguments
+or write it to a file.
 
-## 1. Authenticate — the user runs this themselves
+## Authenticate
 
-These commands take their password or may unlock their operating system's credential store, so hand
-them the line to run in a real terminal rather than running it for them. Never put their password in a
-command you execute or in a file you write.
+Choose one method.
 
-**Already logged into Forkable in a browser:**
+### Import a browser session
+
+The user must already be signed in at forkable.com:
 
 ```bash
 bunx --bun forkable-mcp@latest --auth --chrome # Node: npx forkable-mcp@latest --auth --chrome
 ```
 
-Browser import is best-effort on macOS, Linux, and Windows. macOS may prompt for Keychain access once
-per scanned profile; use `--profile` to limit the scan. Linux may use its system keyring. Chrome and
-Edge profiles are discovered automatically. Arc targeting is macOS-only; Brave and Chromium on Linux
-or Windows may need an explicit profile path. Use `--browser arc` (also brave, edge, chromium) and pin
-a profile with `--profile "Profile 1"`.
-
-**Email + password** — the only method that survives expiry (the server re-logs in on a 401):
+Browser import is best-effort on macOS, Linux, and Windows. On macOS, Keychain may prompt once per
+scanned profile; use `--profile` to limit the scan. Linux may use its system keyring. Chrome and Edge
+profiles are discovered automatically. Arc targeting is macOS-only; Brave and Chromium on Linux or
+Windows may need an explicit profile path. Other supported browsers can be selected with `--browser`,
+for example:
 
 ```bash
-bunx --bun forkable-mcp@latest --auth --login --email you@company.com
+bunx --bun forkable-mcp@latest --auth --chrome --browser arc --profile "Profile 1"
 ```
 
-The command prompts for the password without echoing it. For non-interactive setup, pass the password
-on standard input with `--password-stdin`, or set `FORKABLE_PASSWORD`. Add `--mfa <code>` if their account
-asks for one.
+Supported browser names are Chrome, Arc, Brave, Edge, and Chromium. The profile can be selected by
+name or path.
 
-**SSO / Okta accounts can't use password login** and the command says so immediately. Those need a
-cookie: forkable.com → DevTools → Network → filter `graphql` → right-click a `POST .../api/v2/graphql`
-row → _Copy → Copy as cURL_, then `pbpaste | bunx --bun forkable-mcp@latest --auth`. The whole blob is
-fine; only the `cookie:` header is read, and it must contain `_easyorder_session`. Cookie sessions
-can't self-refresh — expect to repeat this when it expires.
+### Email and password
 
-The session lands in `~/.forkable-mcp/session.json` (mode `0600`) and is never logged.
+```bash
+bunx --bun forkable-mcp@latest --auth --login --email you@example.com
+```
 
-## 2. Register the server
+The terminal prompts for the password without echoing it. For non-interactive use, pass the password
+on standard input with `--password-stdin`, or set `FORKABLE_EMAIL` and `FORKABLE_PASSWORD`. Use
+`--mfa <code>` or `FORKABLE_MFA` when required.
 
-| Client                  | Command / config                                            |
-| ----------------------- | ----------------------------------------------------------- |
-| Claude Code             | `claude mcp add forkable -- bunx --bun forkable-mcp@latest` |
-| Codex                   | `codex mcp add forkable -- bunx --bun forkable-mcp@latest`  |
-| Claude Desktop / Cursor | the JSON below, under `mcpServers`                          |
-| VS Code                 | the JSON below in `.vscode/mcp.json`, under `servers`       |
+Password login can refresh an expired session. SSO-only accounts require a cookie method.
+
+### Import a cookie
+
+Copy an authenticated Forkable GraphQL request as cURL in browser developer tools and pipe it to the
+auth command:
+
+```bash
+pbpaste | bunx --bun forkable-mcp@latest --auth
+```
+
+The command reads only the Cookie header. A saved cURL request can be supplied with
+`--file ./forkable.curl`. For headless use, set `FORKABLE_COOKIE` to the full Cookie header.
+Cookie sessions must be imported again after they expire.
+
+The session is stored at `~/.forkable-mcp/session.json` with mode `0600`.
+
+## Register the server
+
+| Client                   | Configuration                                               |
+| ------------------------ | ----------------------------------------------------------- |
+| Claude Code              | `claude mcp add forkable -- bunx --bun forkable-mcp@latest` |
+| Codex                    | `codex mcp add forkable -- bunx --bun forkable-mcp@latest`  |
+| Claude Desktop or Cursor | Add the JSON below under `mcpServers`                       |
+| VS Code                  | Add the JSON below under `servers` in `.vscode/mcp.json`    |
 
 ```json
 {
   "mcpServers": {
-    "forkable": { "command": "bunx", "args": ["--bun", "forkable-mcp@latest"] }
+    "forkable": {
+      "command": "bunx",
+      "args": ["--bun", "forkable-mcp@latest"]
+    }
   }
 }
 ```
 
-Add `-g` / `--scope user` if the user wants it in every project rather than this one.
+Restart or reconnect the MCP client, then call `get_profile` to verify the session.
 
-## 3. Restart the client and verify
+## Optional environment variables
 
-The client spawns the server at startup, so a restart is required before the tools appear. Then call
-`get_profile` — it should name the authenticated user. Now use the `forkable-lunch` skill.
+Set these in the MCP server's environment when needed:
 
-## Optional environment
+| Variable                                 | Purpose                                               |
+| ---------------------------------------- | ----------------------------------------------------- |
+| `FORKABLE_EMAIL` and `FORKABLE_PASSWORD` | Non-interactive login and session refresh             |
+| `FORKABLE_MFA`                           | MFA code for password login                           |
+| `FORKABLE_COOKIE`                        | Full Cookie header for headless or SSO authentication |
+| `FORKABLE_CSRF`                          | Explicit CSRF token; normally unnecessary             |
+| `FORKABLE_MAX_TOTAL`                     | Local per-meal preview ceiling in dollars             |
+| `FORKABLE_MCP_HOME`                      | Session directory; defaults to `~/.forkable-mcp`      |
 
-All optional; set them in the client's MCP config `env` block, not in the shell.
+## Continue with Forkable
 
-|                                        |                                                                 |
-| -------------------------------------- | --------------------------------------------------------------- |
-| `FORKABLE_EMAIL` / `FORKABLE_PASSWORD` | headless login, and auto-relogin when the session expires       |
-| `FORKABLE_MAX_TOTAL`                   | hard spend cap in dollars — a write over it is refused outright |
-| `FORKABLE_COOKIE`                      | a full Cookie header, for headless SSO accounts                 |
-| `FORKABLE_MCP_HOME`                    | where the session lives (default `~/.forkable-mcp`)             |
+After `get_profile` succeeds, use the `forkable` skill for meal, delivery, confirmation, and recovery
+rules. Use `forkable-friday` with it when planning the next week.
 
 ## Troubleshooting
 
-- **Tools missing after install** — the client wasn't restarted, or the config went in the wrong file.
-- **Upgraded, but the behavior didn't change** — the client spawned the server at startup and a new
-  npm version doesn't restart it; env changes are read at startup too. Reconnect the server (`/mcp`
-  in Claude Code) or restart the client, and keep `@latest` in the command — bunx won't update on
-  its own.
-- **`bunx: command not found`** — Bun isn't installed: `curl -fsSL https://bun.sh/install | bash`.
-- **Re-auth message on a tool call** — the session expired. Re-run step 1; only password logins heal
-  themselves.
-- **Browser import finds nothing** — they're not logged in at forkable.com in that browser, or it's a
-  profile the search missed. Log in, retry, or fall back to the cURL paste.
+- If tools are missing, restart the client and check the MCP configuration location.
+- If an upgrade is not visible, reconnect the server process so `bunx --bun ...@latest` starts again.
+- If authentication expired, repeat the selected authentication method. Password-based sessions can
+  refresh automatically; cookie sessions cannot.
+- If browser import finds nothing, confirm that forkable.com is signed in in the selected browser
+  profile, then retry or use a cookie method.
+- If `bunx` is unavailable, install Bun from [bun.sh](https://bun.sh).

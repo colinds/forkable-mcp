@@ -126,7 +126,7 @@ export async function runAuthCli(argv: string[]): Promise<void> {
   try {
     const args = parseAuthCliArgs(argv);
     if (args.login) {
-      // Email/password login (works headless; can self-heal an expired session).
+      // Headless password login.
       const email = args.email ?? process.env.FORKABLE_EMAIL;
       const mfaCode = args.mfa ?? process.env.FORKABLE_MFA;
       if (!email) {
@@ -176,7 +176,7 @@ export async function runAuthCli(argv: string[]): Promise<void> {
         `✓ Imported ${browser ?? "chrome"} session (profile ${imported.profile}) for ${imported.user}.`,
       );
     } else if (!args.file && process.env.FORKABLE_COOKIE) {
-      // Headless: cookie provided via env (no browser, no terminal paste).
+      // Headless cookie import.
       const { me } = await ingestCredentials({
         cookie: process.env.FORKABLE_COOKIE,
         csrf: process.env.FORKABLE_CSRF,

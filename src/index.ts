@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Entry point. Two modes:
+// Entry modes:
 //   `bun run src/index.ts --auth [--chrome|--file <path>]`  → import a session, then exit.
 //   `bun run src/index.ts`                                  → serve MCP over stdio (client-spawned).
 

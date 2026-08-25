@@ -1,9 +1,4 @@
-// MCP server over stdio. The MCP client spawns this process and owns its lifecycle, so there's
-// nothing to run manually. Stateless in spirit: the only durable state is the on-disk session,
-// read per tool call.
-//
-// NOTE: stdout is the JSON-RPC wire — only ever log to stderr here.
-// There is no HTTP listener; (re-)authenticate out of band with `bun run auth --chrome`.
+// MCP over stdio. Stdout is reserved for JSON-RPC; diagnostics must use stderr.
 
 import { McpServer } from "@modelcontextprotocol/server";
 import { serveStdio } from "@modelcontextprotocol/server/stdio";
@@ -33,8 +28,7 @@ function startKeepalive(): void {
 }
 
 export async function runStdio(cfg: Config): Promise<void> {
-  // Headless provisioning: if FORKABLE_COOKIE is set and there's no session yet, ingest it first
-  // (best-effort — a failure just means tools return the re-auth message).
+  // Best-effort session provisioning from environment credentials.
   const me = await provisionFromEnvIfNeeded().catch((e) => {
     console.error(`env auth failed: ${(e as Error).message}`);
     return null;

@@ -43,7 +43,7 @@ describe("loginWithPassword", () => {
         csrf++;
         return res(200, { token: `tok${csrf}` }, [`_easyorder_session=sess${csrf}; path=/`]);
       }
-      // createSession on /graphql
+      // createSession request.
       expect(body.query).toContain("createSession");
       expect(body.variables.input.email).toBe("me@x.com"); // trimmed + lowercased
       return res(200, {

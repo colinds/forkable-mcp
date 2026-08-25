@@ -1,4 +1,4 @@
-// Local write guards. Forkable remains authoritative for server policy.
+// Local construction and spend-ceiling checks.
 
 import { type Delivery, type Order, type Piece } from "./types.ts";
 import { type SelectionViolation } from "./selections.ts";
@@ -11,27 +11,18 @@ export interface OwnOrder {
 }
 
 export interface OwnMeal {
-  /** The primary order — the first carrying the member's pieces. Writes act on this one. */
+  /** First order carrying matching pieces. */
   order: Order;
   pieces: Piece[];
-  /** EVERY order carrying the member's pieces, primary first. Length > 1 is legitimate. */
+  /** All orders carrying matching pieces. */
   orders: OwnOrder[];
-  /** Meals at more than one venue today. Not an error — the member may genuinely hold several. */
+  /** Whether matching pieces span several orders. */
   ambiguous: boolean;
-  /** These pieces are known to be the member's. False = "whoever ordered", so don't call them theirs. */
+  /** Whether matching used a user id. */
   byIdentity: boolean;
 }
 
-/**
- * The member's meal(s) on a delivery. One order per venue, and a member may hold pieces on SEVERAL of
- * them, at indexes that move day to day — so never index into `orders`.
- *
- * **Always pass `userId`.** Without it this is merely "orders that have pieces": a delivery carrying a
- * colleague's order then resolves to their meal, which misreports whose lunch it is and would hand
- * `replacePiece` the wrong `oldPieceId`. With it, no match means the member genuinely has no meal —
- * `undefined`, never a stranger's. Every piece selection carries `userId`, and `loadDeliveries` returns
- * the id alongside the deliveries, so there is no path that legitimately lacks one.
- */
+/** Match pieces across venue orders. Writes must supply `userId` and reject ambiguous matches. */
 export function findOwnMeal(d: Delivery, userId?: number): OwnMeal | undefined {
   const mine: OwnOrder[] = (d.orders ?? []).flatMap((o) => {
     const all = o.pieces ?? [];
@@ -54,7 +45,7 @@ export function ownPieces(d: Delivery, userId?: number): Piece[] {
   return findOwnMeal(d, userId)?.orders.flatMap((o) => o.pieces) ?? [];
 }
 
-/** Every piece across all per-venue orders. For DISPLAY — includes guest picks. */
+/** Every piece across all venue orders, including guest picks. */
 export function allPieces(d: Delivery): Piece[] {
   return (d.orders ?? []).flatMap((o) => o.pieces ?? []);
 }
@@ -82,7 +73,7 @@ export interface GuardContext {
   maxTotalCents?: number;
 }
 
-/** Evaluate ordering guards; `block` guards prevent the write, `warn` are advisory. */
+/** Build local blockers for selections and the configured spend ceiling. */
 export function evaluateGuards(c: GuardContext): Guard[] {
   const g: Guard[] = [];
   for (const v of c.violations ?? []) {
