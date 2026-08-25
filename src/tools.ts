@@ -1014,8 +1014,9 @@ export function registerAllTools(server: McpServer, writeGate: WriteGate): void 
     {
       title: "Set the meal for a delivery",
       description:
-        "Set an exact menu item for a delivery. With no owned meal this adds one; with one it " +
-        "replaces it. If you own several meals, pass sourcePieceId to choose which one. " +
+        "Set an exact menu item for a delivery. By default this adds if empty or replaces an " +
+        "owned meal. Pass mode=add to add without replacing. If you own several meals and are " +
+        "replacing one, pass sourcePieceId to choose it. " +
         WRITE_NOTE,
       inputSchema: z.object({
         deliveryId: z.number().int(),
@@ -1027,6 +1028,10 @@ export function registerAllTools(server: McpServer, writeGate: WriteGate): void 
           .number()
           .int()
           .describe("Menu id paired with itemId by get_menus, search_items, or recommend_meals"),
+        mode: z
+          .enum(["set", "add"])
+          .optional()
+          .describe('"set" adds if empty or replaces an owned meal; "add" never replaces'),
         sourcePieceId: z
           .union([z.string(), z.number()])
           .optional()
@@ -1054,6 +1059,10 @@ export function registerAllTools(server: McpServer, writeGate: WriteGate): void 
     async (a) =>
       guard(async (client, session) => {
         const plan = async (): Promise<WritePlan> => {
+          const mode = a.mode ?? "set";
+          if (mode === "add" && a.sourcePieceId !== undefined) {
+            throw new Error("sourcePieceId cannot be used when mode is add.");
+          }
           const { deliveries, userId } = await loadDeliveries(client);
           const d = findDelivery(deliveries, a.deliveryId);
           if (!d)
@@ -1071,7 +1080,8 @@ export function registerAllTools(server: McpServer, writeGate: WriteGate): void 
             modifiers: resolveItemModifiers(item, { includeHidden: true }),
             choices: a.modifiers,
           });
-          const source = resolveOwnedSource(d, userId, a.sourcePieceId);
+          const source =
+            mode === "set" ? resolveOwnedSource(d, userId, a.sourcePieceId) : undefined;
           const existing = source?.piece;
           const totalCents = itemTotalCents(item, built.extra);
           const diet = await dietConflicts(client, userId, menu.id, item.id, built.selectionsHash);
@@ -1113,7 +1123,7 @@ export function registerAllTools(server: McpServer, writeGate: WriteGate): void 
               message: "This venue doesn't accept special instructions; they'll be ignored.",
             });
           }
-          const op = existing ? "replacePiece" : "addPiece";
+          const op = mode === "add" || !existing ? "addPiece" : "replacePiece";
           const input: Record<string, unknown> = {
             deliveryId: a.deliveryId,
             menuId: menu.id,
@@ -1132,8 +1142,15 @@ export function registerAllTools(server: McpServer, writeGate: WriteGate): void 
           const extras = built.summary.length
             ? ` (${built.summary.map((s) => s.options.join("/")).join(", ")})`
             : "";
+          const meal = `${item.name.trim()}${extras}`;
+          let action = `Add ${meal}`;
+          if (existing) {
+            action = `Replace ${existing.name ?? `meal ${existing.id}`} with ${meal}`;
+          } else if (mode === "add") {
+            action = `Add ${meal} without replacing any existing meal`;
+          }
           const summary =
-            `${existing ? `Replace ${existing.name ?? `meal ${existing.id}`} with` : "Add"} ${item.name}${extras} on delivery ${a.deliveryId}` +
+            `${action} on delivery ${a.deliveryId}` +
             `${a.autoConfirm ? " and confirm" : ""} — ${totalCents == null ? "price unavailable" : formatMoney(totalCents / 100)}` +
             instructionsSummary(a.instructions);
           return {
@@ -1150,7 +1167,7 @@ export function registerAllTools(server: McpServer, writeGate: WriteGate): void 
             tool: "set_meal",
             argsHash: hashWriteArgs(
               { ...a },
-              { modifiers: [], instructions: "", autoConfirm: false },
+              { mode: "set", modifiers: [], instructions: "", autoConfirm: false },
             ),
             confirmToken: a.confirmToken,
             plan,

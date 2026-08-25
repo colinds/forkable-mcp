@@ -114,7 +114,11 @@ async function checkInstalled(runner: Runner, cwd: string, home: string): Promis
     setMeal?.inputSchema as { properties?: Record<string, unknown> } | undefined
   )?.properties;
   if (!setMealProperties?.sourcePieceId) fail(`${runner}: set_meal does not expose sourcePieceId`);
-  log(`${runner} write schemas require exact menu identity`);
+  const mode = setMealProperties?.mode as { enum?: unknown[] } | undefined;
+  if (JSON.stringify(mode?.enum) !== JSON.stringify(["set", "add"])) {
+    fail(`${runner}: set_meal does not expose set/add mode`);
+  }
+  log(`${runner} write schemas require exact menu identity and expose additional meals`);
 
   const res: any = await client.callTool({ name: "get_profile", arguments: {} });
   const text = (res.content ?? []).map((content: any) => content.text ?? "").join("");

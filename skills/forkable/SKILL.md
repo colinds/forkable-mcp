@@ -66,9 +66,13 @@ preferences as server validation.
 
 ## Set or remove a meal
 
-`set_meal` adds a meal when none is owned and otherwise replaces an owned meal. It does not add a
-second meal. If the delivery has several owned meals, pass `sourcePieceId` to identify the one to
+`set_meal` defaults to `mode: "set"`: it adds a meal when none is owned and otherwise replaces an
+owned meal. If the delivery has several owned meals, pass `sourcePieceId` to identify the one to
 replace.
+
+Use `mode: "add"` only when the user asks for another, additional, or extra meal. It adds without
+replacing any existing meal. Do not combine it with `sourcePieceId`, and do not infer whether the
+extra meal is covered or will be charged; Forkable decides that.
 
 `set_meal_all` applies one exact `(menuId, itemId)` across the requested delivery IDs and ignores
 duplicate delivery IDs. A delivery with several owned meals must be handled individually with
@@ -134,6 +138,5 @@ Quote them as reported. Do not calculate company coverage or an authoritative ou
 
 ## Unsupported account actions
 
-The tools do not add a second meal to a delivery, rate meals, report missing or incorrect items,
-change vacation settings, edit Forkable dietary settings, or switch offices. Direct the user to
-Forkable for those actions.
+The tools do not rate meals, report missing or incorrect items, change vacation settings, edit
+Forkable dietary settings, or switch offices. Direct the user to Forkable for those actions.
