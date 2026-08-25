@@ -628,10 +628,9 @@ describe("deliveryStatus", () => {
     expect(rendered).toContain("https://track.test/second");
 
     const compact = compactDelivery(d, undefined, STATUS_USER);
-    expect(compact.etaState).toBe("partially delivered");
+    expect(compact.fulfillment).toBe("partially delivered");
     expect(compact.delayed).toBe(true);
     expect(compact.trackingUrl).toBe("https://track.test/second");
-    expect(compact.arrivedAtRaw).toBeNull();
     expect(fmtDelivery(d, undefined, STATUS_USER)).toContain(
       "⚠ DELAYED — track: https://track.test/second",
     );
@@ -645,9 +644,8 @@ describe("deliveryStatus", () => {
       ),
     };
     const completed = compactDelivery(allDelivered, undefined, STATUS_USER);
-    expect(completed.etaState).toBe("delivered");
+    expect(completed.fulfillment).toBe("delivered");
     expect(completed.delayed).toBe(false);
-    expect(completed.arrivedAtRaw).toBe("2026-08-11T19:00:00Z");
     expect(fmtDelivery(allDelivered, undefined, STATUS_USER)).toContain(
       "arrived Tue 2026-08-11 12:00 PM PT",
     );
@@ -823,7 +821,7 @@ describe("meal groups", () => {
 
   test("the list carries the group too — it's where to collect lunch", () => {
     expect(fmtDelivery(grouped, undefined, ME)).toContain("Comet Curry — group A1");
-    expect(compactDelivery(grouped, undefined, ME).picked[0]?.group).toBe("A1");
+    expect(compactDelivery(grouped, undefined, ME).meals[0]?.group).toBe("A1");
   });
 
   test("the list omits an ungrouped meal's group rather than blanking it", () => {
@@ -834,7 +832,7 @@ describe("meal groups", () => {
     };
     expect(fmtDelivery(d, undefined, ME)).toContain("Comet Curry\n");
     expect(fmtDelivery(d, undefined, ME)).not.toContain("group");
-    expect(compactDelivery(d, undefined, ME).picked[0]?.group).toBeNull();
+    expect(compactDelivery(d, undefined, ME).meals[0]?.group).toBeNull();
   });
 
   test("two meals in different groups are each labelled in the list", () => {
@@ -1118,15 +1116,15 @@ describe("per-piece state badges", () => {
     expect(fmtDelivery(d, undefined, ME)).not.toContain("not confirmed");
   });
 
-  test("compactDelivery carries the state for a caller to branch on", () => {
+  test("compactDelivery carries the confirmation state", () => {
     const p = compactDelivery(
       deliveryWith({ isConfirmed: false, isRemoval: true, requestStatus: "pending" }),
       undefined,
       ME,
-    ).picked[0];
+    ).meals[0];
     expect(p?.isConfirmed).toBe(false);
     expect(p?.cancellationPending).toBe(true);
-    expect(p?.isLateSwappable).toBeNull();
+    expect(p).not.toHaveProperty("isLateSwappable");
   });
 });
 
@@ -1365,16 +1363,16 @@ describe("money reaches the rendered line", () => {
     expect(compactDelivery(d)).not.toHaveProperty("companyLimit");
   });
 
-  test("the compact read preserves Forkable's raw late-deadline signal", () => {
+  test("the compact read omits server policy signals", () => {
     const compact = compactDelivery({
       id: 4,
       isReadOnly: true,
       pastLateOrderDeadline: true,
       canRequestChanges: false,
     });
-    expect(compact.isReadOnly).toBe(true);
-    expect(compact.pastLateOrderDeadline).toBe(true);
-    expect(compact.canRequestChanges).toBe(false);
+    expect(compact).not.toHaveProperty("isReadOnly");
+    expect(compact).not.toHaveProperty("pastLateOrderDeadline");
+    expect(compact).not.toHaveProperty("canRequestChanges");
   });
 });
 
@@ -1434,7 +1432,7 @@ describe("a delivery carrying another member's order", () => {
   test("someone else ordering does not make the day look ordered for me", () => {
     const theirsOnly: Delivery = { id: 9, orders: [shared.orders![0]!] };
     expect(compactDelivery(theirsOnly, undefined, ME).needsOrder).toBe(true);
-    expect(compactDelivery(theirsOnly, undefined, ME).otherMeals).toBe(1);
+    expect(compactDelivery(theirsOnly, undefined, ME).meals).toEqual([]);
   });
 });
 

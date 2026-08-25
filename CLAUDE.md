@@ -87,7 +87,8 @@ empty `errors` array and carry its reason only in `errorDetails.base`; `mutate` 
 ## Preview and confirmation
 
 Every write tool is dry-run by default. The first call resolves an exact executable plan and returns
-the mutation text, variables, summary, warnings, and a random confirmation token. Nothing is sent.
+the user-facing summary, warnings, affected delivery ids, and a random confirmation token. Nothing
+is sent. GraphQL operations, variables, and raw mutation payloads stay internal.
 
 The gate stores a structured clone of the exact executable plan in a bounded process-local map. A
 token is:
@@ -103,8 +104,8 @@ state. An unknown, expired, mismatched, or already-used token produces an error 
 Structured result modes:
 
 - `blocked`: a selection or configured-ceiling guard refused the plan; no token exists.
-- `preview`: exact variables and a confirmation token.
-- `executed`: Forkable returned a successful mutation payload.
+- `preview`: summary, warnings, delivery ids, and a confirmation token.
+- `executed`: Forkable accepted the change.
 - `rejected`: definite `MutationError`; correct the request before trying again.
 - `outcome_unknown`: do not retry. Refresh the listed deliveries with `list_deliveries` and reconcile
   state first.
@@ -185,12 +186,13 @@ or invalid ceiling adds no local spend block. Zero is a valid ceiling.
 round trip. Ownership-sensitive renderers receive that id and select only pieces whose `userId`
 matches. Do not fall back to the first order when identity is absent.
 
-`get_delivery_status` keeps one record per positively owned order, including order id, owned piece
-ids, raw order/ETA state, arrival timestamp, ETA range, and tracking URL. The top-level fulfillment is
-a conservative roll-up; raw per-order fields remain available for callers that need exact state.
-Courier and meal data from another member must never be attributed to the caller.
+`get_delivery_status` keeps one record per positively owned order, including order id, exact ETA and
+arrival timestamps, and tracking URL. It also returns current meal customizations, cancellation
+state, the scheduled window, and direct billing fields. The top-level fulfillment is a conservative
+roll-up. Raw order and ETA state stay internal. Courier and meal data from another member must never
+be attributed to the caller.
 
-Billing output is direct wire data, not a coverage calculation. Monetary values in status are exposed
+Billing output is direct wire data, not a coverage calculation. Billing values in status are exposed
 as nullable integer cents:
 
 - `reportedDueCents` from `userReceipt.due`;
@@ -201,10 +203,10 @@ as nullable integer cents:
 Do not label these as company coverage or out-of-pocket cost. Their product meaning can depend on the
 club and receipt state.
 
-Useful piece fields are per piece, not per delivery: `group`, `isConfirmed`, `isLateSwappable`,
-`isRemoval`/`requestStatus`, and `isLateOrder`. They are nullable; null means “not reported,” never
-false. `Piece.group` is a dropoff label such as `A1`. Do not use the unrelated admin
-`Order.mealGroups` roster as the member's group.
+Useful piece fields are per piece, not per delivery. Read projections expose `group`, `isConfirmed`,
+customization labels, and a derived `cancellationPending`; other UI state stays internal. Nullable
+wire fields mean “not reported,” never false. `Piece.group` is a dropoff label such as `A1`. Do not
+use the unrelated admin `Order.mealGroups` roster as the member's group.
 
 ## Verified wire quirks
 

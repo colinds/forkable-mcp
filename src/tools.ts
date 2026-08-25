@@ -6,7 +6,7 @@ import { ForkableClient } from "@/net/client.ts";
 import { ReauthRequiredError } from "@/net/errors.ts";
 import { requireSession, type SessionRecord } from "@/auth/session.ts";
 import { loginWithPassword, envLoginInput } from "@/auth/login.ts";
-import { buildMutation, buildQuery } from "@/net/gql.ts";
+import { buildQuery } from "@/net/gql.ts";
 import {
   hashWriteArgs,
   type GateCtx,
@@ -26,7 +26,6 @@ import {
   formatInstantLike,
   groupSuffix,
   pieceBadges,
-  weekdayOf,
 } from "@/order/format.ts";
 import { type Delivery, type Menu, type MenuItem, type Order, type Piece } from "@/order/types.ts";
 
@@ -113,13 +112,11 @@ function gateCtx(client: ForkableClient, session: SessionRecord): GateCtx {
       };
     },
     execute: (plan) => client.mutate(plan.op, plan.selection, plan.input),
-    buildMutationText: (op, sel) => buildMutation(op, sel),
   };
 }
 
 const WRITE_NOTE =
-  "Dry-run by default: returns the exact mutation + a confirmToken. Call again with that token to " +
-  "actually send.";
+  "Returns a preview and confirmToken. Call again with the same arguments plus that token to send the change.";
 
 // `roles` is a feature-flag JSON scalar, not a member-role list.
 const ME_SELECTION =
@@ -264,7 +261,7 @@ function autoOrderState(me: Me, clubs: ClubPolicy[]): string {
 function fmtProfile(me: Me, clubs: ClubPolicy[] = []): string {
   const name = me.fullName || [me.firstName, me.lastName].filter(Boolean).join(" ") || "(no name)";
   return [
-    `${name}  (id ${me.id})`,
+    name,
     me.email ? `  email: ${me.email}` : "",
     `  MFA: ${me.mfaEnabled ? "on" : "off"}   card on file: ${me.validCreditCard ? "yes" : "no"}` +
       (me.isGuest ? "   (guest)" : ""),
@@ -581,97 +578,63 @@ export function fmtDelivery(d: Delivery, inFlight?: Set<number>, userId?: number
   );
 }
 
-/** A lean delivery: keeps piece/menu ids callers need, drops the giant orders/receipt nesting. */
+/** The fields needed to identify a delivery and act on the effective user's meals. */
 export function compactDelivery(d: Delivery, inFlight?: Set<number>, userId?: number) {
-  const own = findOwnMeal(d, userId);
-  const pieces = own?.orders.flatMap((o) => o.pieces) ?? [];
-  const { status: fulfillment, tracked, completed } = fulfillmentSummary(d, userId);
+  const pieces = findOwnMeal(d, userId)?.orders.flatMap((o) => o.pieces) ?? [];
+  const { status: fulfillment, tracked } = fulfillmentSummary(d, userId);
   return {
-    id: d.id,
+    deliveryId: d.id,
     date: formatDate(d.forDeliveryAt),
-    weekday: weekdayOf(d.forDeliveryAt),
-    /** "lunch" | "dinner". */
     service: windowName(d) || null,
     club: d.club?.name ?? null,
     status: d.userConfirmed ? "confirmed" : (d.state ?? null),
-    /** Fulfillment track, null until delivered — orthogonal to `status`. */
-    simpleState: d.simpleState ?? null,
-    inFlight: inFlight?.has(d.id) ?? null,
-    /** Whether the effective user has a meal. */
+    fulfillment: fulfillment.fulfillment ?? (inFlight?.has(d.id) ? "in flight" : null),
     needsOrder: pieces.length === 0,
-    /** Whether pieces were matched by owner id. */
-    attributed: own?.byIdentity === true,
-    otherMeals: allPieces(d).length - pieces.length,
-    isReadOnly: d.isReadOnly ?? null,
-    pastLateOrderDeadline: d.pastLateOrderDeadline ?? null,
-    canRequestChanges: d.canRequestChanges ?? null,
-    arrivalWindow: d.deliveryWindow ?? null, // scheduled service window
-    etaState: fulfillment.fulfillment,
     delayed: fulfillment.delayed,
     trackingUrl: tracked?.trackingUrl ?? null,
-    arrivedAtRaw:
-      fulfillment.fulfillment === "delivered" ? (completed?.dropoffCompletedAt ?? null) : null,
-    billing: fulfillment.billing,
-    availableMenuIds: d.availableMenuIds ?? [],
-    picked: pieces.map((p) => ({
+    deliveryWindow: d.deliveryWindow ?? null,
+    reportedDueCents: fulfillment.billing.reportedDueCents,
+    meals: pieces.map((p) => ({
       pieceId: p.id,
       itemId: p.itemId,
       menuId: p.menuId,
       name: p.name,
-      /** Dropoff group; null until grouping. */
       group: p.group ?? null,
-      /** Per-piece confirmation state. */
       isConfirmed: p.isConfirmed ?? null,
-      isLateSwappable: p.isLateSwappable ?? null,
       cancellationPending: cancellationPending(p),
-      isLateOrder: p.isLateOrder ?? null,
-      // Account auto-order state, not meal-selection provenance.
-      autoOrder: p.autoOrder ?? null,
     })),
   };
 }
 
-/** Capacity signals keyed by the order's menu; held menus do not consume another seat. */
-function atCapacityMenuIds(d: Delivery, userId?: number): Map<number, boolean> {
-  const own = findOwnMeal(d, userId);
-  const held = new Set(
-    own?.byIdentity === true
-      ? own.orders.map((x) => x.order.menu?.id).filter((id): id is number => id != null)
-      : [],
-  );
-  // A missing order yields no capacity claim.
-  const seats = new Map<number, boolean>();
-  for (const o of d.orders ?? []) {
-    const id = o.menu?.id;
-    if (id == null || o.isOverVenueCapacity == null) continue;
-    seats.set(id, o.isOverVenueCapacity === true && !held.has(id));
-  }
-  return seats;
+function instructionsSummary(instructions?: string): string {
+  return instructions?.trim() ? `; instructions: ${JSON.stringify(instructions)}` : "";
 }
 
-/** Menus with just id/name/price/diet per item + a modifier count (no option trees). */
-function compactMenus(
-  menus: Menu[],
-  diets?: Map<number, string>,
-  atCapacity?: Map<number, boolean>,
-) {
+/** Menu and item identity plus the fields needed to choose what to order. */
+function compactMenus(menus: Menu[], diets?: Map<number, string>) {
   return menus.map((m) => ({
-    id: m.id,
+    menuId: m.id,
     name: m.displayName || m.name || `menu ${m.id}`,
-    /** Advisory capacity signal; null means unknown. */
-    atCapacity: atCapacity?.get(m.id) ?? null,
     items: m.sections
-      .flatMap((s) => s.items)
-      .map((it) => ({
-        id: it.id,
-        name: it.name,
-        price: it.price ?? null,
-        dietLevel: it.dietLevel ?? null,
-        diet: it.dietLevel != null ? (diets?.get(it.dietLevel) ?? null) : null,
-        imageUrl: it.imageUrl ?? null,
-        modifiers: it.modifiers?.length ?? 0,
+      .flatMap((section) => section.items)
+      .map((item) => ({
+        itemId: item.id,
+        name: item.name,
+        price: item.price ?? null,
+        diet: item.dietLevel != null ? (diets?.get(item.dietLevel) ?? null) : null,
+        hasModifiers: (item.modifiers?.length ?? 0) > 0,
       })),
   }));
+}
+
+function compactItemDetail(detail: ReturnType<typeof itemDetail>) {
+  return {
+    menuId: detail.menuId,
+    itemId: detail.id,
+    name: detail.name,
+    price: detail.price,
+    modifiers: detail.modifiers,
+  };
 }
 
 /** Full modifiers and options for one requested item. */
@@ -714,8 +677,7 @@ export function registerAllTools(server: McpServer, writeGate: WriteGate): void 
     {
       title: "Get profile",
       description:
-        "Show the authenticated Forkable user (name, email, MFA/credit-card status, auto-order) " +
-        "and each club's spend policy. Also the quickest way to confirm auth is working.",
+        "Show the signed-in user, ordering settings, payment status, and club allowances.",
       annotations: { readOnlyHint: true, openWorldHint: true },
     },
     async () =>
@@ -729,7 +691,7 @@ export function registerAllTools(server: McpServer, writeGate: WriteGate): void 
         const policy = clubs.length
           ? `\n\nYour club${clubs.length > 1 ? "s" : ""}:\n${clubs.map(fmtClubPolicy).join("\n")}`
           : "";
-        return ok(fmtProfile(me, clubs) + policy, { me, clubs });
+        return ok(fmtProfile(me, clubs) + policy);
       }),
   );
 
@@ -738,30 +700,14 @@ export function registerAllTools(server: McpServer, writeGate: WriteGate): void 
     {
       title: "List deliveries",
       description:
-        "List deliveries — past and upcoming — with date, weekday, meal service, club, status, what " +
-        "YOU have selected, and reported billing. A date can carry more than one delivery (lunch and " +
-        "dinner, or two clubs), so use the service/club labels to tell them apart. " +
-        "Start here to see the week and what still needs ordering. Forkable decides whether a write " +
-        "is currently accepted. " +
-        "Called with no arguments it covers today through 21 days out, so ALREADY-DELIVERED days are " +
-        "not included — to review what was eaten, pass `from` (and `to` to stop the window before " +
-        "today, otherwise upcoming deliveries are appended and a past-only question looks answered " +
-        "when it isn't).",
+        "List deliveries, selected meals, and the IDs used by other tools. Defaults to today through " +
+        "21 days out; pass both dates for a past-only range. A date can have multiple service or club deliveries.",
       inputSchema: z.object({
-        from: dateArg()
-          .optional()
-          .describe(
-            "Inclusive start, ISO date (YYYY-MM-DD). Default: today. Pass an earlier date to include " +
-              "days already delivered — e.g. this week's Monday to review the week so far.",
-          ),
+        from: dateArg().optional().describe("Inclusive start (YYYY-MM-DD). Defaults to today."),
         to: dateArg()
           .optional()
           .describe(
-            "Inclusive end, ISO date (YYYY-MM-DD). Default: 21 days out (`from` + 21 days, or " +
-              "today + 21, whichever is later). Set this to bound the window — it is the ONLY way to " +
-              "ask about the past alone, e.g. {from: '2026-08-03', to: '2026-08-07'} for that week " +
-              "and nothing after it. Must not be earlier than `from` — note `from` defaults to " +
-              "TODAY, so a past `to` on its own is backwards and is refused.",
+            "Inclusive end (YYYY-MM-DD). Defaults to at least 21 days out and cannot precede `from`.",
           ),
       }),
       annotations: { readOnlyHint: true, openWorldHint: true },
@@ -793,9 +739,8 @@ export function registerAllTools(server: McpServer, writeGate: WriteGate): void 
     {
       title: "Get menus for a delivery",
       description:
-        "List the items available for a delivery (compact: id, name, price per venue). " +
-        "Pass an itemId to get that item's full modifiers/options for customizing a set_meal call. " +
-        "Use the deliveryId from list_deliveries.",
+        "List menu items for a delivery. Item IDs can repeat across menus; pass both menuId and itemId " +
+        "to get the modifier and option IDs for one item.",
       inputSchema: z.object({
         deliveryId: z.number().int().describe("Delivery id from list_deliveries"),
         itemId: z
@@ -815,21 +760,17 @@ export function registerAllTools(server: McpServer, writeGate: WriteGate): void 
     },
     async ({ deliveryId, itemId, menuId }) =>
       guard(async (client) => {
-        const { deliveries, userId } = await loadDeliveries(client);
+        const { deliveries } = await loadDeliveries(client);
         const d = findDelivery(deliveries, deliveryId);
         if (!d) return errResult(`Delivery ${deliveryId} not found in your upcoming deliveries.`);
         const menus = await loadMenus(client, d);
         if (!menus.length) return ok(`Delivery ${deliveryId} has no available menus.`);
-        const full = atCapacityMenuIds(d, userId);
-
-        // Detail mode includes modifiers, options, and the same capacity signal as the list.
+        // Detail mode includes the modifier and option ids needed for set_meal.
         if (itemId != null) {
           const { item, menu } = resolveOneItem(menus, itemId, menuId, deliveryId);
           const detail = itemDetail(item, menu);
-          const cap = full.get(menu.id) === true ? "\n  (this venue reads as at capacity)" : "";
-          return ok(fmtItemDetail(detail) + imageMd(item) + cap, {
-            item: detail,
-            atCapacity: full.get(menu.id) ?? null,
+          return ok(fmtItemDetail(detail) + imageMd(item), {
+            item: compactItemDetail(detail),
           });
         }
 
@@ -839,12 +780,11 @@ export function registerAllTools(server: McpServer, writeGate: WriteGate): void 
             const lines = items.map(
               (it) => `    ${it.id}  ${it.name}  ${formatKnownPrice(it.price)}${imageMd(it)}`,
             );
-            const cap = full.get(m.id) === true ? "  [venue at capacity]" : "";
-            return `${m.displayName || m.name || `menu ${m.id}`} (${items.length} items)${cap}:\n${lines.join("\n")}`;
+            return `${m.displayName || m.name || `menu ${m.id}`} (${items.length} items):\n${lines.join("\n")}`;
           })
           .join("\n\n");
         return ok(summary || "No items.", {
-          menus: compactMenus(menus, await loadDietLabels(client), full),
+          menus: compactMenus(menus, await loadDietLabels(client)),
         });
       }),
   );
@@ -887,7 +827,9 @@ export function registerAllTools(server: McpServer, writeGate: WriteGate): void 
           (r) =>
             `  ${r.itemId}  ${r.name ?? "(item)"}  ${formatKnownPrice(r.price)}  [menu ${r.menuId}]${imageMd({ name: r.name ?? "item", imageUrl: r.imageUrl })}`,
         );
-        return ok(`Matches for "${query}":\n${lines.join("\n")}`, { items: results });
+        return ok(`Matches for "${query}":\n${lines.join("\n")}`, {
+          items: results.map(({ imageUrl: _imageUrl, ...item }) => item),
+        });
       }),
   );
 
@@ -895,9 +837,7 @@ export function registerAllTools(server: McpServer, writeGate: WriteGate): void 
     "recommend_meals",
     {
       title: "Recommend meals",
-      description:
-        "Suggest meals for a delivery using Forkable's personalized meal-generation scores. " +
-        "Returns the top-scored items with names.",
+      description: "Return Forkable's ranked meal suggestions for a delivery.",
       inputSchema: z.object({
         deliveryId: z.number().int(),
         limit: z
@@ -928,23 +868,22 @@ export function registerAllTools(server: McpServer, writeGate: WriteGate): void 
         const top = scores.toSorted((a, b) => b.score - a.score).slice(0, limit ?? 8);
         if (!top.length) return ok("No recommendations available.");
         const items = flattenItems(await loadMenus(client, d));
-        const enriched = top.map((t) => {
+        const enriched = top.map((t, index) => {
           const it = findItem(items, t.menuId, t.itemId)?.item;
           return {
             menuId: t.menuId,
             itemId: t.itemId,
-            score: t.score,
+            rank: index + 1,
             name: it?.name ?? `item ${t.itemId}`,
             price: it?.price ?? null,
             imageUrl: it?.imageUrl ?? null,
           };
         });
         const lines = enriched.map(
-          (e, i) =>
-            `  ${i + 1}. ${e.name}  ${formatKnownPrice(e.price)}  (score ${e.score.toFixed(2)})${imageMd(e)}`,
+          (e, i) => `  ${i + 1}. ${e.name}  ${formatKnownPrice(e.price)}${imageMd(e)}`,
         );
         return ok(`Top picks for delivery ${deliveryId}:\n${lines.join("\n")}`, {
-          recommendations: enriched,
+          recommendations: enriched.map(({ imageUrl: _imageUrl, ...item }) => item),
         });
       }),
   );
@@ -954,8 +893,7 @@ export function registerAllTools(server: McpServer, writeGate: WriteGate): void 
     {
       title: "Explain the meal pick for a delivery",
       description:
-        "Explain why the current (auto-)selected meal was chosen: its meal-generation score and " +
-        "rank among the day's items, with the top-scored alternatives.",
+        "Show where the selected meal ranks among Forkable's suggestions, with the top alternatives.",
       inputSchema: z.object({ deliveryId: z.number().int() }),
       annotations: { readOnlyHint: true, openWorldHint: true },
     },
@@ -982,32 +920,29 @@ export function registerAllTools(server: McpServer, writeGate: WriteGate): void 
 
         const picked = pieces.map((p) => {
           const idx = ranked.findIndex((s) => s.menuId === p.menuId && s.itemId === p.itemId);
-          const score = idx >= 0 ? ranked[idx]!.score : null;
           return {
             itemId: p.itemId,
             menuId: p.menuId,
             name: p.name,
-            score,
             rank: idx >= 0 ? idx + 1 : null,
-            autoOrder: p.autoOrder ?? null, // account is on auto-order; see compactDelivery
           };
         });
-        const top = ranked.slice(0, 5).map((s) => ({
+        const top = ranked.slice(0, 5).map((s, index) => ({
           menuId: s.menuId,
           itemId: s.itemId,
-          score: s.score,
+          rank: index + 1,
           name: nameOf(s.menuId, s.itemId),
         }));
         const lines = [
           "Your pick:",
           ...picked.map((p) =>
             p.rank
-              ? `  ${p.name} — score ${p.score?.toFixed(2)}, ranked #${p.rank} of ${ranked.length}`
-              : `  ${p.name} — not in the day's score list`,
+              ? `  ${p.name} — ranked #${p.rank} of ${ranked.length}`
+              : `  ${p.name} — not in Forkable's suggestions`,
           ),
           "",
-          "Top-scored for the day:",
-          ...top.map((s, i) => `  ${i + 1}. ${s.name} (score ${s.score.toFixed(2)})`),
+          "Top suggestions:",
+          ...top.map((suggestion) => `  ${suggestion.rank}. ${suggestion.name}`),
         ];
         return ok(lines.join("\n"), { picked, top });
       }),
@@ -1018,18 +953,12 @@ export function registerAllTools(server: McpServer, writeGate: WriteGate): void 
     {
       title: "Get delivery status",
       description:
-        "Fulfillment detail for one delivery: every owned order, its meal ids, courier ETA, arrival " +
-        "time, tracking link, and the office access notes. Tracking fields are null until an order " +
-        "is dispatched. `list_deliveries` carries a one-line summary; this is the full view.",
+        "Show meal fulfillment, courier ETA, arrival, and each owned order's tracking link, plus delivery access notes.",
       inputSchema: z.object({
         deliveryId: z.number().int().describe("Delivery id from list_deliveries"),
         from: dateArg()
           .optional()
-          .describe(
-            "Inclusive start of the window searched for this delivery, ISO date (YYYY-MM-DD). " +
-              "Default: 14 days ago, which reaches back over already-delivered days; the window " +
-              "always runs forward to at least today + 21. Widen it only for an older delivery.",
-          ),
+          .describe("Start of the search window (YYYY-MM-DD). Defaults to 14 days ago."),
       }),
       annotations: { readOnlyHint: true, openWorldHint: true },
     },
@@ -1046,7 +975,37 @@ export function registerAllTools(server: McpServer, writeGate: WriteGate): void 
           return errResult(`Delivery ${deliveryId} not found. ${seen}`);
         }
         const s = deliveryStatus(d, userId);
-        return ok(formatDeliveryStatus(s), { status: s });
+        return ok(formatDeliveryStatus(s), {
+          status: {
+            deliveryId: s.id,
+            date: s.date,
+            fulfillment: s.fulfillment,
+            delayed: s.delayed,
+            deliveryWindow: s.deliveryWindow,
+            timezone: s.timezone,
+            meals: s.meal.map((meal) => ({
+              pieceId: meal.pieceId,
+              orderId: meal.orderId,
+              name: meal.name,
+              price: meal.price,
+              options: meal.options,
+              venue: meal.venue,
+              group: meal.group,
+              isConfirmed: meal.isConfirmed,
+              cancellationPending: meal.cancellationPending,
+            })),
+            orders: s.orders.map((order) => ({
+              orderId: order.orderId,
+              venue: order.venue,
+              fulfillment: order.fulfillment,
+              etaStart: order.etaStart,
+              etaEnd: order.etaEnd,
+              dropoffCompletedAt: order.dropoffCompletedAt,
+              trackingUrl: order.trackingUrl,
+            })),
+            billing: s.billing,
+          },
+        });
       }),
   );
 
@@ -1071,7 +1030,9 @@ export function registerAllTools(server: McpServer, writeGate: WriteGate): void 
         sourcePieceId: z
           .union([z.string(), z.number()])
           .optional()
-          .describe("Owned piece id to replace when you have more than one meal on this delivery"),
+          .describe(
+            "Owned piece id from list_deliveries to replace when you have more than one meal on this delivery",
+          ),
         modifiers: z
           .array(
             z.object({
@@ -1172,8 +1133,9 @@ export function registerAllTools(server: McpServer, writeGate: WriteGate): void 
             ? ` (${built.summary.map((s) => s.options.join("/")).join(", ")})`
             : "";
           const summary =
-            `${existing ? "Replace with" : "Add"} ${item.name}${extras} on delivery ${a.deliveryId}` +
-            `${a.autoConfirm ? " and confirm" : ""} — ${totalCents == null ? "price unavailable" : formatMoney(totalCents / 100)}`;
+            `${existing ? `Replace ${existing.name ?? `meal ${existing.id}`} with` : "Add"} ${item.name}${extras} on delivery ${a.deliveryId}` +
+            `${a.autoConfirm ? " and confirm" : ""} — ${totalCents == null ? "price unavailable" : formatMoney(totalCents / 100)}` +
+            instructionsSummary(a.instructions);
           return {
             op,
             selection: PIECE_WRITE_SEL,
@@ -1181,7 +1143,6 @@ export function registerAllTools(server: McpServer, writeGate: WriteGate): void 
             summary,
             deliveryIds: [a.deliveryId],
             guards,
-            details: { selectionsHash: built.selectionsHash, totalCents: totalCents ?? null },
           };
         };
         return toCallToolResult(
@@ -1203,7 +1164,7 @@ export function registerAllTools(server: McpServer, writeGate: WriteGate): void 
     {
       title: "Set the same meal across multiple deliveries",
       description:
-        "Apply one exact menu item to several delivery days at once (replaceAllPieces). Duplicate " +
+        "Apply one exact menu item to several delivery days. Duplicate " +
         "delivery ids are ignored. A day with multiple owned meals must be handled individually. " +
         WRITE_NOTE,
       inputSchema: z.object({
@@ -1312,10 +1273,11 @@ export function registerAllTools(server: McpServer, writeGate: WriteGate): void 
             op: "replaceAllPieces",
             selection: "errors",
             input: { deliveryIds, newPiece, myMeals: true },
-            summary: `Set ${item.name}${extras} on ${deliveryIds.length} deliveries (${deliveryIds.join(", ")})`,
+            summary:
+              `Set ${item.name}${extras} on ${deliveryIds.length} deliveries (${deliveryIds.join(", ")})` +
+              instructionsSummary(a.instructions),
             deliveryIds,
             guards,
-            details: { selectionsHash: built.selectionsHash, totalCents: totalCents ?? null },
           };
         };
         return toCallToolResult(
@@ -1336,7 +1298,7 @@ export function registerAllTools(server: McpServer, writeGate: WriteGate): void 
     "remove_meal",
     {
       title: "Remove the meal from a delivery",
-      description: "Remove a piece only when Forkable identifies it as yours. " + WRITE_NOTE,
+      description: "Remove one of your meals using its pieceId. " + WRITE_NOTE,
       inputSchema: z.object({
         deliveryId: z.number().int(),
         pieceId: z.union([z.string(), z.number()]).describe("Piece id from list_deliveries"),
@@ -1435,8 +1397,7 @@ export function registerAllTools(server: McpServer, writeGate: WriteGate): void 
     "confirm_delivery",
     {
       title: "Confirm (or unconfirm) a delivery",
-      description:
-        "Toggle confirmation for a delivery's order. confirm=false unconfirms. " + WRITE_NOTE,
+      description: "Set a delivery's confirmation state. confirm=false unconfirms. " + WRITE_NOTE,
       inputSchema: z.object({
         deliveryId: z.number().int(),
         confirm: z.boolean().optional().describe("true to confirm (default), false to unconfirm"),
