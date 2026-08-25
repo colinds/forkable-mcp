@@ -6,7 +6,7 @@
 //   - single-select modifier ⇔ (max === 1 && options.length > 1); value is [optionId] or the
 //     sentinel [-1] when a NON-required single-select has nothing chosen
 //   - multi-select ⇔ everything else; value is the array of chosen option ids
-//   - key order follows item.modifierIds (stable, diffable, stable HMAC in write-gate)
+//   - key order follows item.modifierIds so previews and requests stay stable and diffable
 
 import {
   type Menu,

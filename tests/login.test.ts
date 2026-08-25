@@ -2,8 +2,9 @@ import { expect, test, describe, beforeEach, afterEach } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { ingestCredentials } from "@/auth/ingest.ts";
 import { loginWithPassword } from "@/auth/login.ts";
-import { readSession } from "@/auth/session.ts";
+import { patchSession, readSession } from "@/auth/session.ts";
 import { type FetchImpl } from "@/net/endpoints.ts";
 
 function res(status: number, body: unknown, setCookies: string[] = []): Response {
@@ -27,6 +28,10 @@ describe("loginWithPassword", () => {
   });
 
   test("logs in, refreshes CSRF, and persists the session", async () => {
+    await patchSession({
+      cookie: "_easyorder_session=old",
+      delegationSessionId: "delegated-session",
+    });
     let csrf = 0;
     const fetchImpl: FetchImpl = async (url, init) => {
       const body = init?.body ? JSON.parse(init.body as string) : {};
@@ -51,6 +56,24 @@ describe("loginWithPassword", () => {
     expect(s?.meta?.userId).toBe(42);
     expect(s?.csrf).toBe("tok2"); // refreshed after login
     expect(s?.cookie).toContain("_easyorder_session=sess2");
+    expect(s?.delegationSessionId).toBeNull();
+  });
+
+  test("credential ingest clears delegation", async () => {
+    await patchSession({
+      cookie: "_easyorder_session=old",
+      delegationSessionId: "delegated-session",
+    });
+    const fetchImpl: FetchImpl = async () =>
+      res(200, { data: { me: { id: 7, email: "new@example.com", fullName: "New User" } } });
+
+    const { session } = await ingestCredentials(
+      { cookie: "_easyorder_session=new", csrf: "csrf" },
+      fetchImpl,
+    );
+
+    expect(session.delegationSessionId).toBeNull();
+    expect((await readSession())?.delegationSessionId).toBeNull();
   });
 
   test("rejects SSO-only accounts before attempting login", async () => {

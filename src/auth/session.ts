@@ -6,9 +6,8 @@
 import { mkdir, readFile, rename, chmod, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join, dirname } from "node:path";
-import { randomBytes } from "node:crypto";
 import { ReauthRequiredError } from "@/net/errors.ts";
-import { hasSessionCookie } from "./cookies.ts";
+import { hasSessionCookie, mergeSetCookies } from "./cookies.ts";
 
 // ---------------------------------------------------------------------------
 // Record shape + paths
@@ -21,7 +20,6 @@ export interface SessionRecord {
   updatedAt: string; // ISO
   lastVerifiedAt?: string;
   delegationSessionId?: string | null;
-  writeSecret: string; // hex(32B), per-install HMAC key for confirm tokens
   meta?: { userId?: number; email?: string; fullName?: string };
 }
 
@@ -61,7 +59,7 @@ async function atomicWrite(record: SessionRecord): Promise<void> {
   await chmod(path, 0o600).catch(() => {});
 }
 
-// In-process serialization of writes (concurrent stateless requests share one process).
+// In-process serialization keeps concurrent session updates from overwriting each other.
 let writeChain: Promise<unknown> = Promise.resolve();
 function serialize<T>(fn: () => Promise<T>): Promise<T> {
   const next = writeChain.then(fn, fn);
@@ -69,11 +67,7 @@ function serialize<T>(fn: () => Promise<T>): Promise<T> {
   return next;
 }
 
-export function newWriteSecret(): string {
-  return randomBytes(32).toString("hex");
-}
-
-/** Read-modify-write a subset of fields, generating a writeSecret on first save. */
+/** Read-modify-write a subset of fields. */
 export function patchSession(patch: Partial<SessionRecord>): Promise<SessionRecord> {
   return serialize(async () => {
     const current = await readSession();
@@ -81,8 +75,9 @@ export function patchSession(patch: Partial<SessionRecord>): Promise<SessionReco
       version: 1,
       cookie: patch.cookie ?? current?.cookie ?? "",
       csrf: patch.csrf ?? current?.csrf,
-      delegationSessionId: patch.delegationSessionId ?? current?.delegationSessionId ?? null,
-      writeSecret: current?.writeSecret ?? newWriteSecret(),
+      delegationSessionId: Object.hasOwn(patch, "delegationSessionId")
+        ? (patch.delegationSessionId ?? null)
+        : (current?.delegationSessionId ?? null),
       meta: patch.meta ?? current?.meta,
       lastVerifiedAt: patch.lastVerifiedAt ?? current?.lastVerifiedAt,
       updatedAt: new Date().toISOString(),
@@ -92,21 +87,38 @@ export function patchSession(patch: Partial<SessionRecord>): Promise<SessionReco
   });
 }
 
-export async function clearDelegation(): Promise<void> {
-  await patchSession({ delegationSessionId: null });
+export interface NetworkSessionUpdate {
+  setCookies?: string[];
+  csrf?: string;
 }
 
-/** HMAC key for write confirm-tokens: env override, else the per-install stored secret. */
-export function getWriteSecret(session: SessionRecord): Uint8Array {
-  const hex = process.env.FORKABLE_WRITE_SECRET || session.writeSecret;
-  return Uint8Array.from(Buffer.from(hex, "hex"));
+/** Apply response credential deltas to the latest stored session. */
+export function applyNetworkSessionUpdate(update: NetworkSessionUpdate): Promise<SessionRecord> {
+  return serialize(async () => {
+    const current = await readSession();
+    if (!current) throw new ReauthRequiredError("missing");
+    const merged: SessionRecord = {
+      ...current,
+      cookie: update.setCookies?.length
+        ? mergeSetCookies(current.cookie, update.setCookies)
+        : current.cookie,
+      updatedAt: new Date().toISOString(),
+    };
+    if (Object.hasOwn(update, "csrf")) merged.csrf = update.csrf;
+    await atomicWrite(merged);
+    return merged;
+  });
+}
+
+export async function clearDelegation(): Promise<void> {
+  await patchSession({ delegationSessionId: null });
 }
 
 function hideSecret(v?: string): string | undefined {
   return v ? `«hidden len=${v.length}»` : undefined;
 }
 
-/** Redacted view for logging — never expose cookie/csrf/writeSecret. */
+/** Redacted view for logging — never expose cookie/csrf. */
 export function redact(s: SessionRecord | null): Record<string, unknown> {
   if (!s) return { session: null };
   const hide = hideSecret;
@@ -114,7 +126,6 @@ export function redact(s: SessionRecord | null): Record<string, unknown> {
     version: s.version,
     cookie: hide(s.cookie),
     csrf: hide(s.csrf),
-    writeSecret: hide(s.writeSecret),
     delegationSessionId: s.delegationSessionId ?? null,
     meta: s.meta,
     updatedAt: s.updatedAt,

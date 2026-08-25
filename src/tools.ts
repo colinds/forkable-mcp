@@ -1,4 +1,4 @@
-// MCP tool registration. Each tool reads the session PER CALL (stateless), builds a
+// MCP tool registration. Each tool reads the current session per call and builds a
 // ForkableClient, and maps a ReauthRequiredError into an actionable message.
 //
 // Interface conventions (kept consistent across every tool):
@@ -13,10 +13,16 @@ import { z } from "zod";
 import type { McpServer, CallToolResult } from "@modelcontextprotocol/server";
 import { ForkableClient } from "@/net/client.ts";
 import { ReauthRequiredError } from "@/net/errors.ts";
-import { requireSession, getWriteSecret, type SessionRecord } from "@/auth/session.ts";
+import { requireSession, type SessionRecord } from "@/auth/session.ts";
 import { loginWithPassword, envLoginInput } from "@/auth/login.ts";
 import { buildMutation, buildQuery } from "@/net/gql.ts";
-import { withWriteGate, type GateCtx, type WritePlan, type ToolResultLike } from "./write-gate.ts";
+import {
+  hashWriteArgs,
+  type GateCtx,
+  type WriteGate,
+  type WritePlan,
+  type ToolResultLike,
+} from "./write-gate.ts";
 import { buildSelectionsHash, resolveItemModifiers } from "@/order/selections.ts";
 import {
   evaluateGuards,
@@ -117,8 +123,14 @@ async function guard(
 
 function gateCtx(client: ForkableClient, session: SessionRecord): GateCtx {
   return {
-    secret: getWriteSecret(session),
-    delegationSessionId: session.delegationSessionId ?? null,
+    resolveActor: async () => {
+      const actor = await client.query<{ id?: number }>("me", undefined, "id");
+      if (actor?.id == null) throw new Error("Forkable did not report the effective user id.");
+      return {
+        userId: actor.id,
+        delegationSessionId: session.delegationSessionId ?? null,
+      };
+    },
     execute: (plan) => client.mutate(plan.op, plan.selection, plan.input),
     buildMutationText: (op, sel) => buildMutation(op, sel),
   };
@@ -759,7 +771,7 @@ function fmtItemDetail(d: ReturnType<typeof itemDetail>): string {
 
 // ---------------------------------------------------------------------------
 
-export function registerAllTools(server: McpServer): void {
+export function registerAllTools(server: McpServer, writeGate: WriteGate): void {
   // ---- Reads ----
 
   server.registerTool(
@@ -1257,12 +1269,21 @@ export function registerAllTools(server: McpServer): void {
             selection: PIECE_WRITE_SEL,
             input,
             summary,
+            deliveryIds: [a.deliveryId],
             guards,
             details: { selectionsHash: built.selectionsHash },
           };
         };
         return toCallToolResult(
-          await withWriteGate(gateCtx(client, session), a.confirmToken, plan),
+          await writeGate(gateCtx(client, session), {
+            tool: "set_meal",
+            argsHash: hashWriteArgs(
+              { ...a },
+              { modifiers: [], instructions: "", autoConfirm: false },
+            ),
+            confirmToken: a.confirmToken,
+            plan,
+          }),
         );
       }),
   );
@@ -1367,12 +1388,18 @@ export function registerAllTools(server: McpServer): void {
             selection: PIECE_WRITE_SEL,
             input: { deliveryIds: a.deliveryIds, newPiece, myMeals: true },
             summary: `Set ${item.name}${extras} on ${a.deliveryIds.length} deliveries (${a.deliveryIds.join(", ")})`,
+            deliveryIds: a.deliveryIds,
             guards,
             details: { selectionsHash: built.selectionsHash },
           };
         };
         return toCallToolResult(
-          await withWriteGate(gateCtx(client, session), a.confirmToken, plan),
+          await writeGate(gateCtx(client, session), {
+            tool: "set_meal_all",
+            argsHash: hashWriteArgs({ ...a }, { modifiers: [], instructions: "" }),
+            confirmToken: a.confirmToken,
+            plan,
+          }),
         );
       }),
   );
@@ -1419,11 +1446,17 @@ export function registerAllTools(server: McpServer): void {
             selection: "errors",
             input: { orderId: order.id, pieceId: a.pieceId, myMeals: true },
             summary: `Remove ${piece?.name || `piece ${a.pieceId}`} from delivery ${a.deliveryId}`,
+            deliveryIds: [a.deliveryId],
             guards,
           };
         };
         return toCallToolResult(
-          await withWriteGate(gateCtx(client, session), a.confirmToken, plan),
+          await writeGate(gateCtx(client, session), {
+            tool: "remove_meal",
+            argsHash: hashWriteArgs({ ...a }),
+            confirmToken: a.confirmToken,
+            plan,
+          }),
         );
       }),
   );
@@ -1474,11 +1507,17 @@ export function registerAllTools(server: McpServer): void {
             selection: "errors",
             input: { orderId: own.order.id, pieceId: piece.id, myMeals: true },
             summary: `Skip delivery ${a.deliveryId} (${formatDay(d.forDeliveryAt)}) — removes ${piece.name ?? `piece ${piece.id}`}`,
+            deliveryIds: [a.deliveryId],
             guards,
           };
         };
         return toCallToolResult(
-          await withWriteGate(gateCtx(client, session), a.confirmToken, plan),
+          await writeGate(gateCtx(client, session), {
+            tool: "skip_delivery",
+            argsHash: hashWriteArgs({ ...a }),
+            confirmToken: a.confirmToken,
+            plan,
+          }),
         );
       }),
   );
@@ -1514,11 +1553,17 @@ export function registerAllTools(server: McpServer): void {
             selection: "errors",
             input: { deliveryId: a.deliveryId, confirm, changeFrom: "dashboard" },
             summary: `${confirm ? "Confirm" : "Unconfirm"} delivery ${a.deliveryId} (${formatDay(d.forDeliveryAt)})`,
+            deliveryIds: [a.deliveryId],
             guards,
           };
         };
         return toCallToolResult(
-          await withWriteGate(gateCtx(client, session), a.confirmToken, plan),
+          await writeGate(gateCtx(client, session), {
+            tool: "confirm_delivery",
+            argsHash: hashWriteArgs({ ...a }, { confirm: true }),
+            confirmToken: a.confirmToken,
+            plan,
+          }),
         );
       }),
   );

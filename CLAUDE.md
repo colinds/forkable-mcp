@@ -4,7 +4,7 @@ Architecture and development notes for **forkable-mcp**. User-facing quick start
 
 ## What it is
 
-A local, stateless MCP server (Bun + TypeScript) that drives a Forkable corporate-lunch account over
+A local MCP server (Bun + TypeScript) that drives a Forkable corporate-lunch account over
 **stdio**. The MCP client spawns the process and owns its lifecycle; the only durable state is an
 on-disk session, read on every tool call.
 
@@ -41,14 +41,15 @@ tests/            bun test
 ## Transport
 
 stdio via `serveStdio` from `@modelcontextprotocol/server/stdio`. `index.ts` defaults to it; there is no
-HTTP server. Each tool reads the session per call, so nothing is held in memory between requests.
+HTTP server. Each tool reads the session per call. Pending write confirmations live only in the server
+process and disappear when it restarts.
 
 ## Auth
 
 Forkable uses a session cookie plus a CSRF token (fetched automatically) — there's no API key. Establish
 a session one of:
 
-- **Email/password** (`auth/login.ts`): `bun run auth --login` (`--email`/`--password`/`--mfa`) or
+- **Email/password** (`auth/login.ts`): `bun run auth --login` (`--email`/`--password-stdin`/`--mfa`) or
   `FORKABLE_EMAIL`/`FORKABLE_PASSWORD` (+ `FORKABLE_MFA`) env. Logs in via the `createSession` mutation;
   works headless. A public `identities` pre-check fails fast on SSO-only accounts. Password-capable only.
 - **Browser cookie**: `bun run auth --chrome` uses `@steipete/sweet-cookie` to read Chrome and Edge
@@ -66,9 +67,8 @@ otherwise it returns a re-auth message (a pasted cookie can't be refreshed witho
 ## Write safety (preview-then-token)
 
 Write tools are dry-run by default. A call returns the exact mutation, the resolved variables, a summary,
-and an HMAC `confirmToken` bound to a canonical serialization of the payload — **nothing is sent**.
-Calling the tool again with that token re-derives the HMAC over the payload rebuilt from live data and
-sends only on a match, so any drift (the piece being replaced, the menu, the selection) invalidates it.
+and a process-local, single-use `confirmToken` — **nothing is sent**. Calling the tool again with that token
+sends the stored mutation once. Tokens expire after ten minutes and are lost when the server restarts.
 
 Guards attached to a preview are advisory — Forkable enforces its own policy and reports refusals with
 structured codes. Only two things refuse to mint a token, and neither is Forkable's rule: the operator's
@@ -487,14 +487,13 @@ replacement. The whole tracking surface (`etaStatus`, `dropoff*`, `reportMissing
 | `FORKABLE_COOKIE` | Headless auth: a full Cookie header, provisioned on startup if no session exists. |
 | `FORKABLE_CSRF` | Optional CSRF token to pin (otherwise fetched automatically). |
 | `FORKABLE_MAX_TOTAL` | Optional hard spend cap (dollars): a write over it is refused. Unset = no cap (preview just notes when over the company's daily limit, `delivery.copayAmount`). |
-| `FORKABLE_WRITE_SECRET` | Optional HMAC key for confirm-tokens (else a per-install key is generated and stored). |
 | `FORKABLE_MCP_HOME` | Session store directory (default `~/.forkable-mcp`). |
 
 ## Development
 
 ```bash
-bun test          # unit tests (selectionsHash, confirm-token, guards, own-order resolution,
-                  #   date/zone formatting, status renderer, serializer, crypto)
+bun test          # unit tests (selectionsHash, write gate, guards, own-order resolution,
+                  #   date/zone formatting, status renderer, serializer, auth)
 bun run test:tz   # the same suite under TZ=Asia/Kolkata — display must be host-zone independent
 bun run check     # oxlint + oxfmt --check + tsc + both test runs
 bun run fmt       # oxfmt src tests scripts

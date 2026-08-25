@@ -39,11 +39,12 @@ a profile with `--profile "Profile 1"`.
 **Email + password** — the only method that survives expiry (the server re-logs in on a 401):
 
 ```bash
-bunx --bun forkable-mcp@latest --auth --login --email you@company.com --password '…'
+bunx --bun forkable-mcp@latest --auth --login --email you@company.com
 ```
 
-Add `--mfa <code>` if their account asks for one. A password typed as an argument lands in shell
-history — `FORKABLE_EMAIL` / `FORKABLE_PASSWORD` in the environment does the same job without that.
+The command prompts for the password without echoing it. For non-interactive setup, pass the password
+on standard input with `--password-stdin`, or set `FORKABLE_PASSWORD`. Add `--mfa <code>` if their account
+asks for one.
 
 **SSO / Okta accounts can't use password login** and the command says so immediately. Those need a
 cookie: forkable.com → DevTools → Network → filter `graphql` → right-click a `POST .../api/v2/graphql`
