@@ -4,176 +4,192 @@
 [![CI](https://github.com/colinds/forkable-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/colinds/forkable-mcp/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
 [![MCP](https://img.shields.io/badge/MCP-server-black.svg)](https://modelcontextprotocol.io)
-[![Runtime: Bun](https://img.shields.io/badge/runtime-Bun-fbf0df.svg)](https://bun.sh)
+[![Runtime: Bun or Node](https://img.shields.io/badge/runtime-Bun%20or%20Node-fbf0df.svg)](https://bun.sh)
 
-Order and manage your [Forkable](https://forkable.com) corporate lunches from Claude, Cursor, or any MCP
-client. See your week, browse and search menus, get personalized picks, and set / skip / confirm meals —
-all from chat.
+Order and manage your [Forkable](https://forkable.com) lunches from Claude, Codex, Cursor, or another
+MCP client. You can see your week, browse menus, get recommendations, change meals, and check where
+lunch is without opening the Forkable app.
 
 > [!WARNING]
-> Unofficial, not affiliated with Forkable. It acts on your behalf using your own Forkable session.
-> Use your own account, at your own risk.
+> This is an unofficial project and is not affiliated with Forkable. It uses your Forkable web
+> session and an undocumented API that may change.
 
 ## Features
 
-- 📅 See upcoming deliveries — status, cutoff, copay, and what's already picked
-- 🚚 Track a delivery — courier ETA, when it actually landed, and the office access notes
-- 🍱 Browse and search menus, and get personalized meal recommendations
-- ✏️ Set, batch-set, remove, skip, and confirm meals — every write is dry-run until you confirm it
-- 🤖 Runs over stdio (your client launches it); headless-friendly for agents
+- See upcoming deliveries and the meals already selected
+- Track courier ETAs, arrival times, and office access notes
+- Browse and search menus
+- Get Forkable's meal recommendations
+- Add, replace, remove, skip, and confirm meals
+- Use it from any MCP client that can launch a stdio server
 
 ## Quick start
 
-Requires [Bun](https://bun.sh) 1.3+ (`bunx` runs it — no clone needed).
+You need [Bun](https://bun.sh) or Node.
 
-**1. Authenticate** (imports your logged-in browser session on macOS; see [Auth](#auth) for other options)
+First, log in to Forkable in Chrome and import that session:
 
 ```bash
-bunx forkable-mcp@latest --auth --chrome
+bunx --bun forkable-mcp@latest --auth --chrome # Node: npx forkable-mcp@latest --auth --chrome
 ```
 
-**2. Add it to your MCP client**
+Then add it to your MCP client:
 
-| Client | Add it |
-|---|---|
-| Claude Code | `claude mcp add forkable -- bunx forkable-mcp@latest` |
-| Codex | `codex mcp add forkable -- bunx forkable-mcp@latest` |
-| Claude Desktop / Cursor | add the JSON below to the config (under `mcpServers`) |
-| VS Code | add the JSON below to `.vscode/mcp.json` (under `servers`) |
+| Client                   | Command or configuration                                    |
+| ------------------------ | ----------------------------------------------------------- |
+| Claude Code              | `claude mcp add forkable -- bunx --bun forkable-mcp@latest` |
+| Codex                    | `codex mcp add forkable -- bunx --bun forkable-mcp@latest`  |
+| Claude Desktop or Cursor | Add the JSON below under `mcpServers`                       |
+| VS Code                  | Add the JSON below under `servers` in `.vscode/mcp.json`    |
 
 ```json
 {
   "mcpServers": {
-    "forkable": { "command": "bunx", "args": ["forkable-mcp@latest"] }
+    "forkable": {
+      "command": "bunx",
+      "args": ["--bun", "forkable-mcp@latest"]
+    }
   }
 }
 ```
 
-Then ask your client things like *"what's for lunch this week?"* or *"set Tuesday to the chicken bowl."*
+Restart or reconnect your client, then ask something like:
 
-> **From source instead?** `git clone` + `bun install`, authenticate with `bun run auth --chrome`, and
-> point your client at `bun run --cwd /path/to/forkable-mcp start`.
+> What's for lunch this week?
 
 ## Skills
 
 Three [agent skills](https://agentskills.io) ship with the server:
 
-- **`forkable-lunch`** — the everyday one: see your week, swap a meal, confirm before anything is sent.
-- **`forkable-friday`** — the week ahead, a day at a time. Next week's meals post Friday morning.
-- **`forkable-setup`** — install, authenticate, connect.
+- `forkable` contains the shared instructions for meals, deliveries, and tool use
+- `forkable-friday` adds a week-ahead planning routine on top of `forkable`
+- `forkable-setup` covers installation and authentication
 
-Install them into any skills-aware agent:
+Install them with:
 
 ```bash
-npx skills add colinds/forkable-mcp          # all three, into the agents it detects
-npx skills add colinds/forkable-mcp --list   # look first
+npx skills add colinds/forkable-mcp
+npx skills add colinds/forkable-mcp --list # See what's included first
 ```
 
-They live in [`skills/`](./skills) and work standalone — copy a `SKILL.md` into
-`~/.claude/skills/<name>/` if you'd rather not use the installer.
+The source files are in [`skills/`](./skills).
 
 ## Tools
 
-| | Tool | Does |
-|---|---|---|
-| 📅 | `list_deliveries` | Your week: date, status, what's picked, whether it's still editable, copay |
-| 🚚 | `get_delivery_status` | Where lunch is: scheduled window, courier ETA, arrival time, tracking link, access notes |
-| 🍱 | `get_menus` | Items for a delivery (pass `itemId` for one item's modifiers/options) |
-| 🔎 | `search_items` | Keyword search across a delivery's menus |
-| ✨ | `recommend_meals` / `explain_pick` | Personalized picks, and why the current meal was chosen |
-| 👤 | `get_profile` | The authenticated user |
-| ✅ | `set_meal` / `set_meal_all` | Set the meal for a day (or several days at once) |
-| ➖ | `remove_meal` / `skip_delivery` | Remove one meal by id, or decline a whole day |
-| 🔒 | `confirm_delivery` | Confirm (or unconfirm) a delivery |
+| Tool                  | What it does                                                       |
+| --------------------- | ------------------------------------------------------------------ |
+| `list_deliveries`     | Shows upcoming deliveries and selected meals                       |
+| `get_delivery_status` | Shows courier status, ETA, arrival time, tracking, and access notes |
+| `get_menus`           | Lists menus and item options for a delivery                         |
+| `search_items`        | Searches a delivery's menus                                        |
+| `recommend_meals`     | Returns Forkable's meal recommendations                            |
+| `explain_pick`        | Shows where the current meal appears in Forkable's recommendations |
+| `get_profile`         | Shows the signed-in Forkable user                                  |
+| `set_meal`            | Adds or replaces a meal                                            |
+| `set_meal_all`        | Sets the same meal on several deliveries                           |
+| `remove_meal`         | Removes a meal                                                     |
+| `skip_delivery`       | Skips a delivery                                                   |
+| `confirm_delivery`    | Confirms or unconfirms a delivery                                  |
 
-## Auth
+Forkable still decides whether a change is allowed, including deadlines, restaurant capacity, and
+billing rules.
 
-There's no API key: the server reuses a real Forkable web session. Pick one of the four below. From a clone,
-use `bun run auth …` in place of `bunx forkable-mcp@latest --auth …`.
+## Authentication
 
-### Email + password
+There is no API key. The server reuses a Forkable web session and stores it in
+`~/.forkable-mcp/session.json`.
 
-```bash
-bunx forkable-mcp@latest --auth --login --email you@co.com --password '…'
-# or set FORKABLE_EMAIL / FORKABLE_PASSWORD (+ FORKABLE_MFA), then: bunx forkable-mcp@latest --auth --login
-```
+### Import from a browser
 
-The only method that survives expiry: on a 401 the server logs back in and retries. SSO-only accounts
-can't use it and fail fast with a message saying so. The cookie methods below cover those, but you have
-to re-run them whenever the session expires.
-
-### Import from your browser (macOS)
-
-Log in at [forkable.com](https://forkable.com), then pull the cookie out of the browser. Decrypting it
-needs your login Keychain, so approve the macOS prompt when it appears.
+Log in at [forkable.com](https://forkable.com), then run:
 
 ```bash
-bunx forkable-mcp@latest --auth --chrome
-bunx forkable-mcp@latest --auth --chrome --browser arc    # brave, edge, vivaldi, opera, chromium,
-                                                          # chrome-beta, chrome-dev, chrome-canary
+bunx --bun forkable-mcp@latest --auth --chrome # Node: npx forkable-mcp@latest --auth --chrome
 ```
 
-Every profile is searched and the most recently used Forkable session wins; the CLI prints which one
-it picked. Pin a specific profile with its *directory* name, not its display name:
-`--profile "Profile 1"`.
+Chrome and Edge profiles are found automatically on macOS, Linux, and Windows. Browser import is
+best-effort because browser storage and operating-system security rules vary.
+
+On macOS, Keychain may ask for permission once per browser profile. Limit the scan if you know which
+profile you use:
+
+```bash
+bunx --bun forkable-mcp@latest --auth --chrome --profile "Profile 1"
+```
+
+Arc is supported on macOS:
+
+```bash
+bunx --bun forkable-mcp@latest --auth --chrome --browser arc
+```
+
+Brave and Chromium are also supported. On Linux or Windows, you may need to pass a profile directory
+or cookie database with `--profile`.
+
+### Email and password
+
+```bash
+bunx --bun forkable-mcp@latest --auth --login --email you@example.com # Node: npx forkable-mcp@latest --auth --login --email you@example.com
+```
+
+The command asks for your password without showing it. Password-based sessions can sign in again
+after they expire. SSO-only accounts need a browser or cookie import instead.
+
+For non-interactive use, send the password on standard input with `--password-stdin`, or set
+`FORKABLE_EMAIL` and `FORKABLE_PASSWORD`.
 
 ### Copy as cURL
 
-"Copy as cURL" is a DevTools command: right-click a request in the Network tab, pick **Copy → Copy as
-cURL**, and DevTools puts that entire request on your clipboard as a runnable `curl` — URL, body, and
-every header, cookie included. Paste the whole thing; only the `cookie:` header is read.
+If browser import cannot find your session, copy an authenticated Forkable GraphQL request from your
+browser's developer tools:
 
-1. forkable.com → DevTools (<kbd>⌥⌘I</kbd> / <kbd>F12</kbd>) → **Network**, reload the page.
-2. Filter for `graphql`, right-click a `POST https://forkable.com/api/v2/graphql` row → **Copy → Copy
-   as cURL**. Use a GraphQL request, since those are authenticated calls and always carry the session.
-   (Windows: `Copy as cURL (bash)`. Firefox: `Copy Value → Copy as cURL`.)
-3. `pbpaste | bunx forkable-mcp@latest --auth`, or save it and use `--file ./forkable.curl`.
-
-What lands on your clipboard, truncated:
-
-```
-curl 'https://forkable.com/api/v2/graphql' \
-  -H 'accept: application/json' \
-  -H 'x-csrf-token: …' \
-  -H 'cookie: _easyorder_session=abc123…; _ga=GA1.2…' \
-  --data-raw '{"query":"…"}'
-```
-
-### Paste the cookie header
-
-Same idea, one header instead of the whole blob. Useful on Linux/Windows, or when the browser import
-can't find your profile. Follow steps 1–2 above, but click the request instead of right-clicking it,
-then copy the whole `cookie:` value under **Headers → Request Headers**. It's a long
-`name=value; name=value; …` string and must contain `_easyorder_session`.
+1. Open Forkable, then open Developer Tools and select **Network**.
+2. Reload the page and filter for `graphql`.
+3. Right-click a request to `/api/v2/graphql` and choose **Copy as cURL**.
+4. Pipe the copied command into the auth command:
 
 ```bash
-FORKABLE_COOKIE='_easyorder_session=…; other=…' bunx forkable-mcp@latest --auth
+pbpaste | bunx --bun forkable-mcp@latest --auth # Node: pbpaste | npx forkable-mcp@latest --auth
 ```
 
-The session is stored at `~/.forkable-mcp/session.json` (mode `0600`) and is never logged.
+Only the Cookie header is imported. You can also save the copied command and pass it with
+`--file ./forkable.curl`, or set `FORKABLE_COOKIE` to the full Cookie header.
+
+Cookie-based sessions cannot refresh themselves. Import the cookie again when it expires.
 
 ## Configuration
 
-All settings are environment variables (`.env` is auto-loaded by Bun — see `.env.example`). Everything
-is optional; with none set you authenticate interactively and there's no spend cap.
+All settings are optional. Bun reads `.env` automatically; with Node, set them in the MCP server's
+environment.
 
-| Variable | Default | Description |
-|---|---|---|
-| `FORKABLE_EMAIL` | — | Email for headless password login. With `FORKABLE_PASSWORD`, also enables auto-relogin when the session expires. |
-| `FORKABLE_PASSWORD` | — | Password for headless login (pair with `FORKABLE_EMAIL`). |
-| `FORKABLE_MFA` | — | MFA code, if your account requires one for password login. |
-| `FORKABLE_COOKIE` | — | Headless auth for SSO-only accounts: a full forkable.com Cookie header (see [Auth](#paste-the-cookie-header)). Provisioned on startup if no session exists. |
-| `FORKABLE_CSRF` | — | Pin a CSRF token instead of the auto-fetched one (rarely needed). |
-| `FORKABLE_MAX_TOTAL` | — | Hard spend cap in dollars: a write whose total exceeds it is refused (no confirm-token). Unset = no cap; the preview just notes when a meal is over your company's daily coverage. |
-| `FORKABLE_WRITE_SECRET` | per-install | HMAC key for write confirm-tokens. Auto-generated and stored in the session file if unset; set it to pin one across machines. |
-| `FORKABLE_MCP_HOME` | `~/.forkable-mcp` | Directory for the on-disk session (mode `0600`). |
+| Variable             | What it does                                                   |
+| -------------------- | -------------------------------------------------------------- |
+| `FORKABLE_EMAIL`     | Email for non-interactive login and session refresh            |
+| `FORKABLE_PASSWORD`  | Password used with `FORKABLE_EMAIL`                            |
+| `FORKABLE_MFA`       | MFA code for password login                                    |
+| `FORKABLE_COOKIE`    | Full Forkable Cookie header for headless or SSO authentication |
+| `FORKABLE_CSRF`      | Sets the initial CSRF token; normally unnecessary              |
+| `FORKABLE_MAX_TOTAL` | Local per-meal spending limit in dollars                       |
+| `FORKABLE_MCP_HOME`  | Changes where the session is stored                            |
+
+`FORKABLE_MAX_TOTAL` is a local limit, not a Forkable allowance or billing rule. Billing information
+is shown as Forkable reports it.
+
+## From source
+
+```bash
+bun install
+bun run auth --chrome
+bun run start
+```
 
 ## Development
 
 ```bash
-bun test          # unit tests
-bun run test:tz   # same suite under a non-UTC zone (date formatting must be host-independent)
-bun run check     # lint + format + typecheck + both test runs
+bun test
+bun run test:tz
+bun run check
+bun run smoke
 ```
 
 ## License
