@@ -104,16 +104,10 @@ Set these in the MCP server's environment when needed:
 | `FORKABLE_MAX_TOTAL`                     | Local per-meal preview ceiling in dollars             |
 | `FORKABLE_MCP_HOME`                      | Session directory; defaults to `~/.forkable-mcp`      |
 
-`FORKABLE_MAX_TOTAL` does not represent a Forkable allowance or charge limit. When it is set, a
-meal over the ceiling cannot be confirmed. A meal with an unknown preview total is also blocked.
-Delivery billing data consists of direct Forkable values in integer cents.
+## Continue with Forkable
 
-## Verify write behavior
-
-Read tools return account data immediately. Write tools first return a process-local, single-use
-preview token; the first call sends nothing. The `forkable-lunch` skill documents exact
-`(menuId, itemId)` identity, `sourcePieceId`, Forkable's dietary advisory, confirmation, and
-write-result recovery.
+After `get_profile` succeeds, use the `forkable` skill for meal, delivery, confirmation, and recovery
+rules. Use `forkable-friday` with it when planning the next week.
 
 ## Troubleshooting
 

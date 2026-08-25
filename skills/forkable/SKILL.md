@@ -1,14 +1,16 @@
 ---
-name: forkable-lunch
+name: forkable
 description: >-
-  Read, choose, change, skip, confirm, and track meals through the forkable MCP server. Use for
-  Forkable delivery, menu, recommendation, meal, and courier-status requests.
+  Use the forkable MCP server to read, choose, change, skip, confirm, and track meals. Use for
+  Forkable delivery, menu, recommendation, meal, and courier-status requests, including workflows
+  that also use a more focused Forkable skill.
 ---
 
-# Forkable lunch
+# Forkable
 
-Use the `forkable` MCP tools for account data and meal changes. If the tools are not available, use
-the `forkable-setup` skill.
+Use the `forkable` MCP tools for account data and meal changes. This skill contains the shared tool,
+write, and recovery rules for all Forkable workflows. If the tools are not available, use the
+`forkable-setup` skill.
 
 ## Find the delivery first
 
