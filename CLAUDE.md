@@ -119,10 +119,13 @@ item-id-only match on a write.
 A delivery can carry multiple venue orders and other members' pieces. Destructive piece operations
 require positive ownership: `piece.userId` must equal the effective `me.id`.
 
-- With no `sourcePieceId`, `set_meal` adds when there is no verified owned piece, replaces the single
-  verified owned piece, and refuses to choose when several are owned.
+- `set_meal` defaults to `mode: "set"`. With no `sourcePieceId`, it adds when there is no verified
+  owned piece, replaces the single verified owned piece, and refuses to choose when several are
+  owned.
 - With `sourcePieceId`, the id must resolve uniquely on that delivery and belong to the effective
   user. It selects `oldPieceId`; it is not part of the GraphQL mutation input.
+- `mode: "add"` always uses `addPiece` without resolving a source piece. It cannot be combined with
+  `sourcePieceId`, and its input includes `userId` and `replacedPieceId: null` but no `oldPieceId`.
 - `remove_meal` requires a unique id and positive ownership.
 - `skip_delivery` operates only when exactly one owned piece can be resolved.
 - `set_meal_all` deduplicates delivery ids and refuses a target day with multiple owned pieces; those

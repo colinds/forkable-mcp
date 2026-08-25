@@ -148,6 +148,7 @@ describe("write tool planning", () => {
       deliveryId: 1,
       menuId: MENU_ID,
       itemId: ITEM_ID,
+      mode: "set",
       modifiers: [],
       instructions: "",
       autoConfirm: false,
@@ -228,6 +229,123 @@ describe("write tool planning", () => {
     });
     expect(ambiguous.isError).toBe(true);
     expect(structured(ambiguous).confirmToken).toBeUndefined();
+  });
+
+  test("adds without replacing when explicitly requested", async () => {
+    menus[0]!.sections[0]!.items[0]!.name = "Test Bowl ";
+    const verifyAdd = async (target: Delivery) => {
+      deliveries = [target];
+      const preview = await handlers.get("set_meal")!({
+        deliveryId: 1,
+        menuId: MENU_ID,
+        itemId: ITEM_ID,
+        mode: "add",
+        autoConfirm: true,
+      });
+      expect(structured(preview).mode).toBe("preview");
+      expect(structured(preview).summary).toContain(
+        "Add Test Bowl without replacing any existing meal",
+      );
+
+      const confirmed = await handlers.get("set_meal")!({
+        deliveryId: 1,
+        menuId: MENU_ID,
+        itemId: ITEM_ID,
+        mode: "add",
+        modifiers: [],
+        instructions: "",
+        autoConfirm: true,
+        confirmToken: structured(preview).confirmToken,
+      });
+      expect(structured(confirmed).mode).toBe("executed");
+    };
+
+    await verifyAdd(delivery(1));
+    await verifyAdd(
+      delivery(1, [{ id: "only", itemId: 1, menuId: MENU_ID, userId: USER_ID, name: "Only Bowl" }]),
+    );
+    await verifyAdd({
+      id: 1,
+      availableMenuIds: [MENU_ID],
+      orders: [
+        {
+          id: 100,
+          menu: { id: MENU_ID },
+          pieces: [{ id: "first", itemId: 1, menuId: MENU_ID, userId: USER_ID }],
+        },
+        {
+          id: 101,
+          menu: { id: MENU_ID },
+          pieces: [{ id: "second", itemId: 2, menuId: MENU_ID, userId: USER_ID }],
+        },
+      ],
+    });
+
+    expect(mutations).toHaveLength(3);
+    for (const mutation of mutations) {
+      expect(mutation).toEqual({
+        name: "addPiece",
+        selection: "errors errorDetails warningDetails",
+        input: {
+          deliveryId: 1,
+          menuId: MENU_ID,
+          itemId: ITEM_ID,
+          instructions: "",
+          selectionsHash: {},
+          myMeals: true,
+          replacedPieceId: null,
+          userId: USER_ID,
+          confirm: true,
+        },
+      });
+      expect(mutation.input).not.toHaveProperty("oldPieceId");
+      expect(mutation.input).not.toHaveProperty("sourcePieceId");
+    }
+    expect(dietChecks).toBe(3);
+  });
+
+  test("binds additional-meal intent to confirmation", async () => {
+    const preview = await handlers.get("set_meal")!({
+      deliveryId: 1,
+      menuId: MENU_ID,
+      itemId: ITEM_ID,
+    });
+    const changed = await handlers.get("set_meal")!({
+      deliveryId: 1,
+      menuId: MENU_ID,
+      itemId: ITEM_ID,
+      mode: "add",
+      modifiers: [],
+      instructions: "",
+      autoConfirm: false,
+      confirmToken: structured(preview).confirmToken,
+    });
+
+    expect(changed.isError).toBe(true);
+    expect(structured(changed).mode).toBe("preview");
+    expect(structured(changed).confirmationError).toEqual(
+      expect.objectContaining({ reason: "args_changed" }),
+    );
+    expect(mutations).toEqual([]);
+  });
+
+  test("does not accept a replacement source in add mode", async () => {
+    deliveries = [delivery(1, [{ id: "mine", itemId: 1, menuId: MENU_ID, userId: USER_ID }])];
+    const result = await handlers.get("set_meal")!({
+      deliveryId: 1,
+      menuId: MENU_ID,
+      itemId: ITEM_ID,
+      mode: "add",
+      sourcePieceId: "mine",
+    });
+
+    expect(result.isError).toBe(true);
+    expect(structured(result).confirmToken).toBeUndefined();
+    expect(result.content[0]?.type === "text" ? result.content[0].text : "").toContain(
+      "sourcePieceId cannot be used when mode is add",
+    );
+    expect(dietChecks).toBe(0);
+    expect(mutations).toEqual([]);
   });
 
   test("deduplicates a batch and runs Forkable's diet check once", async () => {
@@ -376,6 +494,7 @@ describe("write tool planning", () => {
       deliveryId: 1,
       menuId: MENU_ID,
       itemId: ITEM_ID,
+      mode: "add",
     });
     expect(structured(withCeiling).mode).toBe("blocked");
     expect(structured(withCeiling).blockers).toEqual([
