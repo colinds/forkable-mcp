@@ -30,14 +30,6 @@ export function formatDay(iso?: string): string {
 const valid = (d: Date): Date | undefined => (Number.isNaN(d.getTime()) ? undefined : d);
 const pad2 = (n: number): string => String(n).padStart(2, "0");
 
-/** Parse Forkable floating-local timestamps; true offsets remain real instants. */
-export function parseFloating(iso?: string): Date | undefined {
-  if (!iso) return undefined;
-  if (/[+-]\d{2}:?\d{2}$/.test(iso)) return valid(new Date(iso)); // genuine offset: a real instant
-  const local = /\d{2}:\d{2}/.test(iso) ? iso.replace(/Z$/i, "") : `${formatDate(iso)}T00:00:00`;
-  return valid(new Date(local));
-}
-
 /** Format the wall clock exactly as named by the timestamp, without host-zone conversion. */
 export function formatDateTime(iso?: string): string {
   const m = /^(\d{4}-\d{2}-\d{2})T(\d{2}):(\d{2})/.exec(iso ?? "");
@@ -103,12 +95,6 @@ export function formatCountdown(iso?: string, now: Date = new Date()): string {
   if (minutes <= 0) return "";
   const h = Math.floor(minutes / 60);
   return h > 0 ? `${h}h ${minutes % 60}m` : `${minutes}m`;
-}
-
-/** Has this timestamp already passed? `undefined` when there's nothing to compare. */
-export function isPast(iso?: string, now: Date = new Date()): boolean | undefined {
-  const at = parseFloating(iso);
-  return at ? at.getTime() < now.getTime() : undefined;
 }
 
 /** Format a per-piece dropoff group suffix. */

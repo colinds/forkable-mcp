@@ -1,12 +1,6 @@
 // Authenticated GraphQL client with operation-aware retry and cookie rotation.
 
-import {
-  ENDPOINT,
-  PUBLIC_ENDPOINT,
-  CSRF_URL,
-  forkableHeaders,
-  type FetchImpl,
-} from "./endpoints.ts";
+import { ENDPOINT, CSRF_URL, forkableHeaders, type FetchImpl } from "./endpoints.ts";
 import {
   ReauthRequiredError,
   MutationError,
@@ -84,17 +78,12 @@ type Operation = "query" | "mutation";
 interface RequestOptions {
   operation: Operation;
   operationName: string;
-  public: boolean;
   queryRetries: number;
   csrfRetries: number;
 }
 
-function requestOptions(
-  operation: Operation,
-  operationName: string = operation,
-  isPublic = false,
-): RequestOptions {
-  return { operation, operationName, public: isPublic, queryRetries: 0, csrfRetries: 0 };
+function requestOptions(operation: Operation, operationName: string = operation): RequestOptions {
+  return { operation, operationName, queryRetries: 0, csrfRetries: 0 };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -206,18 +195,13 @@ export class ForkableClient {
     variables: Record<string, unknown> | undefined,
     options: RequestOptions,
   ): Promise<GqlResponse<T>> {
-    if (!options.public && !this.csrf) await this.mintCsrf();
+    if (!this.csrf) await this.mintCsrf();
 
-    const endpoint = options.public ? PUBLIC_ENDPOINT : ENDPOINT;
-    const headers = forkableHeaders(
-      this.cookie,
-      options.public ? undefined : this.csrf,
-      this.delegation,
-    );
+    const headers = forkableHeaders(this.cookie, this.csrf, this.delegation);
 
     let res: Response;
     try {
-      res = await this.fetchImpl(endpoint, {
+      res = await this.fetchImpl(ENDPOINT, {
         method: "POST",
         redirect: options.operation === "mutation" ? "manual" : "follow",
         headers,
@@ -247,7 +231,7 @@ export class ForkableClient {
     const setCookies = res.headers.getSetCookie?.() ?? [];
     if (setCookies.length) await this.persist({ setCookies });
 
-    if (!options.public && res.status === 419) {
+    if (res.status === 419) {
       if (options.csrfRetries < 1) {
         try {
           await this.mintCsrf();
@@ -380,28 +364,9 @@ export class ForkableClient {
     return body;
   }
 
-  /** Low-level POST using mutation-safe retry behavior. */
-  async gqlRaw<T = unknown>(
-    query: string,
-    variables?: Record<string, unknown>,
-    o: { public?: boolean; retried?: number } = {},
-  ): Promise<GqlResponse<T>> {
-    return this.sendGraphql<T>(query, variables, {
-      ...requestOptions("mutation", "mutation", o.public ?? false),
-      csrfRetries: o.retried ?? 0,
-    });
-  }
-
   /** Run a query document, throwing on GraphQL errors; returns `data`. */
   async gql<T = unknown>(query: string, variables?: Record<string, unknown>): Promise<T> {
     const r = await this.sendGraphql<T>(query, variables, requestOptions("query"));
-    if (r.errors?.length) throw new QueryError(r.errors);
-    return (r.data ?? null) as T;
-  }
-
-  /** Public (unauthenticated) endpoint — e.g. `identities`, `diets`. */
-  async gqlPublic<T = unknown>(query: string, variables?: Record<string, unknown>): Promise<T> {
-    const r = await this.sendGraphql<T>(query, variables, requestOptions("query", "query", true));
     if (r.errors?.length) throw new QueryError(r.errors);
     return (r.data ?? null) as T;
   }

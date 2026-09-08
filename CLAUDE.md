@@ -60,9 +60,9 @@ mutation; the caller receives a fresh preview when confirmation can no longer be
 `ForkableClient` selects retry behavior from the method being called. Never infer operation type by
 parsing GraphQL text.
 
-- `gql`, `gqlPublic`, and `query` use the query path. A query may retry once after a transport failure
+- `gql` and `query` use the query path. A query may retry once after a transport failure
   or HTTP 5xx. Callers must use these methods only for reads; retry safety depends on that contract.
-- `gqlRaw` and `mutate` use the mutation path. A mutation is never retried after a transport failure,
+- `mutate` uses the mutation path. A mutation is never retried after a transport failure,
   redirect, HTTP 408/5xx, malformed successful response, top-level execution failure with ambiguous
   data, or missing/malformed mutation payload.
 - The only mutation replay is one retry after an actual first HTTP `419`, following a fresh CSRF
@@ -127,7 +127,6 @@ require positive ownership: `piece.userId` must equal the effective `me.id`.
 - `mode: "add"` always uses `addPiece` without resolving a source piece. It cannot be combined with
   `sourcePieceId`, and its input includes `userId` and `replacedPieceId: null` but no `oldPieceId`.
 - `remove_meal` requires a unique id and positive ownership.
-- `skip_delivery` operates only when exactly one owned piece can be resolved.
 - `set_meal_all` deduplicates delivery ids and refuses a target day with multiple owned pieces; those
   days must be handled individually.
 
@@ -141,6 +140,26 @@ fields has returned HTTP 503. Keep `confirmDelivery` on its known selection.
 
 `replaceAllPieces.newPiece.deliveryId` is the first target delivery id, and its payload selection is
 `errors`.
+
+## Meal ratings
+
+`rate_meal` uses the authenticated dashboard's `rateMeal` mutation with selection `errors`.
+Resolve `deliveryId` and a unique, positively owned `pieceId`, then send `piece.userRating.id` as
+`id` with `channel: "mc"`. A missing rating record or id is unavailable; never invent one. Buffet
+ratings use a different flow and are unsupported here.
+
+Scores are integers from 1–5. Levels 4–5 use the dashboard's compliment codes; 1–3 use its issue
+codes. Explicit incompatible reasons are rejected. A category change filters incompatible stored
+reasons. Omitted feedback preserves existing values; explicit empty reasons or comments clear them.
+Preserve existing attachments, and do not call `updateUser` or invent follow-up consent.
+
+Read projections expose nullable `rating` objects with level, reasons, comment, guest flag, and
+follow-up preference. No record means unavailable; a record without a level means unrated. Mutation
+IDs, channel, and attachments stay internal. Ratings and meals always use the same ownership filter.
+
+Rating previews search from 14 days ago by default and accept `from` for older meals. The stored
+plan includes `reconciliationRange`; an uncertain outcome returns it as `reconciliation.arguments`
+for `list_deliveries`. Preserve this range through the gate's structured clone and confirmation.
 
 ## `selectionsHash`
 
@@ -157,8 +176,8 @@ String choices resolve only by a unique trimmed, case-insensitive match: modifie
 are blocking selection violations. Numeric ids remain the preferred unambiguous input.
 
 Explicit emptiness is not absence. An explicitly empty optional single stays `[-1]`; an explicitly
-empty required modifier violates the requirement. An absent choice may preserve stored selections or
-use the API-ordered first option for a required default. Do not invent diet-aware defaults locally.
+empty required modifier violates the requirement. An absent choice uses the API-ordered first option
+for a required default. Do not invent diet-aware defaults locally.
 
 ## Thin-client validation
 
@@ -270,5 +289,5 @@ bun run smoke
 binary without credentials. Keep `scripts/` in the TypeScript project.
 
 Use TypeScript strict mode, two-space indentation, kebab-case files, and snake_case tool names. Reads
-use `get_`, `list_`, `search_`, `recommend_`, or `explain_`; writes use `set_`, `remove_`, `skip_`, or
-`confirm_` and accept an optional `confirmToken`.
+use `get_`, `list_`, `search_`, or `recommend_`; writes use `set_`, `remove_`, `confirm_`, or `rate_`
+and accept an optional `confirmToken`.

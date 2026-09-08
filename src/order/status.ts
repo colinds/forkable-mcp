@@ -1,6 +1,7 @@
 // Delivery fulfillment projection and rendering.
 
-import { type Delivery, type Order, type Piece } from "./types.ts";
+import { type Delivery, type Order, type UserRating } from "./types.ts";
+import { ownedOrders, type OwnOrder } from "./guards.ts";
 import {
   cancellationPending,
   formatDate,
@@ -16,9 +17,6 @@ import {
 export interface OwnedOrderStatus {
   orderId: string | number;
   venue: string | null;
-  pieceIds: (string | number)[];
-  state: string | null;
-  etaStatus: string | null;
   fulfillment: string | null;
   dropoffCompletedAt: string | null;
   etaStart: string | null;
@@ -50,13 +48,13 @@ export interface DeliveryStatus {
     name: string;
     price: number | null;
     venue: string | null;
-    autoOrder: boolean | null;
     options: string[];
     group: string | null;
     isConfirmed: boolean | null;
     isLateSwappable: boolean | null;
     cancellationPending: boolean;
     isLateOrder: boolean | null;
+    rating: ReturnType<typeof ratingDetails>;
   }[];
   /** Scheduled service window as Forkable reported it, not an editing window. */
   deliveryWindow: string[] | null;
@@ -64,15 +62,8 @@ export interface DeliveryStatus {
   timezone: string | null;
   address: { formatted: string | null; notes: string | null };
   reportMissingItemCutoff: string | null;
-  reportMissingItemCutoffRaw: string | null;
   replacementCountdown: string | null;
-  replacementCutoffRaw: string | null;
   billing: DeliveryBilling;
-}
-
-interface OwnedOrder {
-  order: Order;
-  pieces: Piece[];
 }
 
 const serviceName = (name: string): string => (name === "afternoon" ? "dinner" : name);
@@ -96,16 +87,6 @@ function dollarsToCents(value: number | null | undefined): number | null {
   return typeof value === "number" && Number.isFinite(value) ? Math.round(value * 100) : null;
 }
 
-function positivelyOwnedOrders(d: Delivery, userId?: number): OwnedOrder[] {
-  if (userId == null) return [];
-  return (d.orders ?? []).flatMap((order) => {
-    const pieces = (order.pieces ?? []).filter(
-      (piece) => piece.userId != null && piece.userId === userId,
-    );
-    return pieces.length ? [{ order, pieces }] : [];
-  });
-}
-
 function fulfillmentFor(order: Order): string | null {
   if (order.dropoffCompletedAt) return "delivered";
   return order.etaStatus?.status ?? order.state ?? null;
@@ -126,28 +107,32 @@ function aggregateFulfillment(orders: OwnedOrderStatus[], d: Delivery): string |
   return d.simpleState ?? d.state ?? null;
 }
 
-function soonestReplacement(
-  orders: OwnedOrder[],
-  now: Date,
-): Pick<DeliveryStatus, "replacementCountdown" | "replacementCutoffRaw"> {
-  const all = orders
+function soonestReplacement(orders: OwnOrder[], now: Date): string | null {
+  const live = orders
     .map(({ order }) => order.replacementCutoffTs)
-    .filter((timestamp): timestamp is string => !!timestamp)
-    .toSorted((a, b) => Date.parse(a) - Date.parse(b));
-  const live = all.find((timestamp) => formatCountdown(timestamp, now) !== "");
+    .filter(
+      (timestamp): timestamp is string => !!timestamp && formatCountdown(timestamp, now) !== "",
+    )
+    .toSorted((a, b) => Date.parse(a) - Date.parse(b))[0];
+  return live ? formatCountdown(live, now) : null;
+}
+
+/** Expose feedback without the internal mutation ID or attachment. */
+export function ratingDetails(rating?: UserRating | null) {
+  if (rating?.id == null || rating.id === "") return null;
   return {
-    replacementCountdown: live ? formatCountdown(live, now) : null,
-    replacementCutoffRaw: live ?? all.at(-1) ?? null,
+    level: rating.level ?? null,
+    reasons: rating.reasons ?? [],
+    comment: rating.comment ?? null,
+    forGuest: rating.forGuest ?? null,
+    allowRatingFollowUps: rating.allowRatingFollowUps ?? null,
   };
 }
 
-function orderStatus({ order, pieces }: OwnedOrder): OwnedOrderStatus {
+function orderStatus({ order }: OwnOrder): OwnedOrderStatus {
   return {
     orderId: order.id,
     venue: order.venue?.displayName ?? order.venue?.name ?? order.menu?.name ?? null,
-    pieceIds: pieces.map((piece) => piece.id),
-    state: order.state ?? null,
-    etaStatus: order.etaStatus?.status ?? null,
     fulfillment: fulfillmentFor(order),
     dropoffCompletedAt: order.dropoffCompletedAt ?? null,
     etaStart: order.etaStatus?.start ?? null,
@@ -162,7 +147,7 @@ export function deliveryStatus(
   userId?: number,
   now: Date = new Date(),
 ): DeliveryStatus {
-  const owned = positivelyOwnedOrders(d, userId);
+  const owned = ownedOrders(d, userId);
   const orders = owned.map(orderStatus);
   const timezone = d.club?.market?.timezone ?? null;
   const zoneSource = orders.find((order) => order.etaStart)?.etaStart;
@@ -188,7 +173,6 @@ export function deliveryStatus(
         name: piece.name ?? `item ${piece.itemId}`,
         price: piece.price ?? null,
         venue: order.venue?.displayName ?? order.venue?.name ?? order.menu?.name ?? null,
-        autoOrder: piece.autoOrder ?? null,
         options: (piece.nonHiddenAttributes ?? [])
           .map((attribute) => [attribute.label, attribute.value].filter(Boolean).join(": "))
           .filter(Boolean),
@@ -197,6 +181,7 @@ export function deliveryStatus(
         isLateSwappable: piece.isLateSwappable ?? null,
         cancellationPending: cancellationPending(piece),
         isLateOrder: piece.isLateOrder ?? null,
+        rating: ratingDetails(piece.userRating),
       })),
     ),
     deliveryWindow: d.deliveryWindow ? [...d.deliveryWindow] : null,
@@ -206,8 +191,7 @@ export function deliveryStatus(
     timezone,
     address: { formatted: d.address?.formatted ?? null, notes: d.address?.notes ?? null },
     reportMissingItemCutoff,
-    reportMissingItemCutoffRaw: d.reportMissingItemCutoff ?? null,
-    ...soonestReplacement(owned, now),
+    replacementCountdown: soonestReplacement(owned, now),
     billing: {
       reportedDueCents: dollarsToCents(d.userReceipt?.due),
       allowanceType: d.allowanceType ?? null,
@@ -254,6 +238,8 @@ export function formatDeliveryStatus(s: DeliveryStatus): string {
     const options = meal.options.length ? ` (${meal.options.join(", ")})` : "";
     const segments = [dish + options, meal.venue].filter(Boolean).join(" — ");
     add("Your meal", segments + groupSuffix(meal.group) + pieceBadges(meal));
+    if (meal.rating)
+      add("Rating", meal.rating.level == null ? "not rated" : `${meal.rating.level}/5`);
   }
   if (!s.meal.length) add("Your meal", "— nothing selected");
 

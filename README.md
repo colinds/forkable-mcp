@@ -20,7 +20,8 @@ lunch is without opening the Forkable app.
 - Track courier ETAs, arrival times, and office access notes
 - Browse and search menus
 - Get Forkable's meal recommendations
-- Add, replace, remove, skip, and confirm meals
+- Add, replace, remove, and confirm meals
+- Rate meals from 1–5 and leave written feedback
 - Use it from any MCP client that can launch a stdio server
 
 ## Quick start
@@ -83,16 +84,35 @@ The source files are in [`skills/`](./skills).
 | `get_menus`           | Lists menus and item options for a delivery                         |
 | `search_items`        | Searches a delivery's menus                                        |
 | `recommend_meals`     | Returns Forkable's meal recommendations                            |
-| `explain_pick`        | Shows where the current meal appears in Forkable's recommendations |
 | `get_profile`         | Shows the signed-in Forkable user                                  |
 | `set_meal`            | Adds or replaces a meal                                            |
 | `set_meal_all`        | Sets the same meal on several deliveries                           |
 | `remove_meal`         | Removes a meal                                                     |
-| `skip_delivery`       | Skips a delivery                                                   |
+| `rate_meal`           | Rates a meal or edits its score and text feedback                   |
 | `confirm_delivery`    | Confirms or unconfirms a delivery                                  |
 
 Forkable still decides whether a change is allowed, including deadlines, restaurant capacity, and
 billing rules.
+
+To skip a delivery, use `list_deliveries` and remove each selected owned meal with `remove_meal`.
+This removes those meals; it does not change your auto-order settings. Compare selected meals with
+`recommend_meals` when choosing alternatives.
+
+### Meal ratings
+
+List the delivery first, supplying `from` and `to` for past meals. Each owned meal includes `rating`:
+`null` means Forkable has not made a rating available, while a rating with `level: null` is unrated.
+
+Use `rate_meal` with the delivery ID, the meal's `pieceId`, and a `level` from 1–5. It previews first;
+call again with the same arguments and its `confirmToken` to submit. The search starts 14 days ago
+by default; pass `from` to rate an older meal.
+
+Optional `reasons`, `comment`, `forGuest`, and `allowRatingFollowUps` edit the feedback. Omitted fields
+keep their current values; an empty comment or reason array clears it. Levels 4–5 accept compliment
+codes, while 1–3 accept issue codes listed in the tool schema. Changing score categories removes
+incompatible stored reasons. Marking a meal as a guest meal excludes its rating from your future
+suggestions. Follow-up preferences apply to this rating without changing your account settings.
+Existing attachments are kept; photo editing and buffet ratings are not supported.
 
 ## Authentication
 

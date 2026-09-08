@@ -22,17 +22,16 @@ const exec = promisify(execFile);
 
 const EXPECTED_TOOLS = [
   "confirm_delivery",
-  "explain_pick",
   "get_delivery_status",
   "get_menus",
   "get_profile",
   "list_deliveries",
+  "rate_meal",
   "recommend_meals",
   "remove_meal",
   "search_items",
   "set_meal",
   "set_meal_all",
-  "skip_delivery",
 ];
 
 const log = (msg: string) => console.log(`  ${msg}`);
@@ -119,6 +118,18 @@ async function checkInstalled(runner: Runner, cwd: string, home: string): Promis
     fail(`${runner}: set_meal does not expose set/add mode`);
   }
   log(`${runner} write schemas require exact menu identity and expose additional meals`);
+
+  const rating = listedTools.find((tool) => tool.name === "rate_meal");
+  const ratingSchema = rating?.inputSchema as
+    | { required?: string[]; properties?: Record<string, unknown> }
+    | undefined;
+  for (const name of ["deliveryId", "pieceId", "level"]) {
+    if (!ratingSchema?.required?.includes(name))
+      fail(`${runner}: rate_meal does not require ${name}`);
+  }
+  if (!ratingSchema?.properties?.confirmToken)
+    fail(`${runner}: rate_meal does not expose confirmToken`);
+  log(`${runner} rating schema requires an exact meal and score`);
 
   const res: any = await client.callTool({ name: "get_profile", arguments: {} });
   const text = (res.content ?? []).map((content: any) => content.text ?? "").join("");

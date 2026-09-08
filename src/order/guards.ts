@@ -10,39 +10,18 @@ export interface OwnOrder {
   pieces: Piece[];
 }
 
-export interface OwnMeal {
-  /** First order carrying matching pieces. */
-  order: Order;
-  pieces: Piece[];
-  /** All orders carrying matching pieces. */
-  orders: OwnOrder[];
-  /** Whether matching pieces span several orders. */
-  ambiguous: boolean;
-  /** Whether matching used a user id. */
-  byIdentity: boolean;
-}
-
-/** Match pieces across venue orders. Writes must supply `userId` and reject ambiguous matches. */
-export function findOwnMeal(d: Delivery, userId?: number): OwnMeal | undefined {
-  const mine: OwnOrder[] = (d.orders ?? []).flatMap((o) => {
-    const all = o.pieces ?? [];
-    const ps = userId == null ? all : all.filter((p) => p.userId === userId);
-    return ps.length ? [{ order: o, pieces: ps }] : [];
+/** Match only positively owned pieces, preserving their venue orders. */
+export function ownedOrders(d: Delivery, userId?: number): OwnOrder[] {
+  if (userId == null) return [];
+  return (d.orders ?? []).flatMap((order) => {
+    const pieces = (order.pieces ?? []).filter((piece) => piece.userId === userId);
+    return pieces.length ? [{ order, pieces }] : [];
   });
-  const first = mine[0];
-  if (!first) return undefined;
-  return {
-    order: first.order,
-    pieces: first.pieces,
-    orders: mine,
-    ambiguous: mine.length > 1,
-    byIdentity: userId != null,
-  };
 }
 
 /** Every piece the member owns across all venues today. */
 export function ownPieces(d: Delivery, userId?: number): Piece[] {
-  return findOwnMeal(d, userId)?.orders.flatMap((o) => o.pieces) ?? [];
+  return ownedOrders(d, userId).flatMap((o) => o.pieces);
 }
 
 /** Every piece across all venue orders, including guest picks. */

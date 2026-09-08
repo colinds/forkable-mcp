@@ -1,3 +1,4 @@
+import type { CallToolResult } from "@modelcontextprotocol/server";
 import { describe, expect, test } from "bun:test";
 import { MutationError, MutationOutcomeUnknownError } from "@/net/errors.ts";
 import {
@@ -5,7 +6,6 @@ import {
   hashWriteArgs,
   type GateCtx,
   type ExecutableWritePlan,
-  type ToolResultLike,
   type WritePlan,
 } from "@/write-gate.ts";
 
@@ -42,8 +42,16 @@ function argsHash(overrides: Record<string, unknown> = {}): string {
   return hashWriteArgs({ deliveryId: 1, itemId: 4, ...overrides });
 }
 
-function confirmToken(result: ToolResultLike): string {
-  const token = result.structuredContent?.confirmToken;
+function structured(result: CallToolResult): Record<string, unknown> {
+  return (result.structuredContent ?? {}) as Record<string, unknown>;
+}
+
+function textOf(result: CallToolResult): string {
+  return result.content.flatMap((block) => (block.type === "text" ? [block.text] : [])).join("\n");
+}
+
+function confirmToken(result: CallToolResult): string {
+  const token = structured(result).confirmToken;
   if (typeof token !== "string") throw new Error("result has no confirmToken");
   return token;
 }
@@ -122,7 +130,7 @@ describe("createWriteGate", () => {
       }),
       { tool: "set_meal", argsHash: argsHash(), plan: async () => planned },
     );
-    expect(preview.structuredContent?.mode).toBe("preview");
+    expect(structured(preview).mode).toBe("preview");
     expect(confirmToken(preview)).toBe("token-1");
     expect(preview.structuredContent).toEqual({
       mode: "preview",
@@ -132,8 +140,8 @@ describe("createWriteGate", () => {
       confirmToken: "token-1",
       expiresAt: "1970-01-01T00:10:01.000Z",
     });
-    expect(preview.content[0]?.text).not.toContain("mutation");
-    expect(preview.content[0]?.text).not.toContain("selectionsHash");
+    expect(textOf(preview)).not.toContain("mutation");
+    expect(textOf(preview)).not.toContain("selectionsHash");
     expect(previewExecutions).toBe(0);
     planned.input.itemId = 999;
 
@@ -191,8 +199,8 @@ describe("createWriteGate", () => {
     });
     expect(planned).toBe(1);
     expect(replay.isError).toBe(true);
-    expect(replay.structuredContent?.mode).toBe("preview");
-    expect(replay.structuredContent?.confirmationError).toEqual({
+    expect(structured(replay).mode).toBe("preview");
+    expect(structured(replay).confirmationError).toEqual({
       reason: "unknown",
       message: "confirmToken is unknown or has already been used. Here is a fresh preview:",
     });
@@ -215,7 +223,7 @@ describe("createWriteGate", () => {
       plan: async () => clonePlan(),
     });
     expect(mismatch.isError).toBe(true);
-    expect(mismatch.content[0]?.text).toContain("does not match these tool arguments");
+    expect(textOf(mismatch)).toContain("does not match these tool arguments");
 
     const afterMismatch = await gate(context(), {
       tool: "set_meal",
@@ -223,7 +231,7 @@ describe("createWriteGate", () => {
       confirmToken: token,
       plan: async () => clonePlan(),
     });
-    expect(afterMismatch.content[0]?.text).toContain("unknown or has already been used");
+    expect(textOf(afterMismatch)).toContain("unknown or has already been used");
   });
 
   test("actor, delegation, and tool are part of the pending-write binding", async () => {
@@ -239,7 +247,7 @@ describe("createWriteGate", () => {
       confirmToken: confirmToken(actorPreview),
       plan: async () => clonePlan(),
     });
-    expect(wrongActor.content[0]?.text).toContain("different Forkable user or delegation");
+    expect(textOf(wrongActor)).toContain("different Forkable user or delegation");
 
     const delegationPreview = await gate(context(42, undefined, "delegation-a"), {
       tool: "set_meal",
@@ -252,7 +260,7 @@ describe("createWriteGate", () => {
       confirmToken: confirmToken(delegationPreview),
       plan: async () => clonePlan(),
     });
-    expect(wrongDelegation.content[0]?.text).toContain("different Forkable user or delegation");
+    expect(textOf(wrongDelegation)).toContain("different Forkable user or delegation");
 
     const toolPreview = await gate(context(42), {
       tool: "set_meal",
@@ -265,7 +273,7 @@ describe("createWriteGate", () => {
       confirmToken: confirmToken(toolPreview),
       plan: async () => clonePlan(),
     });
-    expect(wrongTool.content[0]?.text).toContain("different tool");
+    expect(textOf(wrongTool)).toContain("different tool");
   });
 
   test("evicts the oldest pending write at the cap", async () => {
@@ -291,7 +299,7 @@ describe("createWriteGate", () => {
       confirmToken: confirmToken(first),
       plan: async () => clonePlan(),
     });
-    expect(evicted.content[0]?.text).toContain("unknown");
+    expect(textOf(evicted)).toContain("unknown");
     expect(confirmToken(second)).toBe("token-2");
   });
 
@@ -310,7 +318,7 @@ describe("createWriteGate", () => {
       confirmToken: confirmToken(preview),
       plan: async () => clonePlan(),
     });
-    expect(result.content[0]?.text).toContain("expired");
+    expect(textOf(result)).toContain("expired");
   });
 
   test("blocking guards never issue a token or resolve an actor", async () => {
@@ -329,15 +337,15 @@ describe("createWriteGate", () => {
         guards: [{ code: "selection_invalid", level: "block", message: "No write" }],
       }),
     });
-    expect(result.structuredContent?.mode).toBe("blocked");
+    expect(structured(result).mode).toBe("blocked");
     expect(result.structuredContent).not.toHaveProperty("confirmToken");
     expect(result.structuredContent).not.toHaveProperty("variables");
-    expect(result.content[0]?.text).not.toContain("Would-be mutation");
+    expect(textOf(result)).not.toContain("Would-be mutation");
     expect(actorResolutions).toBe(0);
   });
 
   test("maps definite and uncertain mutation failures", async () => {
-    const resultFor = async (error: Error): Promise<ToolResultLike> => {
+    const resultFor = async (error: Error): Promise<CallToolResult> => {
       const gate = deterministicGate();
       const preview = await gate(context(), {
         tool: "set_meal",
@@ -365,20 +373,20 @@ describe("createWriteGate", () => {
       }),
     );
     expect(rejected.isError).toBe(true);
-    expect(rejected.structuredContent?.mode).toBe("rejected");
-    expect(rejected.structuredContent?.reasons).toEqual(["not allowed", "venue_capacity_overage"]);
+    expect(structured(rejected).mode).toBe("rejected");
+    expect(structured(rejected).reasons).toEqual(["not allowed", "venue_capacity_overage"]);
     expect(rejected.structuredContent).not.toHaveProperty("errorDetails");
 
     const unknown = await resultFor(
       new MutationOutcomeUnknownError("replacePiece", "connection closed", 502),
     );
     expect(unknown.isError).toBe(true);
-    expect(unknown.structuredContent?.mode).toBe("outcome_unknown");
+    expect(structured(unknown).mode).toBe("outcome_unknown");
     expect(unknown.structuredContent).not.toHaveProperty("status");
-    expect(unknown.structuredContent?.retrySafe).toBe(false);
-    expect(unknown.structuredContent?.message).toBe("connection closed");
-    expect(unknown.content[0]?.text).toStartWith("Outcome unknown: connection closed.");
-    expect(unknown.structuredContent?.reconciliation).toEqual({
+    expect(structured(unknown).retrySafe).toBe(false);
+    expect(structured(unknown).message).toBe("connection closed");
+    expect(textOf(unknown)).toStartWith("Outcome unknown: connection closed.");
+    expect(structured(unknown).reconciliation).toEqual({
       tool: "list_deliveries",
       deliveryIds: [1],
     });

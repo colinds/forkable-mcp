@@ -1,6 +1,6 @@
 import { expect, test, describe } from "bun:test";
 import { buildSelectionsHash, resolveItemModifiers } from "@/order/selections.ts";
-import { evaluateGuards, blockers, findOwnMeal, allPieces, ownPieces } from "@/order/guards.ts";
+import { evaluateGuards, blockers, ownedOrders, allPieces, ownPieces } from "@/order/guards.ts";
 import { deliveryStatus, formatDeliveryStatus } from "@/order/status.ts";
 import {
   formatMoney,
@@ -8,8 +8,6 @@ import {
   formatDay,
   formatDateTime,
   weekdayOf,
-  parseFloating,
-  isPast,
   formatInstantLike,
   formatCountdown,
   groupSuffix,
@@ -34,7 +32,7 @@ const protein: MenuModifier = {
   options: [
     { id: 10, name: "Chicken", price: 0 },
     { id: 11, name: "Steak", price: 3 },
-    { id: 12, name: "Tofu", price: 0, ingredientTags: ["soy"] },
+    { id: 12, name: "Tofu", price: 0 },
   ],
 };
 const extras: MenuModifier = {
@@ -127,7 +125,7 @@ describe("buildSelectionsHash", () => {
     const soyFirst = {
       ...protein,
       options: [
-        { id: 12, name: "Tofu", ingredientTags: ["soy"] },
+        { id: 12, name: "Tofu" },
         { id: 10, name: "Chicken" },
       ],
     };
@@ -176,11 +174,9 @@ describe("buildSelectionsHash", () => {
     expect(r.violations.some((v) => v.code === "duplicate_modifier")).toBe(true);
   });
 
-  test("explicit empty single choices do not preserve or default", () => {
-    const previous = { "16": [11], "18": [31] };
+  test("explicit empty single choices do not default", () => {
     const r = buildSelectionsHash({
       item,
-      previous,
       choices: [
         { modifier: 16, options: [] },
         { modifier: 18, options: [] },
@@ -205,17 +201,6 @@ describe("buildSelectionsHash", () => {
   test("unknown option → violation", () => {
     const r = buildSelectionsHash({ item, choices: [{ modifier: 16, options: ["Lobster"] }] });
     expect(r.violations.some((v) => v.code === "unknown_option")).toBe(true);
-  });
-
-  test("round-trips an existing piece's selections byte-for-byte", () => {
-    const stored = { "16": [11], "17": [20], "18": [-1] };
-    const rebuilt = buildSelectionsHash({ item, previous: stored }).selectionsHash;
-    expect(rebuilt).toEqual(stored);
-  });
-
-  test("round-trips a multi with several options and an unset required-less single", () => {
-    const stored = { "16": [10], "17": [20, 21], "18": [-1] };
-    expect(buildSelectionsHash({ item, previous: stored }).selectionsHash).toEqual(stored);
   });
 });
 
@@ -294,32 +279,6 @@ describe("weekdayOf", () => {
   });
 });
 
-describe("parseFloating", () => {
-  test("honors a real UTC offset as a true instant", () => {
-    expect(parseFloating(CUTOFF)?.toISOString()).toBe("2026-08-10T18:45:00.000Z");
-  });
-
-  test("treats a mislabelled `Z` as local wall-clock time", () => {
-    const at = parseFloating(FOR_DELIVERY)!;
-    expect(at.getFullYear()).toBe(2026);
-    expect(at.getMonth()).toBe(7); // August
-    expect(at.getDate()).toBe(11);
-    expect(at.getHours()).toBe(12); // 12:01 local, NOT 5:01 after a UTC shift
-    expect(at.getMinutes()).toBe(1);
-  });
-
-  test("parses a date-only value as local midnight, not UTC", () => {
-    const at = parseFloating("2026-08-11")!;
-    expect(at.getDate()).toBe(11); // `new Date("2026-08-11")` alone lands on the 10th west of UTC
-    expect(at.getHours()).toBe(0);
-  });
-
-  test("returns undefined for missing/invalid input", () => {
-    expect(parseFloating(undefined)).toBeUndefined();
-    expect(parseFloating("not-a-date")).toBeUndefined();
-  });
-});
-
 describe("formatDateTime", () => {
   // Rendering uses the timestamp's named wall clock without host-zone conversion.
   test("shows the cutoff as the dashboard does", () => {
@@ -341,19 +300,6 @@ describe("formatDateTime", () => {
   });
 });
 
-describe("isPast", () => {
-  const now = new Date("2026-08-11T01:09:00.000Z"); // Mon Aug 10, 6:09 PM PDT
-  test("the Aug 11 delivery's cutoff has already passed", () => {
-    expect(isPast(CUTOFF, now)).toBe(true);
-  });
-  test("a later cutoff has not", () => {
-    expect(isPast("2026-08-11T11:45:00-07:00", now)).toBe(false);
-  });
-  test("undefined when there's nothing to compare", () => {
-    expect(isPast(undefined, now)).toBeUndefined();
-  });
-});
-
 describe("formatDate", () => {
   test("keeps the calendar date the API named", () => {
     expect(formatDate(FOR_DELIVERY)).toBe("2026-08-11");
@@ -370,58 +316,39 @@ const myPiece = {
   menuId: 3,
   name: "Nebula Noodles",
   price: 18.99,
-  autoOrder: true,
 };
 
-/** Four venue orders with the user's meal last. */
-const fourOrders: Delivery = {
-  id: 1234199,
-  availableMenuIds: [1, 2, 3, 4],
-  orders: [
-    { id: 1, menu: { id: 1, name: "Fixture Diner" }, lateOrdersRemaining: 0 },
-    { id: 2, menu: { id: 2, name: "Taqueria Los Altos" }, lateOrdersRemaining: 6 },
-    { id: 3, menu: { id: 3, name: "Kitava" }, lateOrdersRemaining: 6 },
-    {
-      id: 4,
-      menu: { id: 4, name: "Placeholder Kitchen" },
-      lateOrdersRemaining: 6,
-      pieces: [myPiece],
-    },
-  ],
-};
+describe("ownedOrders / allPieces", () => {
+  const ME = 501;
+  const shared: Delivery = {
+    id: 1,
+    orders: [
+      { id: 1, pieces: [{ ...myPiece, id: "theirs", userId: 999 }] },
+      { id: 2, pieces: [{ ...myPiece, id: "mine", userId: ME }] },
+      { id: 3, pieces: [{ ...myPiece, id: "unknown" }] },
+      { id: 4, pieces: [{ ...myPiece, id: "also-mine", userId: ME }] },
+    ],
+  };
 
-describe("findOwnMeal / allPieces", () => {
-  test("finds the order holding your pieces, not orders[0]", () => {
-    const own = findOwnMeal(fourOrders);
-    expect(own?.order.id).toBe(4);
-    expect(own?.pieces.length).toBe(1);
-    expect(own?.ambiguous).toBe(false);
+  test("collects all positively owned orders and pieces", () => {
+    expect(ownedOrders(shared, ME).map(({ order }) => order.id)).toEqual([2, 4]);
+    expect(ownPieces(shared, ME).map((piece) => piece.id)).toEqual(["mine", "also-mine"]);
+    expect(
+      ownPieces({ ...shared, orders: shared.orders!.toReversed() }, ME).map((piece) => piece.id),
+    ).toEqual(["also-mine", "mine"]);
+    expect(ownedOrders({ id: 1 }, ME)).toEqual([]);
+    expect(allPieces(shared)).toHaveLength(4);
   });
 
-  test("undefined when no order carries pieces", () => {
-    expect(findOwnMeal({ id: 1, orders: [{ id: 1 }, { id: 2 }] })).toBeUndefined();
-    expect(findOwnMeal({ id: 1 })).toBeUndefined();
-  });
-
-  test("several orders with pieces → first, flagged ambiguous", () => {
-    const d: Delivery = {
-      id: 1,
-      orders: [
-        { id: 1, pieces: [myPiece] },
-        { id: 2, pieces: [myPiece] },
-      ],
-    };
-    expect(findOwnMeal(d)?.order.id).toBe(1);
-    expect(findOwnMeal(d)?.ambiguous).toBe(true);
-  });
-
-  test("allPieces flattens every venue order (guest picks included)", () => {
-    const d: Delivery = {
-      id: 1,
-      orders: [{ id: 1, pieces: [myPiece] }, { id: 2 }, { id: 3, pieces: [myPiece, myPiece] }],
-    };
-    expect(allPieces(d).length).toBe(3);
-    expect(allPieces({ id: 1, orders: [] })).toEqual([]);
+  test("missing identity never claims another member's meal or rating", () => {
+    expect(ownedOrders(shared)).toEqual([]);
+    expect(ownPieces(shared)).toEqual([]);
+    expect(compactDelivery(shared).meals).toEqual([]);
+    expect(deliveryStatus(shared).meal).toEqual([]);
+    const output = fmtDelivery(shared);
+    expect(output).toContain("nothing selected");
+    expect(output).toContain("+4 other meals");
+    expect(output).not.toContain(myPiece.name);
   });
 });
 
@@ -466,19 +393,17 @@ const DELIVERED: Delivery = {
   state: "grace_period",
   simpleState: "delivered",
   forDeliveryAt: FOR_DELIVERY,
-  isReadOnly: true,
-  pastLateOrderDeadline: true,
   deliveryWindow: ["11:45", "12:15"],
   serviceWindow: { baseTime: "12:00:00", name: "lunch" },
   reportMissingItemCutoff: "2026-08-11T20:00:00.000Z",
   address: { formatted: "350 Rhode Island St, San Francisco, CA", notes: "Gate code #1234" },
   copayAmount: 20,
   orders: [
-    { id: 1, menu: { id: 1, name: "Fixture Diner" } },
+    { id: 1, menu: { name: "Fixture Diner" } },
     {
       id: 4,
-      menu: { id: 4, name: "Placeholder Kitchen" },
-      venue: { id: 3, displayName: "Placeholder Kitchen" },
+      menu: { name: "Placeholder Kitchen" },
+      venue: { displayName: "Placeholder Kitchen" },
       dropoffCompletedAt: "2026-08-11T18:41:44.000Z",
       etaStatus: {
         start: ETA_START,
@@ -500,9 +425,6 @@ describe("deliveryStatus", () => {
       {
         orderId: 4,
         venue: "Placeholder Kitchen",
-        pieceIds: ["p1"],
-        state: null,
-        etaStatus: "delivered",
         fulfillment: "delivered",
         dropoffCompletedAt: "2026-08-11T18:41:44.000Z",
         etaStart: ETA_START,
@@ -514,7 +436,6 @@ describe("deliveryStatus", () => {
     expect(s.deliveryWindow).toEqual(["11:45", "12:15"]);
     expect(s.service).toBe("lunch, base 12:00");
     expect(s.meal[0]?.venue).toBe("Placeholder Kitchen");
-    expect(s.meal[0]?.autoOrder).toBe(true);
   });
 
   test("a pre-dispatch day degrades to nulls, not throws", () => {
@@ -578,7 +499,7 @@ describe("deliveryStatus", () => {
         {
           id: 10,
           state: "ready",
-          venue: { id: 10, displayName: "First Cafe" },
+          venue: { displayName: "First Cafe" },
           etaStatus: {
             status: "ontime",
             start: ETA_START,
@@ -592,7 +513,7 @@ describe("deliveryStatus", () => {
         {
           id: 20,
           state: "ready",
-          venue: { id: 20, displayName: "Second Cafe" },
+          venue: { displayName: "Second Cafe" },
           etaStatus: {
             status: "delayed",
             start: ETA_START,
@@ -610,14 +531,13 @@ describe("deliveryStatus", () => {
     expect(status.fulfillment).toBe("partially delivered");
     expect(status.delayed).toBe(true);
     expect(
-      status.orders.map(({ orderId, pieceIds, trackingUrl }) => ({
+      status.orders.map(({ orderId, trackingUrl }) => ({
         orderId,
-        pieceIds,
         trackingUrl,
       })),
     ).toEqual([
-      { orderId: 10, pieceIds: ["first"], trackingUrl: "https://track.test/first" },
-      { orderId: 20, pieceIds: ["second"], trackingUrl: "https://track.test/second" },
+      { orderId: 10, trackingUrl: "https://track.test/first" },
+      { orderId: 20, trackingUrl: "https://track.test/second" },
     ]);
     expect(status.meal.map(({ pieceId, orderId }) => ({ pieceId, orderId }))).toEqual([
       { pieceId: "first", orderId: 10 },
@@ -697,8 +617,6 @@ describe("formatDeliveryStatus", () => {
     // 20:00Z is 1 PM Pacific on this date.
     expect(s.reportMissingItemCutoff).toBe("Tue 2026-08-11 1:00 PM PT");
     expect(formatDeliveryStatus(s)).toContain("Report by  : Tue 2026-08-11 1:00 PM PT");
-    // Preserve the raw instant alongside the formatted value.
-    expect(s.reportMissingItemCutoffRaw).toBe("2026-08-11T20:00:00.000Z");
     expect(formatDeliveryStatus(s)).not.toContain("20:00");
   });
 
@@ -723,7 +641,7 @@ describe("meal groups", () => {
     orders: [
       {
         id: 1,
-        venue: { id: 1, displayName: "Stub Street Cafe" },
+        venue: { displayName: "Stub Street Cafe" },
         pieces: [{ ...myPiece, userId: ME, name: "Comet Curry", group: "A1" }],
       },
     ],
@@ -750,7 +668,7 @@ describe("meal groups", () => {
         },
         {
           id: 2,
-          venue: { id: 2, displayName: "Mock Market Kitchen" },
+          venue: { displayName: "Mock Market Kitchen" },
           pieces: [{ ...myPiece, id: "c", userId: ME, name: "Quasar Bowl", group: "A5" }],
         },
       ],
@@ -875,106 +793,6 @@ describe("meal groups", () => {
   });
 });
 
-describe("findOwnMeal with a guest order", () => {
-  const ME = 501;
-  const guestFirst: Delivery = {
-    id: 9,
-    orders: [
-      {
-        id: 1,
-        menu: { id: 1 },
-        pieces: [{ ...myPiece, id: "guest-1", userId: 999, name: "Guest burrito" }],
-      },
-      { id: 2, menu: { id: 2 }, pieces: [{ ...myPiece, id: "mine-1", userId: ME }] },
-    ],
-  };
-
-  test("without a userId it picks the wrong piece — a guest's — and says so", () => {
-    const own = findOwnMeal(guestFirst);
-    expect(own?.pieces[0]?.id).toBe("guest-1");
-    expect(own?.ambiguous).toBe(true);
-  });
-
-  test("with a userId it resolves the right piece and is unambiguous", () => {
-    const own = findOwnMeal(guestFirst, ME);
-    expect(own?.pieces[0]?.id).toBe("mine-1");
-    expect(own?.order.id).toBe(2);
-    expect(own?.ambiguous).toBe(false);
-  });
-
-  test("order position cannot change the answer once userId is supplied", () => {
-    const reversed: Delivery = { ...guestFirst, orders: (guestFirst.orders ?? []).toReversed() };
-    expect(findOwnMeal(reversed, ME)?.pieces[0]?.id).toBe("mine-1");
-  });
-
-  test("pieces with no userId are not claimed for anyone", () => {
-    // An unattributed piece does not satisfy an identified lookup.
-    expect(findOwnMeal(fourOrders, ME)).toBeUndefined();
-    // An unidentified display lookup remains explicitly unattributed.
-    expect(findOwnMeal(fourOrders)?.order.id).toBe(4);
-  });
-});
-
-describe("findOwnMeal across venues", () => {
-  const ME = 501;
-  const twoVenues: Delivery = {
-    id: 9,
-    orders: [
-      { id: 1, menu: { id: 1 }, pieces: [{ ...myPiece, id: "a", userId: ME }] },
-      { id: 2, menu: { id: 2 }, pieces: [{ ...myPiece, id: "b", userId: 999 }] },
-      { id: 3, menu: { id: 3 }, pieces: [{ ...myPiece, id: "c", userId: ME }] },
-    ],
-  };
-
-  test("collects every order the member holds a piece on", () => {
-    const own = findOwnMeal(twoVenues, ME);
-    expect(own?.orders.map((o) => o.order.id)).toEqual([1, 3]);
-    expect(own?.ambiguous).toBe(true);
-    expect(own?.order.id).toBe(1);
-  });
-
-  test("a guest's piece is never collected", () => {
-    expect(ownPieces(twoVenues, ME).map((p) => p.id)).toEqual(["a", "c"]);
-  });
-
-  test("one venue is not ambiguous", () => {
-    const one: Delivery = { id: 9, orders: [{ id: 1, pieces: [{ ...myPiece, userId: ME }] }] };
-    expect(findOwnMeal(one, ME)?.ambiguous).toBe(false);
-  });
-});
-
-describe("multi-venue writes target the right meal", () => {
-  const ME = 501;
-  // Two owned meals exercise per-venue identity.
-  const twoVenues: Delivery = {
-    id: 9,
-    availableMenuIds: [1, 2],
-    orders: [
-      { id: 1, menu: { id: 1 }, pieces: [{ ...myPiece, id: "at-venue-1", menuId: 1, userId: ME }] },
-      { id: 2, menu: { id: 2 }, pieces: [{ ...myPiece, id: "at-venue-2", menuId: 2, userId: ME }] },
-    ],
-  };
-
-  test("findOwnMeal exposes the per-venue split needed to pick the right piece", () => {
-    const own = findOwnMeal(twoVenues, ME)!;
-    // Menu 2 resolves to its own piece rather than the first order.
-    expect(own.order.menu?.id).toBe(1);
-    const target = own.orders.find((x) => x.order.menu?.id === 2);
-    expect(target?.pieces[0]?.id).toBe("at-venue-2");
-    expect(own.byIdentity).toBe(true);
-  });
-
-  test("someone else's meal is never returned as the member's", () => {
-    const theirsOnly: Delivery = {
-      id: 9,
-      orders: [{ id: 1, pieces: [{ ...myPiece, userId: 999 }] }],
-    };
-    expect(findOwnMeal(theirsOnly, ME)).toBeUndefined();
-    // Missing identity is reflected in the attribution flag.
-    expect(findOwnMeal(theirsOnly)?.byIdentity).toBe(false);
-  });
-});
-
 describe("per-piece state badges", () => {
   const ME = 501;
   const deliveryWith = (piece: object): Delivery => ({
@@ -983,7 +801,7 @@ describe("per-piece state badges", () => {
     orders: [
       {
         id: 1,
-        venue: { id: 1, displayName: "Stub Street Cafe" },
+        venue: { displayName: "Stub Street Cafe" },
         pieces: [{ ...myPiece, userId: ME, name: "Comet Curry", ...piece }],
       },
     ],
@@ -1228,7 +1046,6 @@ describe("formatCountdown / the replacement clock", () => {
     };
     const s = deliveryStatus(d, ME, NOW);
     expect(s.replacementCountdown).toBe("2h 14m");
-    expect(s.replacementCutoffRaw).toBe("2026-08-12T20:14:00Z");
     expect(formatDeliveryStatus(s)).toContain(
       "Re-pick by : 2h 14m left — the restaurant cancelled",
     );
@@ -1299,19 +1116,16 @@ describe("formatCountdown / the replacement clock", () => {
     };
     const s = deliveryStatus(d, ME, NOW);
     expect(s.replacementCountdown).toBeNull();
-    // Preserve the raw cutoff after the countdown expires.
-    expect(s.replacementCutoffRaw).toBe("2026-08-12T17:00:00Z");
     expect(formatDeliveryStatus(s)).not.toContain("Re-pick");
   });
 
-  test("no replacement means no line, and the raw value stays null", () => {
+  test("no replacement means no countdown or line", () => {
     const s = deliveryStatus(
       { id: 8, forDeliveryAt: FOR_DELIVERY, orders: [{ id: 1, pieces: [{ ...myPiece }] }] },
       undefined,
       NOW,
     );
     expect(s.replacementCountdown).toBeNull();
-    expect(s.replacementCutoffRaw).toBeNull();
     expect(formatDeliveryStatus(s)).not.toContain("Re-pick");
   });
 });
@@ -1328,21 +1142,21 @@ describe("money reaches the rendered line", () => {
   });
 
   test("the list line shows the direct reported due", () => {
-    const line = fmtDelivery(withReceipt({ id: 1, clubCopay: 20, due: 4.5 }), undefined, ME);
+    const line = fmtDelivery(withReceipt({ clubCopay: 20, due: 4.5 }), undefined, ME);
     expect(line).toContain("reported due $4.50");
     expect(line).not.toContain("company covers");
     expect(line).not.toContain("you pay");
   });
 
   test("a reported zero due is preserved", () => {
-    const line = fmtDelivery(withReceipt({ id: 1, clubCopay: 20, due: 0 }), undefined, ME);
+    const line = fmtDelivery(withReceipt({ clubCopay: 20, due: 0 }), undefined, ME);
     expect(line).toContain("reported due $0.00");
     expect(line).not.toContain("company covers");
     expect(line).not.toContain("you pay");
   });
 
   test("the status view exposes direct billing values as cents", () => {
-    const s = deliveryStatus(withReceipt({ id: 1, clubCopay: 20, due: 4.5 }), ME);
+    const s = deliveryStatus(withReceipt({ clubCopay: 20, due: 4.5 }), ME);
     expect(s.billing).toEqual({
       reportedDueCents: 450,
       allowanceType: "daily",
@@ -1364,12 +1178,8 @@ describe("money reaches the rendered line", () => {
   });
 
   test("the compact read omits server policy signals", () => {
-    const compact = compactDelivery({
-      id: 4,
-      isReadOnly: true,
-      pastLateOrderDeadline: true,
-      canRequestChanges: false,
-    });
+    const wire = { id: 4, isReadOnly: true, pastLateOrderDeadline: true, canRequestChanges: false };
+    const compact = compactDelivery(wire);
     expect(compact).not.toHaveProperty("isReadOnly");
     expect(compact).not.toHaveProperty("pastLateOrderDeadline");
     expect(compact).not.toHaveProperty("canRequestChanges");
@@ -1388,14 +1198,14 @@ describe("a delivery carrying another member's order", () => {
     orders: [
       {
         id: 1,
-        menu: { id: 1, name: "Their Venue" },
+        menu: { name: "Their Venue" },
         pieces: [{ id: "theirs", itemId: 1, menuId: 1, userId: THEM, name: "Their Burrito" }],
         dropoffCompletedAt: "2026-08-11T18:41:44.000Z",
         etaStatus: { start: "2026-08-11T11:35:00-07:00", status: "delivered", shortTz: "PT" },
       },
       {
         id: 2,
-        menu: { id: 2, name: "My Venue" },
+        menu: { name: "My Venue" },
         pieces: [{ id: "mine", itemId: 2, menuId: 2, userId: ME, name: "My Noodles" }],
       },
     ],

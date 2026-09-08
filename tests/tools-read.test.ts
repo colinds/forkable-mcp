@@ -22,9 +22,6 @@ const delivery: Delivery = {
   state: "scheduled",
   userConfirmed: true,
   availableMenuIds: [MENU_ID],
-  isReadOnly: true,
-  pastLateOrderDeadline: true,
-  canRequestChanges: false,
   allowanceType: "weekly",
   copayAmount: 20,
   weeklyAllowance: 100,
@@ -33,11 +30,11 @@ const delivery: Delivery = {
   deliveryWindow: ["11:30 AM", "12:30 PM"],
   club: { id: 7, name: "HQ", market: { timezone: "America/Los_Angeles" } },
   address: { formatted: "123 Main St", notes: "Use the side door" },
-  userReceipt: { id: 201, due: 4.5, clubCopay: 15 },
+  userReceipt: { due: 4.5, clubCopay: 15 },
   orders: [
     {
       id: 101,
-      venue: { id: 301, displayName: "Test Kitchen" },
+      venue: { displayName: "Test Kitchen" },
       etaStatus: {
         status: "delayed",
         start: "2026-08-28T11:45:00-07:00",
@@ -55,7 +52,6 @@ const delivery: Delivery = {
           price: 12.5,
           group: "A1",
           isConfirmed: true,
-          autoOrder: true,
           isRemoval: true,
           requestStatus: "pending",
           nonHiddenAttributes: [{ label: "Protein", value: "Tofu" }],
@@ -64,7 +60,7 @@ const delivery: Delivery = {
     },
     {
       id: 102,
-      venue: { id: 302, displayName: "Second Kitchen" },
+      venue: { displayName: "Second Kitchen" },
       etaStatus: {
         status: "ontime",
         start: "2026-08-28T12:05:00-07:00",
@@ -93,7 +89,6 @@ const menu: Menu = {
   name: "Test Kitchen",
   sections: [
     {
-      id: 1,
       items: [
         {
           id: ITEM_ID,
@@ -214,6 +209,7 @@ describe("read tool responses", () => {
       group: "A1",
       isConfirmed: true,
       cancellationPending: true,
+      rating: null,
     });
   });
 
@@ -283,25 +279,6 @@ describe("read tool responses", () => {
     ]);
   });
 
-  test("pick explanations report ranks rather than raw scores", async () => {
-    const result = await handlers.get("explain_pick")!({
-      deliveryId: DELIVERY_ID,
-    });
-    expect(structured(result)).toEqual({
-      picked: [
-        { itemId: ITEM_ID, menuId: MENU_ID, name: "Test Bowl", rank: 1 },
-        {
-          itemId: ITEM_ID + 1,
-          menuId: MENU_ID + 1,
-          name: "Second Bowl",
-          rank: null,
-        },
-      ],
-      top: [{ menuId: MENU_ID, itemId: ITEM_ID, rank: 1, name: "Test Bowl" }],
-    });
-    expect(result.content[0]?.type === "text" ? result.content[0].text : "").not.toContain("score");
-  });
-
   test("delivery status keeps every tracker without returning the full server snapshot", async () => {
     const result = await handlers.get("get_delivery_status")!({
       deliveryId: DELIVERY_ID,
@@ -324,6 +301,7 @@ describe("read tool responses", () => {
           group: "A1",
           isConfirmed: true,
           cancellationPending: true,
+          rating: null,
         },
         {
           pieceId: "piece-2",
@@ -335,6 +313,7 @@ describe("read tool responses", () => {
           group: "B2",
           isConfirmed: true,
           cancellationPending: false,
+          rating: null,
         },
       ],
       orders: [
