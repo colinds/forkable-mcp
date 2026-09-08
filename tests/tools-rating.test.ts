@@ -11,7 +11,13 @@ import { createWriteGate } from "@/write-gate.ts";
 
 type Handler = (args: Record<string, unknown>) => Promise<CallToolResult>;
 const USER_ID = 42;
-const ratingArgs = { deliveryId: 1, pieceId: "mine", level: 5, from: "2026-08-01" };
+const ratingArgs = {
+  deliveryId: 1,
+  pieceId: "mine",
+  level: 5,
+  from: "2026-08-01",
+  to: "2026-08-31",
+};
 const structured = (result: CallToolResult) =>
   (result.structuredContent ?? {}) as Record<string, any>;
 const textOf = (result: CallToolResult) =>
@@ -30,6 +36,13 @@ describe("meal ratings", () => {
   let delivery: Delivery;
   let handlers: Map<string, Handler>;
   let queries: string[];
+  let requests: {
+    url: string;
+    method?: string;
+    redirect?: RequestRedirect;
+    headers: Headers;
+    mutation: boolean;
+  }[];
   let mutations: { query: string; variables: { input: Record<string, unknown> } }[];
   let mutationResponse: Record<string, unknown> | Error;
   let reportedUserId: number | null;
@@ -45,7 +58,15 @@ describe("meal ratings", () => {
       menuId: 10,
       userId: USER_ID,
       name: "Lunch bowl",
-      userRating: { id: 500, level: null, reasons: [], comment: null },
+      userRating: {
+        id: 500,
+        level: null,
+        reasons: [],
+        comment: null,
+        attachment: null,
+        forGuest: null,
+        allowRatingFollowUps: null,
+      },
     };
     delivery = {
       id: 1,
@@ -53,19 +74,22 @@ describe("meal ratings", () => {
       orders: [{ id: 100, pieces: [piece] }],
     };
     queries = [];
+    requests = [];
     mutations = [];
     mutationResponse = { data: { rateMeal: { errors: [] } } };
     reportedUserId = USER_ID;
     originalFetch = globalThis.fetch;
     globalThis.fetch = (async (url: string, init?: RequestInit) => {
-      expect(url).toBe(ENDPOINT);
       const body = JSON.parse(init?.body as string);
+      requests.push({
+        url,
+        method: init?.method,
+        redirect: init?.redirect,
+        headers: new Headers(init?.headers),
+        mutation: body.query.startsWith("mutation"),
+      });
       if (body.query.startsWith("mutation")) {
         mutations.push(body);
-        expect(init?.redirect).toBe("manual");
-        const headers = new Headers(init?.headers);
-        expect(headers.get("cookie")).toBe("_easyorder_session=test");
-        expect(headers.get("x-csrf-token")).toBe("test-csrf");
         if (mutationResponse instanceof Error) throw mutationResponse;
         return Response.json(mutationResponse);
       }
@@ -100,6 +124,14 @@ describe("meal ratings", () => {
     if (originalHome === undefined) delete process.env.FORKABLE_MCP_HOME;
     else process.env.FORKABLE_MCP_HOME = originalHome;
     rmSync(home, { recursive: true, force: true });
+    // Assert outside fetch so the client cannot swallow assertion failures as transport errors.
+    for (const request of requests) {
+      expect(request.url).toBe(ENDPOINT);
+      expect(request.method).toBe("POST");
+      expect(request.redirect).toBe(request.mutation ? "manual" : "follow");
+      expect(request.headers.get("cookie")).toBe("_easyorder_session=test");
+      expect(request.headers.get("x-csrf-token")).toBe("test-csrf");
+    }
   });
 
   const callRating = (overrides: Record<string, unknown> = {}) =>
@@ -121,7 +153,9 @@ describe("meal ratings", () => {
     expect(mutations).toEqual([
       {
         query: "mutation ($input: RateMealInput!) { rateMeal(input: $input) { errors } }",
-        variables: { input: { id: 500, level: 5, reasons: [], comment: null, channel: "mc" } },
+        variables: {
+          input: { id: 500, level: 5, reasons: [], comment: null, attachment: null, channel: "mc" },
+        },
       },
     ]);
     expect(queries.filter((query) => query.includes("myDeliveries"))).toHaveLength(1);
@@ -142,6 +176,7 @@ describe("meal ratings", () => {
     };
     const preview = await callRating();
     expect(textOf(preview)).toContain('comment: "Keep this"');
+    expect(textOf(preview)).toContain("change score from 4/5 to 5/5");
     expect(textOf(preview)).toContain(
       "guest meal: yes; allow follow-ups: no; existing attachment kept",
     );
@@ -158,11 +193,18 @@ describe("meal ratings", () => {
       comment: "Old comment",
       forGuest: true,
       allowRatingFollowUps: true,
+      attachment: null,
     };
     const edit = { reasons: [], comment: "", forGuest: false, allowRatingFollowUps: false };
     const preview = await callRating(edit);
     await callRating({ ...edit, confirmToken: tokenOf(preview) });
-    expect(mutations[0]!.variables.input).toEqual({ id: 500, level: 5, channel: "mc", ...edit });
+    expect(mutations[0]!.variables.input).toEqual({
+      id: 500,
+      level: 5,
+      channel: "mc",
+      attachment: null,
+      ...edit,
+    });
   });
 
   test.each([
@@ -185,11 +227,50 @@ describe("meal ratings", () => {
   );
 
   test.each([
+    {
+      previous: 5,
+      next: 2,
+      reasons: ["excellent_food", "new_server_reason", "other"],
+      kept: ["new_server_reason", "other"],
+    },
+    {
+      previous: null,
+      next: 4,
+      reasons: ["food_quality", "new_server_reason", "other"],
+      kept: ["new_server_reason", "other"],
+    },
+    {
+      previous: 2,
+      next: 2,
+      reasons: ["excellent_food", "food_temp", "new_server_reason"],
+      kept: ["food_temp", "new_server_reason"],
+    },
+  ])(
+    "preserves unknown reasons and removes known incompatible ones from $previous to $next",
+    async ({ previous, next, reasons, kept }) => {
+      piece.userRating = { ...piece.userRating!, level: previous, reasons: [...reasons] };
+      const preview = await callRating({ level: next });
+      await callRating({ level: next, confirmToken: tokenOf(preview) });
+      expect(mutations[0]!.variables.input.reasons).toEqual(kept);
+    },
+  );
+
+  test.each([false, true])("deduplicates reasons (explicit=%s)", async (explicit) => {
+    const reasons = ["other", "excellent_food", "other"];
+    piece.userRating!.reasons = reasons;
+    const edit = explicit ? { reasons } : {};
+    const preview = await callRating(edit);
+    await callRating({ ...edit, confirmToken: tokenOf(preview) });
+    expect(mutations[0]!.variables.input.reasons).toEqual(["other", "excellent_food"]);
+  });
+
+  test.each([
     { level: 5, reasons: ["food_quality"] },
     { level: 2, reasons: ["excellent_food"] },
   ])("refuses incompatible explicit reasons for $level without a token", async (edit) => {
     const result = await callRating(edit);
     expect(result.isError).toBe(true);
+    expect(textOf(result)).toStartWith(`Error: A ${edit.level}/5 rating accepts these reasons:`);
     expect(structured(result).confirmToken).toBeUndefined();
     expect(mutations).toEqual([]);
   });
@@ -200,6 +281,7 @@ describe("meal ratings", () => {
     { level: 2.5 },
     { reasons: ["invented_reason"] },
     { from: "2026-02-30" },
+    { to: "2026-02-30" },
   ])("rejects invalid input %j at the tool schema", async (edit) => {
     await expect(callRating(edit)).rejects.toThrow();
     expect(queries).toEqual([]);
@@ -207,16 +289,16 @@ describe("meal ratings", () => {
   });
 
   test.each([
-    "missing",
-    "duplicate",
-    "other_owner",
-    "unknown_owner",
-    "unavailable",
-    "empty_id",
-    "missing_actor",
-    "buffet",
-    "wrong_delivery",
-  ])("does not preview an unsafe or unavailable target: %s", async (scenario) => {
+    ["missing", "Piece mine was not found uniquely on delivery 1."],
+    ["duplicate", "Piece mine was not found uniquely on delivery 1."],
+    ["other_owner", "Piece mine is not verified as belonging to you."],
+    ["unknown_owner", "Piece mine is not verified as belonging to you."],
+    ["unavailable", "Forkable has not made a rating available for meal mine on delivery 1."],
+    ["empty_id", "Forkable has not made a rating available for meal mine on delivery 1."],
+    ["missing_actor", "Forkable did not report your user id."],
+    ["buffet", "Buffet ratings are not supported; use Forkable to rate this delivery."],
+    ["wrong_delivery", "Delivery 1 not found between 2026-08-01 and 2026-08-31."],
+  ])("does not preview an unsafe or unavailable target: %s", async (scenario, message) => {
     if (scenario === "missing") delivery.orders![0]!.pieces = [];
     if (scenario === "duplicate") delivery.orders![0]!.pieces!.push({ ...piece });
     if (scenario === "other_owner") piece.userId = 99;
@@ -228,6 +310,7 @@ describe("meal ratings", () => {
     if (scenario === "wrong_delivery") delivery.id = 2;
     const result = await callRating();
     expect(result.isError).toBe(true);
+    expect(textOf(result)).toBe(`Error: ${message}`);
     expect(structured(result).confirmToken).toBeUndefined();
     expect(mutations).toEqual([]);
   });
@@ -258,11 +341,28 @@ describe("meal ratings", () => {
   });
 
   test("searches recent history by default and accepts an older explicit window", async () => {
-    await callRating({ from: undefined });
+    await callRating({ from: undefined, to: undefined });
     const range = deliveryRange(addDaysLocal(new Date().toLocaleDateString("en-CA"), -14));
     expect(queries[0]).toContain(`from: "${range.from}", to: "${range.to}"`);
     await callRating();
-    expect(queries.find((query) => query.includes('from: "2026-08-01"'))).toBeDefined();
+    expect(
+      queries.find((query) => query.includes('from: "2026-08-01", to: "2026-08-31"')),
+    ).toBeDefined();
+  });
+
+  test("rejects backwards rating windows before any request", async () => {
+    const result = await callRating({ from: "2026-08-31", to: "2026-08-01" });
+    expect(result.isError).toBe(true);
+    expect(textOf(result)).toBe("Error: Window ends before it starts: 2026-08-31 → 2026-08-01.");
+    expect(structured(result).confirmToken).toBeUndefined();
+    expect(requests).toEqual([]);
+  });
+
+  test("binds the historical end date to confirmation", async () => {
+    const preview = await callRating();
+    const result = await callRating({ to: "2026-08-30", confirmToken: tokenOf(preview) });
+    expect(structured(result).confirmationError.reason).toBe("args_changed");
+    expect(mutations).toEqual([]);
   });
 
   test("returns historical reconciliation without replaying an uncertain mutation", async () => {
@@ -275,7 +375,7 @@ describe("meal ratings", () => {
       reconciliation: {
         tool: "list_deliveries",
         deliveryIds: [1],
-        arguments: deliveryRange(ratingArgs.from),
+        arguments: { from: ratingArgs.from, to: ratingArgs.to },
       },
     });
     expect(mutations).toHaveLength(1);
@@ -291,6 +391,12 @@ describe("meal ratings", () => {
     const result = await callRating({ confirmToken: tokenOf(preview) });
     expect(structured(result)).toMatchObject({ mode: "rejected", reasons: ["rating_locked"] });
     expect(mutations).toHaveLength(1);
+  });
+
+  test.each([null, 2])("renders the meal rating level %j", async (level) => {
+    piece.userRating!.level = level;
+    const result = await handlers.get("get_delivery_status")!({ deliveryId: 1 });
+    expect(textOf(result)).toContain(level == null ? "Rating     : not rated" : "Rating     : 2/5");
   });
 
   test("list and status expose only owned feedback, distinguishing unavailable from unrated", async () => {

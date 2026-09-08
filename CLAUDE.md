@@ -146,19 +146,27 @@ fields has returned HTTP 503. Keep `confirmDelivery` on its known selection.
 `rate_meal` uses the authenticated dashboard's `rateMeal` mutation with selection `errors`.
 Resolve `deliveryId` and a unique, positively owned `pieceId`, then send `piece.userRating.id` as
 `id` with `channel: "mc"`. A missing rating record or id is unavailable; never invent one. Buffet
-ratings use a different flow and are unsupported here.
+ratings use a different flow and are unsupported here. The captured dashboard's `MealRating.save`
+sends `attachment` as null or the stored URL and requests only `errors` from `rateMeal`. Preserve
+that known request shape; the `errorDetails` behavior observed on meal-order mutations does not
+establish support for that field on rating mutations. The dashboard's textarea sends a string for
+comments, including empty strings. Server persistence of clearing edits has not been live-tested.
 
 Scores are integers from 1–5. Levels 4–5 use the dashboard's compliment codes; 1–3 use its issue
-codes. Explicit incompatible reasons are rejected. A category change filters incompatible stored
-reasons. Omitted feedback preserves existing values; explicit empty reasons or comments clear them.
+codes. Explicit incompatible reasons are rejected. Omitted reasons retain unknown server codes and
+drop only known incompatible codes, even when the stored level is absent. Duplicate reasons are
+removed. Other omitted feedback preserves existing values; explicit empty reasons or comments
+clear them.
 Preserve existing attachments, and do not call `updateUser` or invent follow-up consent.
 
 Read projections expose nullable `rating` objects with level, reasons, comment, guest flag, and
 follow-up preference. No record means unavailable; a record without a level means unrated. Mutation
 IDs, channel, and attachments stay internal. Ratings and meals always use the same ownership filter.
 
-Rating previews search from 14 days ago by default and accept `from` for older meals. The stored
-plan includes `reconciliationRange`; an uncertain outcome returns it as `reconciliation.arguments`
+Rating previews search from 14 days ago by default and accept `from` and `to` for bounded older
+lookups, rejecting backwards ranges before making requests. Score-change previews show the old
+and new score. The stored plan includes `reconciliationRange`; an uncertain outcome returns it as
+`reconciliation.arguments`
 for `list_deliveries`. Preserve this range through the gate's structured clone and confirmation.
 
 ## `selectionsHash`
@@ -261,7 +269,6 @@ Other wire constraints:
 - `delivery.state`, `delivery.simpleState`, and `order.state` are different lifecycles; do not merge
   them into one source field.
 - `me.roles` is a JSON feature-flags scalar, not a role-name array.
-- `Piece.autoOrder` reflects account auto-order behavior, not who selected the meal.
 - `club.hidePrices` is a Forkable display preference, not an API authorization boundary.
 
 ## Environment

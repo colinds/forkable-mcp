@@ -1290,6 +1290,9 @@ export function registerAllTools(server: McpServer, writeGate: WriteGate): void 
           .optional()
           .describe("Allow Forkable to follow up on this rating; does not change account settings"),
         from: dateArg().optional().describe("Search start (YYYY-MM-DD); defaults to 14 days ago"),
+        to: dateArg()
+          .optional()
+          .describe("Inclusive search end (YYYY-MM-DD); pass with from for older meals"),
         confirmToken: z.string().optional(),
       }),
       annotations: { destructiveHint: true, idempotentHint: false, openWorldHint: true },
@@ -1297,7 +1300,10 @@ export function registerAllTools(server: McpServer, writeGate: WriteGate): void 
     async (a) =>
       guard(async (client, session) => {
         const plan = async (): Promise<WritePlan> => {
-          const range = deliveryRange(a.from ?? dateOffsetLocal(-14));
+          const range = deliveryRange(a.from ?? dateOffsetLocal(-14), a.to);
+          if (range.to < range.from) {
+            throw new Error(`Window ends before it starts: ${range.from} → ${range.to}.`);
+          }
           const { deliveries, userId } = await loadDeliveries(
             client,
             range.from,
@@ -1321,18 +1327,26 @@ export function registerAllTools(server: McpServer, writeGate: WriteGate): void 
             );
           }
           const allowed: readonly string[] = a.level >= 4 ? RATING_COMPLIMENTS : RATING_ISSUES;
+          const opposite: readonly string[] = a.level >= 4 ? RATING_ISSUES : RATING_COMPLIMENTS;
           if (a.reasons?.some((reason) => !allowed.includes(reason))) {
             throw new Error(`A ${a.level}/5 rating accepts these reasons: ${allowed.join(", ")}.`);
           }
-          const changedCategory = rating.level != null && rating.level >= 4 !== a.level >= 4;
-          const reasons =
-            a.reasons ??
-            (changedCategory
-              ? (rating.reasons ?? []).filter((reason) => allowed.includes(reason))
-              : (rating.reasons ?? []));
+          // Preserve server codes we do not recognize, removing only known incompatible reasons.
+          const reasons = [
+            ...new Set(
+              a.reasons ??
+                (rating.reasons ?? []).filter(
+                  (reason) => allowed.includes(reason) || !opposite.includes(reason),
+                ),
+            ),
+          ];
           const comment = a.comment ?? rating.comment ?? null;
           const forGuest = a.forGuest ?? rating.forGuest;
           const followUps = a.allowRatingFollowUps ?? rating.allowRatingFollowUps;
+          const score =
+            rating.level != null && rating.level !== a.level
+              ? `change score from ${rating.level}/5 to ${a.level}/5`
+              : `${a.level}/5`;
           return {
             op: "rateMeal",
             selection: "errors",
@@ -1348,7 +1362,7 @@ export function registerAllTools(server: McpServer, writeGate: WriteGate): void 
             },
             summary:
               `Rate ${piece.name ?? `meal ${piece.id}`} (piece ${piece.id}) on delivery ${d.id} ` +
-              `(${formatDay(d.forDeliveryAt)}) ${a.level}/5; reasons: ${reasons.join(", ") || "none"}; ` +
+              `(${formatDay(d.forDeliveryAt)}) ${score}; reasons: ${reasons.join(", ") || "none"}; ` +
               `comment: ${comment ? JSON.stringify(comment) : "none"}; guest meal: ${ratingFlag(forGuest)}; ` +
               `allow follow-ups: ${ratingFlag(followUps)}${rating.attachment ? "; existing attachment kept" : ""}`,
             deliveryIds: [d.id],

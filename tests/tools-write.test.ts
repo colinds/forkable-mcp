@@ -440,6 +440,26 @@ describe("write tool planning", () => {
     expect(structured(result).confirmToken).toBeUndefined();
   });
 
+  test("remove refuses duplicate piece IDs across orders", async () => {
+    const piece = { id: 7, itemId: 1, menuId: MENU_ID, userId: USER_ID };
+    deliveries = [
+      {
+        id: 1,
+        orders: [
+          { id: 100, pieces: [piece] },
+          { id: 101, pieces: [{ ...piece, id: "7" }] },
+        ],
+      },
+    ];
+    const result = await handlers.get("remove_meal")!({ deliveryId: 1, pieceId: "7" });
+    expect(result.isError).toBe(true);
+    expect(result.content[0]?.type === "text" ? result.content[0].text : "").toBe(
+      "Error: Piece 7 was not found uniquely on delivery 1.",
+    );
+    expect(structured(result).confirmToken).toBeUndefined();
+    expect(mutations).toEqual([]);
+  });
+
   test("blocks unknown prices only when a preview ceiling is configured", async () => {
     menus = [menu(null)];
     const withoutCeiling = await handlers.get("set_meal")!({

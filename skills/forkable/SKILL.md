@@ -89,13 +89,15 @@ mutation.
 
 Use `rate_meal` for a 1–5 score or feedback edits on one owned meal. List past deliveries with explicit
 `from` and `to`, then use the returned `deliveryId` and `pieceId`. The rating tool searches from 14
-days ago by default; pass `from` for older meals. A meal's `rating: null` means unavailable, while a
-rating object with `level: null` means unrated. Do not infer rating availability from delivery status.
+days ago by default; pass both `from` and `to` to bound older lookups to the meal's day or week.
+A meal's `rating: null` means unavailable, while a rating object with `level: null` means unrated.
+Do not infer rating availability from delivery status.
 
 Ask for the user's actual score and feedback; do not manufacture a rating from their food preferences.
 Optional reasons use the tool schema's compliment codes for 4–5 and issue codes for 1–3. Omitted
-feedback stays unchanged; explicit empty comments or reason arrays clear it. When switching score
-categories, incompatible stored reasons are removed. Existing attachments are kept.
+feedback stays unchanged; explicit empty comments or reason arrays clear it. Known incompatible
+stored reasons are removed, unknown server codes are preserved, and duplicates are ignored.
+Existing attachments are kept. Check the old and new score shown in a score-change preview.
 
 `forGuest: true` excludes this rating from the user's future meal suggestions. Set
 `allowRatingFollowUps` only when the user states a preference; it applies to this rating and does not

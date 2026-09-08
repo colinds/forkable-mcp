@@ -105,12 +105,13 @@ List the delivery first, supplying `from` and `to` for past meals. Each owned me
 
 Use `rate_meal` with the delivery ID, the meal's `pieceId`, and a `level` from 1–5. It previews first;
 call again with the same arguments and its `confirmToken` to submit. The search starts 14 days ago
-by default; pass `from` to rate an older meal.
+by default; pass both `from` and `to` to limit the lookup to an older day or week.
 
 Optional `reasons`, `comment`, `forGuest`, and `allowRatingFollowUps` edit the feedback. Omitted fields
 keep their current values; an empty comment or reason array clears it. Levels 4–5 accept compliment
-codes, while 1–3 accept issue codes listed in the tool schema. Changing score categories removes
-incompatible stored reasons. Marking a meal as a guest meal excludes its rating from your future
+codes, while 1–3 accept issue codes listed in the tool schema. Known incompatible stored reasons are
+removed, unknown server codes are preserved, and duplicates are ignored. Score changes show both
+the old and new score in the preview. Marking a meal as a guest meal excludes its rating from future
 suggestions. Follow-up preferences apply to this rating without changing your account settings.
 Existing attachments are kept; photo editing and buffet ratings are not supported.
 
