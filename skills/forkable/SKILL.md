@@ -102,7 +102,9 @@ Existing attachments are kept. Check the old and new score shown in a score-chan
 `forGuest: true` excludes this rating from the user's future meal suggestions. Set
 `allowRatingFollowUps` only when the user states a preference; it applies to this rating and does not
 change account settings. Show the exact score, feedback, and preferences in the preview before
-confirming. Use delivery lists and recommendations to compare meals; no tool explains the model's
+confirming. If the preference is unreported, explain that omission lets Forkable apply its default,
+which may enable contact about the rating. Do not describe that as preserving a known preference.
+Use delivery lists and recommendations to compare meals; no tool explains the model's
 reasoning or reports ranks beyond the returned recommendations.
 
 ## Dietary advisory

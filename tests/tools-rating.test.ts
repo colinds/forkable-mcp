@@ -142,7 +142,8 @@ describe("meal ratings", () => {
     expect(structured(preview).mode).toBe("preview");
     expect(textOf(preview)).toContain("Lunch bowl (piece mine)");
     expect(textOf(preview)).toContain("5/5");
-    expect(textOf(preview)).toContain("allow follow-ups: unchanged (not reported)");
+    expect(textOf(preview)).toContain("allow follow-ups: Forkable default (not reported)");
+    expect(textOf(preview)).not.toContain("unchanged");
     expect(textOf(preview)).not.toContain("500");
     expect(mutations).toEqual([]);
     expect(queries.filter((query) => query.includes("myDeliveries"))).toHaveLength(1);

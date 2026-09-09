@@ -152,6 +152,11 @@ that known request shape; the `errorDetails` behavior observed on meal-order mut
 establish support for that field on rating mutations. The dashboard's textarea sends a string for
 comments, including empty strings. Server persistence of clearing edits has not been live-tested.
 
+A live initial rating submission and readback succeeded with the null attachment and `errors`-only
+payload selection. An omitted `allowRatingFollowUps` changed from unreported to `true` in the
+readback. Describe an unreported preference as using Forkable's default, not as remaining unchanged;
+do not invent a local default or change the account-wide preference.
+
 Scores are integers from 1–5. Levels 4–5 use the dashboard's compliment codes; 1–3 use its issue
 codes. Explicit incompatible reasons are rejected. Omitted reasons retain unknown server codes and
 drop only known incompatible codes, even when the stored level is absent. Duplicate reasons are

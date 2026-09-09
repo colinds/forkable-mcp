@@ -113,6 +113,9 @@ codes, while 1–3 accept issue codes listed in the tool schema. Known incompati
 removed, unknown server codes are preserved, and duplicates are ignored. Score changes show both
 the old and new score in the preview. Marking a meal as a guest meal excludes its rating from future
 suggestions. Follow-up preferences apply to this rating without changing your account settings.
+If Forkable has not reported a follow-up preference, omitting it lets Forkable apply its default,
+which may allow its team to contact you about your feedback. Set `allowRatingFollowUps: false`
+to opt out for the rating.
 Existing attachments are kept; photo editing and buffet ratings are not supported.
 
 ## Authentication

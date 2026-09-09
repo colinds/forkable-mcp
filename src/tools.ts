@@ -129,7 +129,7 @@ const RATING_ISSUES = [
 ] as const;
 
 function ratingFlag(value: boolean | null | undefined): string {
-  if (value == null) return "unchanged (not reported)";
+  if (value == null) return "Forkable default (not reported)";
   return value ? "yes" : "no";
 }
 
@@ -1288,7 +1288,9 @@ export function registerAllTools(server: McpServer, writeGate: WriteGate): void 
         allowRatingFollowUps: z
           .boolean()
           .optional()
-          .describe("Allow Forkable to follow up on this rating; does not change account settings"),
+          .describe(
+            "Allow Forkable to contact you about this rating; omission keeps a reported preference or uses Forkable's default, which may enable follow-ups",
+          ),
         from: dateArg().optional().describe("Search start (YYYY-MM-DD); defaults to 14 days ago"),
         to: dateArg()
           .optional()
