@@ -76,11 +76,6 @@ export function resolveItemModifiers(
   return ordered;
 }
 
-/** The API-ordered default for a required modifier. */
-export function defaultOption(mod: MenuModifier): MenuOption | undefined {
-  return mod.options[0];
-}
-
 /** Added price (dollars) of an option: its own price, else the modifier's option-set price, else 0. */
 function optionPrice(opt: MenuOption, mod: MenuModifier, menu?: Menu): number {
   if (typeof opt.price === "number") return opt.price;
@@ -96,7 +91,6 @@ export interface BuildSelectionsInput {
   item: MenuItem;
   modifiers?: MenuModifier[]; // defaults to resolveItemModifiers(item)
   choices?: ModifierChoice[]; // explicit user choices
-  previous?: SelectionsHash | null; // an existing piece's stored selections (for round-trip / defaults)
 }
 
 const normalizeName = (value: string): string => value.trim().toLowerCase();
@@ -107,10 +101,9 @@ function resolveUnique<T>(values: T[], name: string, label: (value: T) => string
   return values.filter((value) => normalizeName(label(value)) === normalized);
 }
 
-/** Build selections from explicit choices, prior values, or API-ordered defaults. */
+/** Build selections from explicit choices or API-ordered defaults. */
 export function buildSelectionsHash(input: BuildSelectionsInput): BuildSelectionsResult {
   const mods = input.modifiers ?? resolveItemModifiers(input.item);
-  const prev = input.previous ?? null;
   const violations: SelectionViolation[] = [];
   const summary: { modifier: string; options: string[]; extra: number }[] = [];
   const selectionsHash: SelectionsHash = {};
@@ -190,13 +183,11 @@ export function buildSelectionsHash(input: BuildSelectionsInput): BuildSelection
     const label = modLabel(mod);
     const hasUserChoice = chosenByMod.has(mod.id);
     const user = chosenByMod.get(mod.id);
-    const previous = prev?.[String(mod.id)];
 
     let selected: number[];
     if (isSingleSelect(mod)) {
       if (hasUserChoice) selected = user?.length ? [user[0]!] : [-1];
-      else if (previous?.length) selected = [previous[0]!];
-      else selected = [mod.required ? (defaultOption(mod)?.id ?? -1) : -1];
+      else selected = [mod.required ? (mod.options[0]?.id ?? -1) : -1];
 
       if (mod.required && selected[0] === -1) {
         violations.push({ modifierId: mod.id, label, code: "required", selected: 0 });
@@ -212,7 +203,6 @@ export function buildSelectionsHash(input: BuildSelectionsInput): BuildSelection
       }
     } else {
       if (user) selected = user;
-      else if (previous?.length) selected = previous;
       else selected = mod.required && mod.options[0] ? [mod.options[0].id] : [];
 
       const min = mod.min ?? 0;

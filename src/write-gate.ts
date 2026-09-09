@@ -1,4 +1,5 @@
 import { createHash, randomBytes } from "node:crypto";
+import type { CallToolResult } from "@modelcontextprotocol/server";
 import { baseCodes, MutationError, MutationOutcomeUnknownError } from "@/net/errors.ts";
 import { type Guard } from "@/order/guards.ts";
 
@@ -8,6 +9,7 @@ export interface ExecutableWritePlan {
   input: Record<string, unknown>;
   summary: string;
   deliveryIds: number[];
+  reconciliationRange?: { from: string; to: string };
 }
 
 export interface WritePlan extends ExecutableWritePlan {
@@ -24,12 +26,6 @@ export interface GateCtx {
   execute: (plan: ExecutableWritePlan) => Promise<unknown>;
 }
 
-export interface ToolResultLike {
-  content: { type: "text"; text: string }[];
-  structuredContent?: Record<string, unknown>;
-  isError?: boolean;
-}
-
 export interface WriteGateCall {
   tool: string;
   argsHash: string;
@@ -37,7 +33,7 @@ export interface WriteGateCall {
   plan: () => Promise<WritePlan>;
 }
 
-export type WriteGate = (ctx: GateCtx, call: WriteGateCall) => Promise<ToolResultLike>;
+export type WriteGate = (ctx: GateCtx, call: WriteGateCall) => Promise<CallToolResult>;
 
 export interface WriteGateOptions {
   ttlMs?: number;
@@ -147,6 +143,7 @@ export function createWriteGate(options: WriteGateOptions = {}): WriteGate {
       input: plan.input,
       summary: plan.summary,
       deliveryIds: plan.deliveryIds,
+      reconciliationRange: plan.reconciliationRange,
     };
     pending.set(token, { ...binding, expiresAt, plan: structuredClone(executable) });
     return { token, expiresAt };
@@ -170,7 +167,7 @@ export function createWriteGate(options: WriteGateOptions = {}): WriteGate {
   };
 
   return async (ctx, call) => {
-    const blockedResult = (plan: WritePlan, note?: string): ToolResultLike => {
+    const blockedResult = (plan: WritePlan, note?: string): CallToolResult => {
       const blocking = blockers(plan.guards);
       return {
         isError: true,
@@ -191,7 +188,7 @@ export function createWriteGate(options: WriteGateOptions = {}): WriteGate {
     const previewResult = async (
       plan: WritePlan,
       confirmationError?: { reason: TakeFailure; message: string },
-    ): Promise<ToolResultLike> => {
+    ): Promise<CallToolResult> => {
       if (blockers(plan.guards).length) return blockedResult(plan, confirmationError?.message);
 
       const actor = await ctx.resolveActor();
@@ -277,6 +274,7 @@ export function createWriteGate(options: WriteGateOptions = {}): WriteGate {
             reconciliation: {
               tool: "list_deliveries",
               deliveryIds: plan.deliveryIds,
+              ...(plan.reconciliationRange ? { arguments: plan.reconciliationRange } : {}),
             },
           },
         };

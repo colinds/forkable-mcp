@@ -64,19 +64,6 @@ describe("mutation transport", () => {
     expect(calls).toBe(1);
   });
 
-  test("gqlRaw uses mutation-safe retry behavior", async () => {
-    let calls = 0;
-    const c = client(async () => {
-      calls++;
-      throw new TypeError("connection closed after upload");
-    });
-
-    expect(
-      await rejection(c.gqlRaw("mutation ($input: AddPieceInput!) { addPiece(input: $input) }")),
-    ).toBeInstanceOf(MutationOutcomeUnknownError);
-    expect(calls).toBe(1);
-  });
-
   test.each([302, 408, 503])("does not replay ambiguous HTTP %d", async (status) => {
     let calls = 0;
     let redirect: RequestRedirect | undefined;

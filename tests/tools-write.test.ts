@@ -21,7 +21,6 @@ function menu(price: number | null = 12.5): Menu {
     name: "Test Kitchen",
     sections: [
       {
-        id: 1,
         items: [
           {
             id: ITEM_ID,
@@ -43,7 +42,7 @@ function delivery(
   return {
     id,
     availableMenuIds: [MENU_ID],
-    orders: [{ id: id * 100, menu: { id: MENU_ID }, pieces }],
+    orders: [{ id: id * 100, pieces }],
   };
 }
 
@@ -132,7 +131,6 @@ describe("write tool planning", () => {
       id: MENU_ID + 1,
       sections: [
         {
-          id: 2,
           items: [{ id: ITEM_ID, menuId: MENU_ID + 1, name: "Other Bowl", modifiers: [] }],
         },
       ],
@@ -270,12 +268,10 @@ describe("write tool planning", () => {
       orders: [
         {
           id: 100,
-          menu: { id: MENU_ID },
           pieces: [{ id: "first", itemId: 1, menuId: MENU_ID, userId: USER_ID }],
         },
         {
           id: 101,
-          menu: { id: MENU_ID },
           pieces: [{ id: "second", itemId: 2, menuId: MENU_ID, userId: USER_ID }],
         },
       ],
@@ -437,43 +433,31 @@ describe("write tool planning", () => {
     expect(dietChecks).toBe(2);
   });
 
-  test("remove and skip require positive ownership", async () => {
+  test("remove requires positive ownership", async () => {
     deliveries = [delivery(1, [{ id: "theirs", itemId: 1, menuId: MENU_ID, userId: USER_ID + 1 }])];
-    const results = await Promise.all([
-      handlers.get("remove_meal")!({ deliveryId: 1, pieceId: "theirs" }),
-      handlers.get("skip_delivery")!({ deliveryId: 1 }),
-    ]);
-    for (const result of results) {
-      expect(result.isError).toBe(true);
-      expect(structured(result).confirmToken).toBeUndefined();
-    }
+    const result = await handlers.get("remove_meal")!({ deliveryId: 1, pieceId: "theirs" });
+    expect(result.isError).toBe(true);
+    expect(structured(result).confirmToken).toBeUndefined();
   });
 
-  test("skip explains how to remove multiple positively owned meals", async () => {
+  test("remove refuses duplicate piece IDs across orders", async () => {
+    const piece = { id: 7, itemId: 1, menuId: MENU_ID, userId: USER_ID };
     deliveries = [
-      delivery(1, [
-        { id: "first", itemId: 1, menuId: MENU_ID, userId: USER_ID },
-        { id: "second", itemId: 2, menuId: MENU_ID, userId: USER_ID },
-      ]),
+      {
+        id: 1,
+        orders: [
+          { id: 100, pieces: [piece] },
+          { id: 101, pieces: [{ ...piece, id: "7" }] },
+        ],
+      },
     ];
-    const ambiguous = await handlers.get("skip_delivery")!({ deliveryId: 1 });
-    const message = ambiguous.content[0]?.type === "text" ? ambiguous.content[0].text : "";
-    expect(ambiguous.isError).toBe(true);
-    expect(structured(ambiguous).confirmToken).toBeUndefined();
-    expect(message).toContain("remove_meal");
-    expect(message).toContain("pieceId");
-    expect(message).not.toContain("sourcePieceId");
+    const result = await handlers.get("remove_meal")!({ deliveryId: 1, pieceId: "7" });
+    expect(result.isError).toBe(true);
+    expect(result.content[0]?.type === "text" ? result.content[0].text : "").toBe(
+      "Error: Piece 7 was not found uniquely on delivery 1.",
+    );
+    expect(structured(result).confirmToken).toBeUndefined();
     expect(mutations).toEqual([]);
-
-    deliveries = [
-      delivery(1, [
-        { id: "mine", itemId: 1, menuId: MENU_ID, userId: USER_ID },
-        { id: "theirs", itemId: 2, menuId: MENU_ID, userId: USER_ID + 1 },
-        { id: "unknown", itemId: 3, menuId: MENU_ID },
-      ]),
-    ];
-    const oneOwned = await handlers.get("skip_delivery")!({ deliveryId: 1 });
-    expect(structured(oneOwned).mode).toBe("preview");
   });
 
   test("blocks unknown prices only when a preview ceiling is configured", async () => {

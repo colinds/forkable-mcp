@@ -1,7 +1,7 @@
 ---
 name: forkable
 description: >-
-  Use the forkable MCP server to read, choose, change, skip, confirm, and track meals. Use for
+  Use the forkable MCP server to read, choose, change, rate, confirm, and track meals. Use for
   Forkable delivery, menu, recommendation, meal, and courier-status requests, including workflows
   that also use a more focused Forkable skill.
 ---
@@ -78,12 +78,34 @@ extra meal is covered or will be charged; Forkable decides that.
 duplicate delivery IDs. A delivery with several owned meals must be handled individually with
 `set_meal` and `sourcePieceId`.
 
-`remove_meal` requires an owned `pieceId`. `skip_delivery` removes the only positively owned
-meal on a delivery; use `remove_meal` separately when more than one is owned.
+`remove_meal` requires an owned `pieceId`. To skip a delivery, list it and remove each meal the user
+wants removed, using its exact owned `pieceId`. This does not disable auto-ordering for future days.
 
 `confirm_delivery` confirms by default. Pass `confirm: false` to unconfirm without removing the
 meal. `set_meal` can use `autoConfirm` when the user wants the replacement and confirmation in one
 mutation.
+
+## Rate a meal
+
+Use `rate_meal` for a 1–5 score or feedback edits on one owned meal. List past deliveries with explicit
+`from` and `to`, then use the returned `deliveryId` and `pieceId`. The rating tool searches from 14
+days ago by default; pass both `from` and `to` to bound older lookups to the meal's day or week.
+A meal's `rating: null` means unavailable, while a rating object with `level: null` means unrated.
+Do not infer rating availability from delivery status.
+
+Ask for the user's actual score and feedback; do not manufacture a rating from their food preferences.
+Optional reasons use the tool schema's compliment codes for 4–5 and issue codes for 1–3. Omitted
+feedback stays unchanged; explicit empty comments or reason arrays clear it. Known incompatible
+stored reasons are removed, unknown server codes are preserved, and duplicates are ignored.
+Existing attachments are kept. Check the old and new score shown in a score-change preview.
+
+`forGuest: true` excludes this rating from the user's future meal suggestions. Set
+`allowRatingFollowUps` only when the user states a preference; it applies to this rating and does not
+change account settings. Show the exact score, feedback, and preferences in the preview before
+confirming. If the preference is unreported, explain that omission lets Forkable apply its default,
+which may enable contact about the rating. Do not describe that as preserving a known preference.
+Use delivery lists and recommendations to compare meals; no tool explains the model's
+reasoning or reports ranks beyond the returned recommendations.
 
 ## Dietary advisory
 
@@ -123,7 +145,8 @@ Review the replacement preview before using its new token.
 - `rejected`: Forkable definitively refused the write. Stop and report the reasons; do
   not reuse the consumed token.
 - `outcome_unknown`: Forkable may have applied the write. Do not retry. Refresh the delivery IDs
-  named in `reconciliation` with `list_deliveries`, then compare the current state.
+  named in `reconciliation` with `list_deliveries`, passing `reconciliation.arguments` when present
+  so historical ratings are included, then compare the current state.
 
 Mutations are not retried after an ambiguous transport or server failure.
 
@@ -138,5 +161,6 @@ Quote them as reported. Do not calculate company coverage or an authoritative ou
 
 ## Unsupported account actions
 
-The tools do not rate meals, report missing or incorrect items, change vacation settings, edit
-Forkable dietary settings, or switch offices. Direct the user to Forkable for those actions.
+The tools do not submit buffet ratings, edit rating photos, report missing or incorrect items,
+change vacation settings, edit Forkable dietary settings, or switch offices. Direct the user to Forkable
+for those actions.
