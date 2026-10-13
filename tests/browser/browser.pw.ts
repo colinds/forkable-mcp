@@ -630,3 +630,56 @@ test("compact search stays focused after confirming a meal", async ({ page }) =>
   );
   await expect(ui.getByRole("button", { name: /View Another bowl/ })).toBeVisible();
 });
+
+for (const many of [false, true]) {
+  test(`inline frame fits content despite host minimums (many=${many})`, async ({ page }) => {
+    await page.setViewportSize({ width: 1000, height: 900 });
+    await page.goto(`/?initial-search&auto-size${many ? "&many-matches" : ""}`);
+    const ui = page.frameLocator("iframe");
+    const cards = ui.getByRole("region", { name: "Available meals" }).getByRole("button");
+    await expect(cards).toHaveCount(many ? 17 : 1);
+    await expect
+      .poll(async () => (await page.locator("iframe").boundingBox())!.height)
+      .toBeLessThanOrEqual(many ? 720 : 600);
+    if (many)
+      expect(
+        await ui.locator("#app").evaluate((element) => element.scrollHeight > element.clientHeight),
+      ).toBe(true);
+    await ui.getByLabel("Find a meal").fill("no matching dishes");
+    await expect(ui.getByText("No meals match your search.")).toBeVisible();
+    await expect
+      .poll(async () => (await page.locator("iframe").boundingBox())!.height)
+      .toBeLessThan(350);
+    await page.evaluate(() => {
+      (window as unknown as { changeDisplayMode: (mode: string) => void }).changeDisplayMode(
+        "fullscreen",
+      );
+      document.querySelector("iframe")!.style.height = "1200px";
+    });
+    await expect(ui.locator("html")).toHaveAttribute("data-display-mode", "fullscreen");
+    await expect(page.locator("iframe")).toHaveCSS("height", "1200px");
+    await page.evaluate(() =>
+      (window as unknown as { changeDisplayMode: (mode: string) => void }).changeDisplayMode(
+        "inline",
+      ),
+    );
+    await expect(ui.getByRole("heading", { name: "Search meals" })).toBeVisible();
+    await expect
+      .poll(async () => (await page.locator("iframe").boundingBox())!.height)
+      .toBeLessThan(350);
+    const sizes = await page.evaluate(() => (window as unknown as { sizes: number[] }).sizes);
+    expect(sizes.length).toBeLessThan(20);
+  });
+}
+
+test("size reporting does not loop when the host clamps its frame", async ({ page }) => {
+  await page.goto("/?initial-search&auto-size&clamp-size");
+  const ui = page.frameLocator("iframe");
+  await expect(ui.getByRole("button", { name: /View Another bowl/ })).toBeVisible();
+  // Several animation frames expose a host-notification/resize feedback loop.
+  await page.waitForTimeout(500);
+  const sizes = await page.evaluate(() => (window as unknown as { sizes: number[] }).sizes);
+  expect(sizes.length).toBeGreaterThan(0);
+  expect(sizes.length).toBeLessThan(10);
+  expect(sizes.at(-1)).toBeLessThan(600);
+});

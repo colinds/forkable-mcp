@@ -16,6 +16,12 @@ const item = {
   diet: "Vegetarian",
   description: "Tofu with mango, pineapple and chili",
 };
+function searchItems() {
+  if (params.has("no-matches")) return [];
+  if (params.has("many-matches"))
+    return Array.from({ length: 17 }, (_, index) => ({ menuId: 10, itemId: index + 100 }));
+  return [{ menuId: 20, itemId: 7 }];
+}
 const frame = document.querySelector<HTMLIFrameElement>("iframe")!;
 const bridge = new AppBridge(
   null,
@@ -47,6 +53,15 @@ const bridge = new AppBridge(
 Object.assign(window, {
   changeDisplayMode: (displayMode: "inline" | "fullscreen") =>
     bridge.setHostContext({ displayMode }),
+});
+const sizes: number[] = [];
+Object.assign(window, { sizes });
+bridge.addEventListener("sizechange", ({ height }) => {
+  if (height == null) return;
+  sizes.push(height);
+  if (params.has("auto-size") && !params.has("clamp-size")) frame.style.height = `${height}px`;
+  if (params.has("clamp-size"))
+    bridge.setHostContext({ containerDimensions: { width: 1000, height: 1600 } });
 });
 bridge.onupdatemodelcontext = async (context) => {
   if (params.has("text-context") && context.structuredContent)
@@ -247,8 +262,22 @@ const respond = async (
         content: [{ type: "text", text: "Menus are not available for this historical delivery." }],
       };
   }
-  if (args.name === "search_items")
-    result = { items: params.has("no-matches") ? [] : [{ menuId: 20, itemId: 7 }] };
+  if (args.name === "get_menus" && !args.arguments?.itemId && params.has("many-matches")) {
+    result = {
+      menus: [
+        {
+          menuId: 10,
+          name: "Seoul Kitchen",
+          items: searchItems().map(({ itemId }) => ({
+            ...item,
+            itemId,
+            name: `Curry bowl ${itemId}`,
+          })),
+        },
+      ],
+    };
+  }
+  if (args.name === "search_items") result = { items: searchItems() };
   if (args.name === "recommend_meals")
     result = {
       recommendations: [
@@ -312,10 +341,10 @@ bridge.oninitialized = async () => {
     result = await respond({ name: "get_delivery_status", arguments: input });
   }
   if (params.has("initial-search")) {
-    input = { deliveryId: 1, query: "tofu" };
+    input = { deliveryId: 1, query: params.has("many-matches") ? "curry" : "tofu" };
     result = {
       content: [],
-      structuredContent: { items: params.has("no-matches") ? [] : [{ menuId: 20, itemId: 7 }] },
+      structuredContent: { items: searchItems() },
     };
   }
   await bridge.sendToolInput({ arguments: input });
@@ -347,4 +376,12 @@ document.querySelector("button")!.addEventListener("click", () =>
     },
   }),
 );
+if (params.has("auto-size")) {
+  frame.style.height = "1600px";
+  frame.addEventListener("load", () => {
+    // Reproduce a host document whose minimum height follows its iframe viewport.
+    frame.contentDocument!.documentElement.style.minHeight = "100vh";
+    frame.contentDocument!.body.style.minHeight = "100vh";
+  });
+}
 frame.src = "/app";
