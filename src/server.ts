@@ -3,6 +3,8 @@
 import { McpServer } from "@modelcontextprotocol/server";
 import { serveStdio } from "@modelcontextprotocol/server/stdio";
 import { registerAllTools } from "./tools.ts";
+import { FORK_ICONS } from "./ui-icon.ts";
+import { registerMealBrowser } from "./ui-server.ts";
 import pkg from "../package.json" with { type: "json" };
 import { ForkableClient } from "@/net/client.ts";
 import { provisionFromEnvIfNeeded } from "@/auth/ingest.ts";
@@ -10,8 +12,14 @@ import { createWriteGate } from "@/write-gate.ts";
 
 /** Build a fresh MCP server with all tools registered (one per stdio connection). */
 function makeServer(): McpServer {
-  const server = new McpServer({ name: "forkable", version: pkg.version });
+  const server = new McpServer({
+    name: "forkable",
+    title: "Forkable",
+    version: pkg.version,
+    icons: FORK_ICONS,
+  });
   registerAllTools(server, createWriteGate());
+  registerMealBrowser(server);
   return server;
 }
 

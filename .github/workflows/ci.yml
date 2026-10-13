@@ -16,6 +16,17 @@ jobs:
       - run: bun install --frozen-lockfile
       - run: bun run check
 
+  browser:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: bun install --frozen-lockfile
+      - run: bunx playwright install --with-deps chromium
+      - run: bun run test:browser
+
   package:
     runs-on: ubuntu-latest
     steps:

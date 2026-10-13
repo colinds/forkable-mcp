@@ -2,12 +2,22 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { CallToolResult, McpServer } from "@modelcontextprotocol/server";
+import { type CallToolResult, McpServer, InMemoryTransport } from "@modelcontextprotocol/server";
+import { APP_URI } from "@/ui-server.ts";
+import { Client } from "@modelcontextprotocol/client";
 import { patchSession } from "@/auth/session.ts";
 import { ForkableClient } from "@/net/client.ts";
 import { type Delivery, type Menu } from "@/order/types.ts";
 import { registerAllTools } from "@/tools.ts";
 import { createWriteGate } from "@/write-gate.ts";
+
+import {
+  deliveriesSchema,
+  deliveryStatusSchema,
+  menusSchema,
+  itemDetailSchema,
+  recommendationsSchema,
+} from "@/app/lib/model.ts";
 
 type ToolHandler = (args: Record<string, unknown>) => Promise<CallToolResult>;
 
@@ -162,6 +172,7 @@ describe("read tool responses", () => {
 
     handlers = new Map();
     const server = {
+      registerResource() {},
       registerTool(name: string, _definition: unknown, handler: ToolHandler) {
         handlers.set(name, handler);
       },
@@ -174,6 +185,169 @@ describe("read tool responses", () => {
     ForkableClient.prototype.query = originalQuery;
     delete process.env.FORKABLE_MCP_HOME;
     rmSync(home, { recursive: true, force: true });
+  });
+
+  test("composer mentions advertise discovery and resolve fresh account-scoped resources", async () => {
+    const server = new McpServer({ name: "mentions-test", version: "0" });
+    registerAllTools(server, createWriteGate());
+    const client = new Client({ name: "test", version: "0" });
+    const [ct, st] = InMemoryTransport.createLinkedPair();
+    try {
+      await Promise.all([server.connect(st), client.connect(ct)]);
+      const definitions = (await client.listTools()).tools;
+      for (const name of [
+        "list_deliveries",
+        "get_menus",
+        "search_items",
+        "recommend_meals",
+        "get_delivery_status",
+      ]) {
+        expect(definitions.find((tool) => tool.name === name)?.["_meta"]).toMatchObject({
+          ui: { resourceUri: APP_URI },
+          "openai/outputTemplate": APP_URI,
+          "openai/widgetAccessible": true,
+        });
+      }
+      expect(definitions.find((tool) => tool.name === "set_meal")?.["_meta"]).toMatchObject({
+        ui: { visibility: ["model", "app"] },
+        "openai/widgetAccessible": true,
+      });
+      for (const name of ["set_meal_all", "remove_meal", "rate_meal", "confirm_delivery"])
+        expect(definitions.find((tool) => tool.name === name)?.["_meta"]).toMatchObject({
+          ui: { visibility: ["model"] },
+        });
+      const definition = (await client.listTools()).tools.find(
+        (tool) => tool.name === "search_mentions",
+      );
+      expect(definition?.["_meta"]?.["openai/extensions"]).toEqual({ "mentions/search": {} });
+      const deliveries = await client.callTool({
+        name: "search_mentions",
+        arguments: { query: "" },
+      });
+      expect(deliveries.structuredContent).toMatchObject({
+        items: [{ name: "Fri, Aug 28 · Lunch", title: "Fri, Aug 28 · Lunch" }],
+      });
+
+      const weekday = await client.callTool({
+        name: "search_mentions",
+        arguments: { query: "Friday" },
+      });
+      expect(
+        (weekday.structuredContent as { items: { uri: string }[] }).items.some(
+          (item) => item.uri === `forkable://delivery/${DELIVERY_ID}`,
+        ),
+      ).toBe(true);
+      const naturalDate = await client.callTool({
+        name: "search_mentions",
+        arguments: { query: "Aug 28" },
+      });
+      expect(
+        (naturalDate.structuredContent as { items: { uri: string }[] }).items.some(
+          (item) => item.uri === `forkable://delivery/${DELIVERY_ID}`,
+        ),
+      ).toBe(true);
+      const result = await client.callTool({
+        name: "search_mentions",
+        arguments: { query: "useful" },
+      });
+      const items = (result.structuredContent as { items: { uri: string; title: string }[] }).items;
+      expect(items).toHaveLength(1);
+      expect(items[0]!.uri).toBe(
+        `forkable://delivery/${DELIVERY_ID}/menu/${MENU_ID}/item/${ITEM_ID}`,
+      );
+      const resource = await client.readResource({ uri: items[0]!.uri });
+      expect(resource.contents[0]).toMatchObject({ mimeType: "text/markdown" });
+      expect(
+        resource.contents[0] && "text" in resource.contents[0] ? resource.contents[0].text : "",
+      ).toContain("A useful description");
+      ForkableClient.prototype.gql = (async () => ({
+        myDeliveries: [],
+        me: { id: USER_ID + 1 },
+      })) as typeof ForkableClient.prototype.gql;
+      await expect(client.readResource({ uri: items[0]!.uri })).rejects.toThrow("no longer");
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+
+  test("status lookups send an explicit end date and reject backwards bounds", async () => {
+    const documents: string[] = [];
+    ForkableClient.prototype.gql = (async (document: string) => {
+      documents.push(document);
+      return { myDeliveries: [structuredClone(delivery)], me: { id: USER_ID } };
+    }) as typeof ForkableClient.prototype.gql;
+    const result = await handlers.get("get_delivery_status")!({
+      deliveryId: DELIVERY_ID,
+      from: "2026-08-28",
+      to: "2026-08-28",
+    });
+    expect(result.isError).not.toBe(true);
+    expect(documents[0]).toMatch(/from:\s*"2026-08-28"/);
+    expect(documents[0]).toMatch(/to:\s*"2026-08-28"/);
+    expect(
+      (
+        await handlers.get("get_delivery_status")!({
+          deliveryId: DELIVERY_ID,
+          from: "2026-08-29",
+          to: "2026-08-28",
+        })
+      ).isError,
+    ).toBe(true);
+    expect(documents).toHaveLength(1);
+  });
+
+  test("actual read-tool results satisfy the browser contracts", async () => {
+    expect(
+      deliveryStatusSchema.safeParse(
+        structured(await handlers.get("get_delivery_status")!({ deliveryId: DELIVERY_ID })),
+      ).success,
+    ).toBe(true);
+    expect(
+      deliveriesSchema.safeParse(structured(await handlers.get("list_deliveries")!({}))).success,
+    ).toBe(true);
+    expect(
+      menusSchema.safeParse(
+        structured(await handlers.get("get_menus")!({ deliveryId: DELIVERY_ID })),
+      ).success,
+    ).toBe(true);
+    expect(
+      itemDetailSchema.safeParse(
+        structured(
+          await handlers.get("get_menus")!({
+            deliveryId: DELIVERY_ID,
+            menuId: MENU_ID,
+            itemId: ITEM_ID,
+          }),
+        ),
+      ).success,
+    ).toBe(true);
+    expect(
+      recommendationsSchema.safeParse(
+        structured(await handlers.get("recommend_meals")!({ deliveryId: DELIVERY_ID })),
+      ).success,
+    ).toBe(true);
+  });
+
+  test("empty reads retain structured collections for MCP Apps", async () => {
+    ForkableClient.prototype.query = (async (root: string) =>
+      root === "searchMenuItems" ? { nodes: [] } : []) as typeof ForkableClient.prototype.query;
+    expect(structured(await handlers.get("get_menus")!({ deliveryId: DELIVERY_ID }))).toEqual({
+      menus: [],
+    });
+    expect(
+      structured(
+        await handlers.get("search_items")!({ deliveryId: DELIVERY_ID, query: "missing" }),
+      ),
+    ).toEqual({ items: [] });
+    expect(structured(await handlers.get("recommend_meals")!({ deliveryId: DELIVERY_ID }))).toEqual(
+      { recommendations: [] },
+    );
+    ForkableClient.prototype.gql = (async () => ({
+      myDeliveries: [],
+      me: { id: USER_ID },
+    })) as typeof ForkableClient.prototype.gql;
+    expect(structured(await handlers.get("list_deliveries")!({}))).toEqual({ deliveries: [] });
   });
 
   test("profile is human-readable without duplicating the server objects", async () => {
@@ -213,7 +387,7 @@ describe("read tool responses", () => {
     });
   });
 
-  test("menu reads keep exact IDs and choices without media or policy fields", async () => {
+  test("menu reads include photos and exact IDs and choices", async () => {
     const list = await handlers.get("get_menus")!({ deliveryId: DELIVERY_ID });
     const compactMenu = (structured(list).menus as Record<string, unknown>[])[0]!;
     const compactItem = (compactMenu.items as Record<string, unknown>[])[0]!;
@@ -225,12 +399,14 @@ describe("read tool responses", () => {
           itemId: ITEM_ID,
           name: "Test Bowl",
           price: 12.5,
+          imageUrl: "https://images.example/bowl.jpg",
+          description: "A useful description",
           diet: "vegetarian",
           hasModifiers: true,
         },
       ],
     });
-    expect(compactItem).not.toHaveProperty("imageUrl");
+    expect(compactItem.imageUrl).toBe("https://images.example/bowl.jpg");
     expect(compactItem).not.toHaveProperty("dietLevel");
 
     const detail = await handlers.get("get_menus")!({
@@ -243,6 +419,8 @@ describe("read tool responses", () => {
       itemId: ITEM_ID,
       name: "Test Bowl",
       price: 12.5,
+      description: "A useful description",
+      imageUrl: "https://images.example/bowl.jpg",
       modifiers: [
         {
           id: 30,
@@ -256,13 +434,19 @@ describe("read tool responses", () => {
     });
   });
 
-  test("search and recommendation results omit image URLs and private scores", async () => {
+  test("search and recommendations include photos without private scores", async () => {
     const search = await handlers.get("search_items")!({
       deliveryId: DELIVERY_ID,
       query: "bowl",
     });
     expect(structured(search).items).toEqual([
-      { itemId: ITEM_ID, menuId: MENU_ID, name: "Test Bowl", price: 12.5 },
+      {
+        itemId: ITEM_ID,
+        menuId: MENU_ID,
+        name: "Test Bowl",
+        price: 12.5,
+        imageUrl: "https://images.example/bowl.jpg",
+      },
     ]);
 
     const recommendations = await handlers.get("recommend_meals")!({
@@ -275,6 +459,7 @@ describe("read tool responses", () => {
         rank: 1,
         name: "Test Bowl",
         price: 12.5,
+        imageUrl: "https://images.example/bowl.jpg",
       },
     ]);
   });
