@@ -489,6 +489,17 @@ test("text-only context hosts receive no unsupported structured payload", async 
     )
     .toBe(true);
   expect((await updates()).every((update) => !update.structuredContent)).toBe(true);
+  expect(
+    await page.evaluate(() =>
+      (
+        window as unknown as {
+          contextUpdates: { content?: { annotations?: { audience?: string[] } }[] }[];
+        }
+      ).contextUpdates.every((update) =>
+        update.content?.every((block) => block.annotations?.audience?.includes("assistant")),
+      ),
+    ),
+  ).toBe(true);
   await expect(ui.getByText("Chat context could not be updated.", { exact: false })).toHaveCount(0);
 });
 
@@ -682,4 +693,60 @@ test("size reporting does not loop when the host clamps its frame", async ({ pag
   expect(sizes.length).toBeGreaterThan(0);
   expect(sizes.length).toBeLessThan(10);
   expect(sizes.at(-1)).toBeLessThan(600);
+});
+
+test("automatic context stays in the background across tab remounts", async ({ page }) => {
+  await page.goto("/?context&restore-context");
+  const ui = page.frameLocator("iframe");
+  const updates = () =>
+    page.evaluate(
+      () =>
+        (
+          window as unknown as {
+            contextUpdates: { content?: unknown[]; structuredContent?: { delivery?: unknown } }[];
+          }
+        ).contextUpdates,
+    );
+  await expect
+    .poll(async () => (await updates()).at(-1)?.structuredContent?.delivery)
+    .toMatchObject({ deliveryId: 1 });
+  expect((await updates()).every((context) => context.content?.length === 0)).toBe(true);
+  for (let reopen = 0; reopen < 3; reopen++) {
+    // Each reload recreates both the host bridge and app with restored context, like reopening a tab.
+    // eslint-disable-next-line no-await-in-loop
+    await page.reload();
+    // eslint-disable-next-line no-await-in-loop
+    await expect(ui.getByRole("button", { name: /View Spicy tofu/ })).toBeEnabled();
+    // Let the context debounce complete; an identical restored view should not be sent again.
+    // eslint-disable-next-line no-await-in-loop
+    await page.waitForTimeout(200);
+    // eslint-disable-next-line no-await-in-loop
+    expect(await updates()).toHaveLength(0);
+  }
+  await ui.getByLabel("Find a meal").fill("mango");
+  await expect
+    .poll(async () => (await updates()).at(-1)?.structuredContent)
+    .toMatchObject({ search: "mango" });
+  expect((await updates()).every((context) => context.content?.length === 0)).toBe(true);
+});
+
+test("restored legacy text attachments are replaced with background state", async ({ page }) => {
+  await page.goto("/?context&restore-context");
+  await expect
+    .poll(() => page.evaluate(() => sessionStorage.getItem("forkable-fixture-context")))
+    .not.toBeNull();
+  await page.evaluate(() => {
+    const context = JSON.parse(sessionStorage.getItem("forkable-fixture-context")!);
+    context.content = Array.from({ length: 4 }, () => ({
+      type: "text",
+      text: "The user is browsing Forkable meal deliveries…",
+    }));
+    sessionStorage.setItem("forkable-fixture-context", JSON.stringify(context));
+  });
+  await page.reload();
+  await expect
+    .poll(() =>
+      page.evaluate(() => JSON.parse(sessionStorage.getItem("forkable-fixture-context")!).content),
+    )
+    .toEqual([]);
 });

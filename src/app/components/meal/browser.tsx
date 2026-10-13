@@ -48,7 +48,12 @@ export function MealBrowser({
       menuView(state.menus, state.recommendations, state.query, state.filters, state.searchMatches),
     [state.menus, state.recommendations, state.query, state.filters, state.searchMatches],
   );
-  const contextFailed = useModelContext(state, view, updateContext);
+  const contextFailed = useModelContext(
+    state,
+    view,
+    updateContext,
+    state.deliveriesLoaded && !state.busy,
+  );
   const { delivery, detail, busy, notice, problem } = state;
   const opener = useRef<HTMLElement | null>(null);
   const date = delivery ? dateLabels(delivery.date) : undefined;

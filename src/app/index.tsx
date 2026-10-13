@@ -7,7 +7,7 @@ import { observeAppSize } from "./lib/host-size.ts";
 import { applyHostContext } from "./lib/host-theme.ts";
 import { type InitialView } from "./lib/initial-view.ts";
 import { browserInputSchema } from "@/shared/contracts/browser.ts";
-import { supportedContext } from "./lib/model-context.ts";
+import { createContextUpdater } from "./lib/model-context.ts";
 import type { CallTool } from "./lib/tools.ts";
 const app = new App(
   { name: "Forkable", version: "1.0.0" },
@@ -26,6 +26,7 @@ let input: InitialView["input"] = {};
 let initial: InitialView | undefined;
 let revision = 0;
 let renderedDisplayMode: string | undefined;
+const updateContext = createContextUpdater(app);
 let cancelled = false;
 let recovering = false;
 let recoveryReadStarted = false;
@@ -58,10 +59,7 @@ function renderView() {
         app.getHostCapabilities()?.updateModelContext?.text ||
         app.getHostCapabilities()?.updateModelContext?.structuredContent ||
         app.getHostCapabilities()?.experimental?.["openai/modelContext"]
-          ? async (context) => {
-              const modalities = app.getHostCapabilities()?.updateModelContext ?? { text: {} };
-              await app.updateModelContext(supportedContext(context, modalities));
-            }
+          ? updateContext
           : undefined
       }
       openLink={app.getHostCapabilities()?.openLinks ? (url) => app.openLink({ url }) : undefined}
