@@ -1,6 +1,6 @@
 import { Button } from "../button.tsx";
 import { useRef, useState, useMemo } from "react";
-import type { Menu } from "../../lib/model.ts";
+import type { Menu } from "@/shared/contracts/meals.ts";
 import { defaultFilters, restaurantMenus, type MenuFilters } from "../../lib/menu-filters.ts";
 
 export function MealFilters({

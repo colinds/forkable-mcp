@@ -1,31 +1,22 @@
-import { useMemo } from "react";
-import { visibleMeals, restaurantGroups, type MenuFilters } from "../../lib/menu-filters.ts";
-import { itemKey, type Menu, type Recommendation, type SearchMatch } from "../../lib/model.ts";
+import { type MenuView } from "../../lib/menu-filters.ts";
+import { itemKey } from "../../lib/tools.ts";
+import { type Menu } from "@/shared/contracts/meals.ts";
 import { MealCard } from "./card.tsx";
 
 export function MealCards({
   menus,
-  recommendations,
+  view,
   query,
-  filters,
-  searchMatches,
   busy,
   choose,
 }: {
   menus: Menu[];
-  recommendations: Recommendation[];
+  view: MenuView;
   query: string;
-  filters: MenuFilters;
-  searchMatches?: SearchMatch[];
   busy: boolean;
   choose: (menuId: number, itemId: number) => void;
 }) {
-  const items = useMemo(
-    () => visibleMeals(menus, recommendations, query, filters, searchMatches),
-    [menus, recommendations, query, filters, searchMatches],
-  );
-  const searching = query.trim().length > 0;
-  const restaurants = useMemo(() => restaurantGroups(menus, items), [menus, items]);
+  const { items, restaurants, searching } = view;
   let empty = menus.length
     ? "No meals match these filters. Try clearing your search and filters."
     : "No menus available for this delivery.";

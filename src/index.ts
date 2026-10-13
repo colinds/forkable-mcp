@@ -3,8 +3,8 @@
 //   `bun run src/index.ts --auth [--chrome|--file <path>]`  → import a session, then exit.
 //   `bun run src/index.ts`                                  → serve MCP over stdio (client-spawned).
 
-import { runStdio } from "./server.ts";
-import { runAuthCli } from "@/auth/cli.ts";
+import { runStdio } from "./server/index.ts";
+import { runAuthCli } from "@/server/auth/cli.ts";
 
 const argv = process.argv.slice(2);
 if (argv.includes("--auth")) {

@@ -8,24 +8,26 @@ import { defaultFilters, type MenuFilters } from "../lib/menu-filters.ts";
 import { useEffect, useRef, useState } from "react";
 import {
   Confirmation,
+  writeResult,
+  data,
+  resultText,
+  selectionArgs,
+  type CallTool,
+} from "../lib/tools.ts";
+import {
   deliveryStatusSchema,
   type DeliveryStatus,
   deliveriesSchema,
   menusSchema,
   itemDetailSchema,
   recommendationsSchema,
-  writeResult,
-  data,
-  resultText,
-  selectionArgs,
-  type CallTool,
   type Delivery,
   type Detail,
   type Menu,
   type Recommendation,
-  type WriteResult,
   type SearchMatch,
-} from "../lib/model.ts";
+} from "@/shared/contracts/meals.ts";
+import { type WriteResult } from "@/shared/contracts/writes.ts";
 interface BrowserState {
   deliveries: Delivery[];
   deliveriesLoaded: boolean;
@@ -35,6 +37,9 @@ interface BrowserState {
   detail?: Detail;
   deliveryStatus?: DeliveryStatus;
   statusUnavailable: boolean;
+  statusLoading: boolean;
+  recommendationsLoading: boolean;
+  recommendationsUnavailable: boolean;
   source: string;
   choices: Record<string, number[]>;
   query: string;
@@ -63,6 +68,9 @@ const initialState: BrowserState = {
   filters: defaultFilters,
   busy: true,
   statusUnavailable: false,
+  statusLoading: false,
+  recommendationsLoading: false,
+  recommendationsUnavailable: false,
   problem: false,
   needsRefresh: false,
 };
@@ -70,6 +78,7 @@ const initialState: BrowserState = {
 export function useMealBrowser(call: CallTool, initial?: InitialView) {
   const [state, setState] = useState(initialState);
   const running = useRef(false);
+  const loadGeneration = useRef(0);
   const [range] = useState(() => initialRange(initial));
   const confirmation = useRef(new Confirmation());
   const { delivery, detail } = state;
@@ -96,55 +105,61 @@ export function useMealBrowser(call: CallTool, initial?: InitialView) {
     }
   }
   async function loadMenus(selected?: Delivery, seed?: ReturnType<typeof initialData>) {
-    patch({ menus: [], recommendations: [], deliveryStatus: undefined, statusUnavailable: false });
+    const generation = ++loadGeneration.current;
+    const patchCurrent = (next: Partial<BrowserState>) =>
+      setState((current) =>
+        generation === loadGeneration.current ? { ...current, ...next } : current,
+      );
+    patch({
+      menus: [],
+      recommendations: [],
+      deliveryStatus: undefined,
+      statusUnavailable: false,
+      statusLoading: !!selected,
+      recommendationsLoading: !!selected,
+      recommendationsUnavailable: false,
+    });
     if (!selected) return;
+
     const args = { deliveryId: selected.deliveryId };
-    const menusSeed = isPastDelivery(selected.date) ? [] : seed?.menus;
-    const recommendationsSeed = isPastDelivery(selected.date) ? [] : seed?.recommendations;
-    const [menuResult, recommendationResult, statusResult] = await Promise.allSettled([
-      menusSeed
-        ? Promise.resolve({ isError: false, structuredContent: { menus: menusSeed } })
-        : call("get_menus", args),
-      recommendationsSeed
-        ? Promise.resolve({
-            isError: false,
-            structuredContent: { recommendations: recommendationsSeed },
-          })
-        : call("recommend_meals", args),
-      seed?.status
-        ? Promise.resolve({ isError: false, structuredContent: { status: seed.status } })
-        : call("get_delivery_status", { ...args, from: selected.date, to: selected.date }),
-    ]);
-    if (statusResult.status === "fulfilled" && !statusResult.value.isError) {
-      const parsed = deliveryStatusSchema.safeParse(statusResult.value.structuredContent);
-      patch({
-        deliveryStatus: parsed.success ? parsed.data.status : undefined,
-        statusUnavailable: !parsed.success,
-      });
-    } else patch({ statusUnavailable: true });
-    if (menuResult.status === "rejected" || menuResult.value.isError) {
-      patch({
-        notice:
-          menuResult.status === "fulfilled"
-            ? resultText(menuResult.value)
-            : "Menus could not be loaded. Refresh to try again.",
-        problem: true,
-      });
-      return;
-    }
-    const menus = data(menuResult.value, menusSchema).menus;
-    patch({ menus });
-    if (recommendationResult.status === "fulfilled" && !recommendationResult.value.isError)
-      patch({
-        recommendations: data(recommendationResult.value, recommendationsSchema).recommendations,
-      });
-    else
-      patch({
-        notice: "Recommendations are unavailable. You can still browse all meals.",
-        problem: false,
-      });
+    const historical = isPastDelivery(selected.date);
+    const menusSeed = historical ? [] : seed?.menus;
+    const recommendationsSeed = historical ? [] : seed?.recommendations;
+
+    // Auxiliary reads may finish after navigation; only the current delivery can receive them.
+    void (async () => {
+      try {
+        const recommendations =
+          recommendationsSeed ??
+          data(await call("recommend_meals", args), recommendationsSchema).recommendations;
+        patchCurrent({ recommendations });
+      } catch {
+        patchCurrent({ recommendationsUnavailable: true });
+      } finally {
+        patchCurrent({ recommendationsLoading: false });
+      }
+    })();
+    void (async () => {
+      try {
+        const status =
+          seed?.status ??
+          data(
+            await call("get_delivery_status", { ...args, from: selected.date, to: selected.date }),
+            deliveryStatusSchema,
+          ).status;
+        patchCurrent({ deliveryStatus: status });
+      } catch {
+        patchCurrent({ statusUnavailable: true });
+      } finally {
+        patchCurrent({ statusLoading: false });
+      }
+    })();
+
+    const menus = menusSeed ?? data(await call("get_menus", args), menusSchema).menus;
+    patchCurrent({ menus });
   }
   async function refresh() {
+    ++loadGeneration.current;
     invalidate({
       ...emptySelection,
       deliveries: [],
@@ -212,6 +227,9 @@ export function useMealBrowser(call: CallTool, initial?: InitialView) {
           });
       }
     });
+    return () => {
+      ++loadGeneration.current;
+    };
   }, []);
 
   function choose(menuId: number, itemId: number, sourcePieceId?: string | number) {
@@ -260,6 +278,8 @@ export function useMealBrowser(call: CallTool, initial?: InitialView) {
     try {
       const result = await confirmation.current.confirm((name, args) => {
         sent = true;
+        ++loadGeneration.current;
+        patch({ statusLoading: false, recommendationsLoading: false });
         return call(name, args);
       });
       patch({ preview: undefined });

@@ -3,21 +3,22 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type CallToolResult, McpServer, InMemoryTransport } from "@modelcontextprotocol/server";
-import { APP_URI } from "@/ui-server.ts";
+import { APP_URI } from "@/server/ui-server.ts";
 import { Client } from "@modelcontextprotocol/client";
-import { patchSession } from "@/auth/session.ts";
-import { ForkableClient } from "@/net/client.ts";
-import { type Delivery, type Menu } from "@/order/types.ts";
-import { registerAllTools } from "@/tools.ts";
-import { createWriteGate } from "@/write-gate.ts";
+import { patchSession } from "@/server/auth/session.ts";
+import { ForkableClient } from "@/server/net/client.ts";
+import { type Delivery, type Menu } from "@/server/order/types.ts";
+import { registerAllTools } from "@/server/tools/index.ts";
+import { createWriteGate } from "@/server/write-gate.ts";
 
 import {
   deliveriesSchema,
   deliveryStatusSchema,
   menusSchema,
+  searchResultsSchema,
   itemDetailSchema,
   recommendationsSchema,
-} from "@/app/lib/model.ts";
+} from "@/shared/contracts/meals.ts";
 
 type ToolHandler = (args: Record<string, unknown>) => Promise<CallToolResult>;
 
@@ -187,6 +188,157 @@ describe("read tool responses", () => {
     rmSync(home, { recursive: true, force: true });
   });
 
+  test("mention search reuses menu requests only within the current call and club", async () => {
+    const deliveries = [
+      { ...structuredClone(delivery), id: 1 },
+      { ...structuredClone(delivery), id: 2 },
+      { ...structuredClone(delivery), id: 3, club: { ...delivery.club!, id: 8 } },
+      { ...structuredClone(delivery), id: 4, availableMenuIds: [MENU_ID, 99] },
+    ];
+    ForkableClient.prototype.gql = (async () => ({
+      myDeliveries: deliveries,
+      me: { id: USER_ID },
+    })) as typeof ForkableClient.prototype.gql;
+    const query = ForkableClient.prototype.query;
+    const menuRequests: unknown[] = [];
+    ForkableClient.prototype.query = async function (this: ForkableClient, root, args, selection) {
+      if (root === "menus") menuRequests.push(args);
+      return query.call(this, root, args, selection);
+    } as typeof ForkableClient.prototype.query;
+
+    const search = handlers.get("search_mentions")!;
+    const first = await search({ query: "bowl" });
+    expect(first.isError).not.toBe(true);
+    expect(menuRequests).toEqual([
+      { ids: [MENU_ID], clubId: 7 },
+      { ids: [MENU_ID], clubId: 8 },
+      { ids: [MENU_ID, 99], clubId: 7 },
+    ]);
+    expect(first.structuredContent).toMatchObject({
+      items: [1, 2, 3, 4].map((id) => ({
+        uri: `forkable://delivery/${id}/menu/${MENU_ID}/item/${ITEM_ID}`,
+      })),
+    });
+    expect((await search({ query: "bowl" })).structuredContent).toEqual(first.structuredContent);
+    expect(menuRequests).toHaveLength(6);
+  });
+
+  test("reauth errors retain their instructions through schema-aware MCP clients", async () => {
+    rmSync(join(home, "session.json"));
+    const email = process.env.FORKABLE_EMAIL;
+    delete process.env.FORKABLE_EMAIL;
+    const server = new McpServer({ name: "reauth-test", version: "0" });
+    registerAllTools(server, createWriteGate());
+    const client = new Client({ name: "reauth-client", version: "0" });
+    const [ct, st] = InMemoryTransport.createLinkedPair();
+    try {
+      await Promise.all([server.connect(st), client.connect(ct)]);
+      await client.listTools();
+      const calls = [
+        { name: "list_deliveries", arguments: {} },
+        { name: "get_menus", arguments: { deliveryId: DELIVERY_ID } },
+        { name: "search_items", arguments: { deliveryId: DELIVERY_ID, query: "bowl" } },
+        { name: "recommend_meals", arguments: { deliveryId: DELIVERY_ID } },
+        { name: "get_delivery_status", arguments: { deliveryId: DELIVERY_ID } },
+      ];
+      const results = await Promise.all(calls.map((call) => client.callTool(call)));
+      for (const result of results) {
+        expect(result.isError).toBe(true);
+        expect(result.structuredContent).toEqual({
+          error: "forkable_reauth_required",
+          reason: "missing",
+        });
+        expect(result.content).toMatchObject([
+          { type: "text", text: expect.stringContaining("provide a fresh browser cookie") },
+        ]);
+      }
+    } finally {
+      if (email === undefined) delete process.env.FORKABLE_EMAIL;
+      else process.env.FORKABLE_EMAIL = email;
+      await client.close();
+      await server.close();
+    }
+  });
+
+  test("read output validation tolerates missing optional wire fields", async () => {
+    const incomplete = structuredClone(delivery);
+    delete incomplete.forDeliveryAt;
+    Object.assign(incomplete.orders![0]!.pieces![0]!, { name: null });
+    ForkableClient.prototype.gql = (async () => ({
+      myDeliveries: [incomplete],
+      me: { id: USER_ID },
+    })) as typeof ForkableClient.prototype.gql;
+    const server = new McpServer({ name: "optional-wire-fields", version: "0" });
+    registerAllTools(server, createWriteGate());
+    const client = new Client({ name: "optional-fields-client", version: "0" });
+    const [ct, st] = InMemoryTransport.createLinkedPair();
+    try {
+      await Promise.all([server.connect(st), client.connect(ct)]);
+      await client.listTools();
+      const [listed, status] = await Promise.all([
+        client.callTool({ name: "list_deliveries", arguments: {} }),
+        client.callTool({ name: "get_delivery_status", arguments: { deliveryId: DELIVERY_ID } }),
+      ]);
+      expect(listed.isError).not.toBe(true);
+      expect(status.isError).not.toBe(true);
+      const listedData = deliveriesSchema.parse(listed.structuredContent).deliveries[0]!;
+      const statusData = deliveryStatusSchema.parse(status.structuredContent).status;
+      expect(listedData.date).toBe("");
+      expect(listedData.meals[0]?.name).toBeNull();
+      expect(statusData.date).toBe("");
+      expect(statusData.meals[0]?.name).toBe(`item ${ITEM_ID}`);
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+
+  test("public result contracts survive MCP serialization without losing fields", async () => {
+    const server = new McpServer({ name: "contract-test", version: "0" });
+    registerAllTools(server, createWriteGate());
+    const client = new Client({ name: "contract-client", version: "0" });
+    const [ct, st] = InMemoryTransport.createLinkedPair();
+    try {
+      await Promise.all([server.connect(st), client.connect(ct)]);
+      const definitions = (await client.listTools()).tools;
+      const reads = [
+        { name: "list_deliveries", args: {}, schema: deliveriesSchema },
+        { name: "get_menus", args: { deliveryId: DELIVERY_ID }, schema: menusSchema },
+        {
+          name: "get_menus",
+          args: { deliveryId: DELIVERY_ID, menuId: MENU_ID, itemId: ITEM_ID },
+          schema: itemDetailSchema,
+        },
+        {
+          name: "search_items",
+          args: { deliveryId: DELIVERY_ID, query: "bowl" },
+          schema: searchResultsSchema,
+        },
+        {
+          name: "recommend_meals",
+          args: { deliveryId: DELIVERY_ID },
+          schema: recommendationsSchema,
+        },
+        {
+          name: "get_delivery_status",
+          args: { deliveryId: DELIVERY_ID },
+          schema: deliveryStatusSchema,
+        },
+      ];
+      await Promise.all(
+        reads.map(async ({ name, args, schema }) => {
+          expect(definitions.find((tool) => tool.name === name)?.outputSchema?.type).toBe("object");
+          const result = await client.callTool({ name, arguments: args });
+          expect(result.isError).not.toBe(true);
+          expect(result.structuredContent).toEqual(schema.parse(result.structuredContent));
+        }),
+      );
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+
   test("composer mentions advertise discovery and resolve fresh account-scoped resources", async () => {
     const server = new McpServer({ name: "mentions-test", version: "0" });
     registerAllTools(server, createWriteGate());
@@ -348,6 +500,36 @@ describe("read tool responses", () => {
       me: { id: USER_ID },
     })) as typeof ForkableClient.prototype.gql;
     expect(structured(await handlers.get("list_deliveries")!({}))).toEqual({ deliveries: [] });
+  });
+
+  test("club policy formatting keeps its text and indentation", async () => {
+    const query = ForkableClient.prototype.query;
+    ForkableClient.prototype.query = async function (this: ForkableClient, root, args, selection) {
+      if (root === "mealClubsAs")
+        return [
+          {
+            id: 7,
+            name: "HQ",
+            copayAllowance: 25,
+            allowanceType: "weekly_by_day",
+            deliveryDays: { 1: true, 2: false, 3: true },
+            allowLateMeals: true,
+            isLateRemovalEnabled: false,
+            allowanceMealLimit: true,
+            hidePrices: true,
+          },
+        ];
+      return query.call(this, root, args, selection);
+    } as typeof ForkableClient.prototype.query;
+    const result = await handlers.get("get_profile")!({});
+    expect(result.content).toMatchObject([
+      {
+        type: "text",
+        text: expect.stringContaining(
+          "Your club:\n  HQ\n    covers $25.00 per delivery day\n    delivery days: Mon Wed\n    late meals allowed; late removals not allowed\n    covers ONE meal a day; any extra is out of pocket\n    (this club hides menu prices)",
+        ),
+      },
+    ]);
   });
 
   test("profile is human-readable without duplicating the server objects", async () => {

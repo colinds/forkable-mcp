@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { imageUrl } from "../../lib/model.ts";
+import { imageUrl } from "@/shared/images.ts";
 export function MealPhoto({ url, name }: { url: string | null; name: string }) {
   const [failed, setFailed] = useState(false);
   const src = imageUrl(url);

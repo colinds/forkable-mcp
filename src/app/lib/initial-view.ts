@@ -1,5 +1,7 @@
-import { z } from "zod";
-import { isCalendarDate, todayLocal } from "../../order/dates.ts";
+import { browserInputSchema } from "../../shared/contracts/browser.ts";
+import type { z } from "zod";
+import { todayLocal } from "../../shared/dates.ts";
+import { type ToolResult } from "./tools.ts";
 import {
   deliveriesSchema,
   searchResultsSchema,
@@ -7,43 +9,13 @@ import {
   itemDetailSchema,
   recommendationsSchema,
   deliveryStatusSchema,
-  type ToolResult,
-} from "./model.ts";
+} from "@/shared/contracts/meals.ts";
 
-export const browserInputSchema = z.object({
-  deliveryId: z.number().int().positive().optional(),
-  menuId: z.number().int().positive().optional(),
-  itemId: z.number().int().positive().optional(),
-  from: z.string().optional(),
-  to: z.string().optional(),
-  query: z.string().optional(),
-});
-const calendarDate = z
-  .string()
-  .refine(isCalendarDate, "must be a real calendar date in YYYY-MM-DD form");
-export const openBrowserInputSchema = browserInputSchema
-  .extend({ from: calendarDate.optional(), to: calendarDate.optional() })
-  .superRefine((input, context) => {
-    if (input.to && (input.from ?? todayLocal()) > input.to)
-      context.addIssue({
-        code: "custom",
-        path: ["to"],
-        message: "Window ends before it starts. Supply from and to for a historical range.",
-      });
-    if (input.menuId == null && input.itemId == null) return;
-    for (const field of ["deliveryId", "menuId", "itemId"] as const) {
-      if (input[field] == null)
-        context.addIssue({
-          code: "custom",
-          path: [field],
-          message: "Showing an exact meal requires deliveryId, menuId and itemId together.",
-        });
-    }
-  });
 export interface InitialView {
   input: z.infer<typeof browserInputSchema>;
   result: ToolResult;
 }
+
 export function initialData(view?: InitialView) {
   const result = view?.result.structuredContent;
   return {
@@ -57,6 +29,7 @@ export function initialData(view?: InitialView) {
 }
 
 export const isPastDelivery = (date: string, today = todayLocal()) => date < today;
+
 export function initialRange(
   view?: InitialView,
   today = todayLocal(),

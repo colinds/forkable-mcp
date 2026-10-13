@@ -5,7 +5,7 @@ import {
   type GetCookiesOptions,
   type GetCookiesResult,
 } from "@steipete/sweet-cookie";
-import { readForkableCookieHeaders } from "@/auth/chrome.ts";
+import { readForkableCookieHeaders } from "@/server/auth/chrome.ts";
 
 const cookie = (
   name: string,

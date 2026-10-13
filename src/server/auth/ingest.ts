@@ -1,7 +1,7 @@
 // Shared credential ingestion path.
 
-import { type FetchImpl } from "@/net/endpoints.ts";
-import { fetchCsrf, verifyMe, type Me } from "@/net/client.ts";
+import { type FetchImpl } from "@/server/net/endpoints.ts";
+import { fetchCsrf, verifyMe, type Me } from "@/server/net/client.ts";
 import { mergeSetCookies, hasSessionCookie, parseCurl } from "./cookies.ts";
 import { type SessionRecord, patchSession, readSession } from "./session.ts";
 import { loginWithPassword, envLoginInput } from "./login.ts";

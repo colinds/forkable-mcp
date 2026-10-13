@@ -3,11 +3,11 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { McpServer, CallToolResult } from "@modelcontextprotocol/server";
-import { patchSession } from "@/auth/session.ts";
-import { ForkableClient } from "@/net/client.ts";
-import { type Delivery, type Menu } from "@/order/types.ts";
-import { registerAllTools } from "@/tools.ts";
-import { createWriteGate } from "@/write-gate.ts";
+import { patchSession } from "@/server/auth/session.ts";
+import { ForkableClient } from "@/server/net/client.ts";
+import { type Delivery, type Menu } from "@/server/order/types.ts";
+import { registerAllTools } from "@/server/tools/index.ts";
+import { createWriteGate } from "@/server/write-gate.ts";
 
 type ToolHandler = (args: Record<string, unknown>) => Promise<CallToolResult>;
 

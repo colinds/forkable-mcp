@@ -1,7 +1,9 @@
+import { text } from "./results.ts";
+import type { WriteResult } from "../shared/contracts/writes.ts";
 import { createHash, randomBytes } from "node:crypto";
 import type { CallToolResult } from "@modelcontextprotocol/server";
-import { baseCodes, MutationError, MutationOutcomeUnknownError } from "@/net/errors.ts";
-import { type Guard } from "@/order/guards.ts";
+import { baseCodes, MutationError, MutationOutcomeUnknownError } from "@/server/net/errors.ts";
+import { type Guard } from "@/server/order/guards.ts";
 
 export interface ExecutableWritePlan {
   op: string;
@@ -33,7 +35,9 @@ export interface WriteGateCall {
   plan: () => Promise<WritePlan>;
 }
 
-export type WriteGate = (ctx: GateCtx, call: WriteGateCall) => Promise<CallToolResult>;
+type WriteGateResult = CallToolResult & { structuredContent: WriteResult };
+
+export type WriteGate = (ctx: GateCtx, call: WriteGateCall) => Promise<WriteGateResult>;
 
 export interface WriteGateOptions {
   ttlMs?: number;
@@ -84,10 +88,6 @@ export function hashWriteArgs(
   return createHash("sha256")
     .update(`${ARGS_PREFIX}\n${JSON.stringify(stable(bound))}`)
     .digest("base64url");
-}
-
-function text(value: string): { type: "text"; text: string }[] {
-  return [{ type: "text", text: value }];
 }
 
 function blockers(guards: Guard[] | undefined): Guard[] {
@@ -167,7 +167,7 @@ export function createWriteGate(options: WriteGateOptions = {}): WriteGate {
   };
 
   return async (ctx, call) => {
-    const blockedResult = (plan: WritePlan, note?: string): CallToolResult => {
+    const blockedResult = (plan: WritePlan, note?: string): WriteGateResult => {
       const blocking = blockers(plan.guards);
       return {
         isError: true,
@@ -188,7 +188,7 @@ export function createWriteGate(options: WriteGateOptions = {}): WriteGate {
     const previewResult = async (
       plan: WritePlan,
       confirmationError?: { reason: TakeFailure; message: string },
-    ): Promise<CallToolResult> => {
+    ): Promise<WriteGateResult> => {
       if (blockers(plan.guards).length) return blockedResult(plan, confirmationError?.message);
 
       const actor = await ctx.resolveActor();
