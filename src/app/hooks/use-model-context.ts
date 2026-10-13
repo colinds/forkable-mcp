@@ -6,12 +6,13 @@ export function useModelContext(
   view: Parameters<typeof browserContext>[0],
   menu: MenuView,
   update?: UpdateContext,
+  ready = true,
 ) {
   const [failed, setFailed] = useState(false);
   const pending = useRef(Promise.resolve());
   const generation = useRef(0);
   const context = useMemo(
-    () => (update ? browserContext(view, menu) : undefined),
+    () => (update && ready ? browserContext(view, menu) : undefined),
     [
       view.delivery,
       view.detail,
@@ -19,6 +20,7 @@ export function useModelContext(
       view.filters,
       menu,
       update,
+      ready,
       view.choices,
       view.source,
       view.needsRefresh,

@@ -1,3 +1,4 @@
+import type { OpenAIModelContextHostState } from "@openai/mcp-extensions/app";
 import { type MenuView, type MenuFilters } from "./menu-filters.ts";
 import type { App, McpUiSupportedContentBlockModalities } from "@modelcontextprotocol/ext-apps";
 import type { Delivery, Detail } from "@/shared/contracts/meals.ts";
@@ -27,6 +28,8 @@ export function browserContext(
   }));
   const context = {
     app: "Forkable",
+    guidance:
+      "Food requests refer to the available Forkable menu. Browsing is not authorization to place or change an order.",
     view: view.detail ? "meal-details" : "menu",
     delivery: delivery
       ? {
@@ -60,25 +63,49 @@ export function browserContext(
     totalMatchingMeals: results.items.length,
     requiresDeliveryRefresh: view.needsRefresh,
   };
-  return {
-    structuredContent: context,
-    content: [
-      {
-        type: "text",
-        text: `The user is browsing Forkable meal deliveries${delivery ? ` for ${delivery.date} (${delivery.service ?? "meal"}), delivery ID ${delivery.deliveryId}` : "; delivery data is not loaded"}. Food requests in this app refer to the available Forkable menu. Use get_menus, search_items or recommend_meals for this delivery as needed. Browsing is not authorization to place or change an order.\n${JSON.stringify(context)}`,
-      },
-    ],
-  };
+  return { content: [], structuredContent: context };
 }
 
 export function supportedContext(
   context: ModelContext,
   modalities: McpUiSupportedContentBlockModalities,
 ): ModelContext {
+  if (modalities.structuredContent) {
+    // Automatic view state is background context; visible content is for explicit attachments.
+    return { content: [], structuredContent: context.structuredContent };
+  }
   return {
-    ...(modalities.text
-      ? { content: context.content?.filter((block) => block.type === "text") }
-      : {}),
-    ...(modalities.structuredContent ? { structuredContent: context.structuredContent } : {}),
+    content: modalities.text
+      ? [
+          {
+            type: "text",
+            annotations: { audience: ["assistant"] },
+            text: `The user is browsing Forkable meal deliveries.\n${JSON.stringify(context.structuredContent)}`,
+          },
+        ]
+      : [],
+  };
+}
+
+/** Reuse host-restored context on remount instead of attaching another copy. */
+export function createContextUpdater(
+  app: Pick<App, "getHostContext" | "getHostCapabilities" | "updateModelContext">,
+): UpdateContext {
+  let lastSent: string | undefined;
+  return async (context) => {
+    const modalities = app.getHostCapabilities()?.updateModelContext ?? { text: {} };
+    const payload = supportedContext(context, modalities);
+    const snapshot = JSON.stringify(payload);
+    if (snapshot === lastSent) return;
+
+    const restored = app.getHostContext()?.["openai/modelContext"] as
+      | OpenAIModelContextHostState
+      | undefined;
+    const previous = restored && {
+      content: restored.content ?? [],
+      structuredContent: restored.structuredContent,
+    };
+    if (!previous || JSON.stringify(previous) !== snapshot) await app.updateModelContext(payload);
+    lastSent = snapshot;
   };
 }

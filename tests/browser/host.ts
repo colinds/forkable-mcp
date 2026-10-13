@@ -38,6 +38,13 @@ const bridge = new AppBridge(
   },
   {
     hostContext: {
+      ...(params.has("restore-context")
+        ? {
+            "openai/modelContext": JSON.parse(
+              sessionStorage.getItem("forkable-fixture-context") ?? "null",
+            ),
+          }
+        : {}),
       theme: "light",
       displayMode: "inline",
       availableDisplayModes: ["inline", "fullscreen"],
@@ -67,6 +74,11 @@ bridge.onupdatemodelcontext = async (context) => {
   if (params.has("text-context") && context.structuredContent)
     throw new Error("Host accepts text context only");
   contextUpdates.push(context);
+  if (params.has("restore-context")) {
+    const restored = { ...context, updateId: `context-${contextUpdates.length}` };
+    sessionStorage.setItem("forkable-fixture-context", JSON.stringify(restored));
+    bridge.setHostContext({ "openai/modelContext": restored });
+  }
   return {};
 };
 const respond = async (
