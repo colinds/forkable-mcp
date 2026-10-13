@@ -1,6 +1,11 @@
 // MCP tool registration. Each call reads the current session; writes preview before confirmation.
 
 import { z } from "zod";
+import { todayLocal, addDaysLocal, isCalendarDate } from "./order/dates.ts";
+export { addDaysLocal, isCalendarDate } from "./order/dates.ts";
+import { registerAppTool } from "@modelcontextprotocol/ext-apps/server";
+import { MEAL_APP_META } from "./ui-server.ts";
+import { registerMentions, mentionUri, mentionDate } from "./mentions.ts";
 import type { McpServer, CallToolResult } from "@modelcontextprotocol/server";
 import { ForkableClient } from "@/net/client.ts";
 import { ReauthRequiredError } from "@/net/errors.ts";
@@ -258,18 +263,6 @@ function fmtProfile(me: Me, clubs: ClubPolicy[] = []): string {
     .join("\n");
 }
 
-/** Today's local calendar date. */
-function todayLocal(): string {
-  return new Date().toLocaleDateString("en-CA"); // en-CA formats as YYYY-MM-DD
-}
-
-/** Local calendar arithmetic. The explicit midnight prevents date-only UTC parsing. */
-export function addDaysLocal(date: string, days: number): string {
-  const d = new Date(`${date}T00:00:00`);
-  d.setDate(d.getDate() + days);
-  return d.toLocaleDateString("en-CA");
-}
-
 /** A local calendar date relative to today. */
 function dateOffsetLocal(days: number): string {
   return addDaysLocal(todayLocal(), days);
@@ -277,10 +270,6 @@ function dateOffsetLocal(days: number): string {
 
 /** Default delivery lookup horizon. */
 const DELIVERY_HORIZON_DAYS = 21;
-
-/** Strict YYYY-MM-DD validation; the round trip rejects dates that Date would normalize. */
-export const isCalendarDate = (s: string): boolean =>
-  /^\d{4}-\d{2}-\d{2}$/.test(s) && addDaysLocal(s, 0) === s;
 
 const dateArg = () =>
   z.string().refine(isCalendarDate, "must be a real calendar date in YYYY-MM-DD form");
@@ -604,6 +593,8 @@ function compactMenus(menus: Menu[], diets?: Map<number, string>) {
         itemId: item.id,
         name: item.name,
         price: item.price ?? null,
+        imageUrl: item.imageUrl ?? null,
+        description: item.description ?? null,
         diet: item.dietLevel != null ? (diets?.get(item.dietLevel) ?? null) : null,
         hasModifiers: (item.modifiers?.length ?? 0) > 0,
       })),
@@ -616,6 +607,8 @@ function compactItemDetail(detail: ReturnType<typeof itemDetail>) {
     itemId: detail.id,
     name: detail.name,
     price: detail.price,
+    description: detail.description,
+    imageUrl: detail.imageUrl,
     modifiers: detail.modifiers,
   };
 }
@@ -654,7 +647,94 @@ function fmtItemDetail(d: ReturnType<typeof itemDetail>): string {
   ].join("\n");
 }
 
+const reference = (uri: string, title: string) => ({
+  type: "resource_link" as const,
+  uri,
+  name: title,
+  title,
+  mimeType: "text/markdown",
+});
+
 export function registerAllTools(server: McpServer, writeGate: WriteGate): void {
+  // References are re-read under the current session; no cross-user menu cache or credential exposure.
+  registerMentions(server, {
+    search: (query) =>
+      guard(async (client) => {
+        const { deliveries } = await loadDeliveries(client);
+        const terms = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
+        const matches = (value: string) =>
+          terms.every((term) => value.toLowerCase().includes(term));
+        const results = deliveries
+          .filter((d) =>
+            matches(
+              `${formatDate(d.forDeliveryAt)} ${formatDay(d.forDeliveryAt)} ${mentionDate(d.forDeliveryAt)} ${mentionDate(d.forDeliveryAt, "long")} ${windowName(d)} ${d.club?.name ?? ""}`,
+            ),
+          )
+          .map((d) => {
+            const service = windowName(d) || "Delivery";
+            const title = `${mentionDate(d.forDeliveryAt)} · ${service[0]!.toUpperCase()}${service.slice(1)}`;
+            const needsLocation = deliveries.some(
+              (other) =>
+                other.id !== d.id &&
+                formatDate(other.forDeliveryAt) === formatDate(d.forDeliveryAt) &&
+                windowName(other) === windowName(d),
+            );
+            return reference(
+              mentionUri({ deliveryId: d.id }),
+              needsLocation && d.club?.name ? `${title} · ${d.club.name}` : title,
+            );
+          });
+        if (terms.length) {
+          // Fetch only current account menus, in small batches; bound the returned reference list.
+          for (let offset = 0; offset < deliveries.length && results.length < 30; offset += 3) {
+            // eslint-disable-next-line no-await-in-loop -- Bound concurrent menu requests to three.
+            const batch = await Promise.all(
+              deliveries
+                .slice(offset, offset + 3)
+                .map(async (delivery) => ({ delivery, menus: await loadMenus(client, delivery) })),
+            );
+            for (const { delivery, menus } of batch)
+              for (const { item, menu } of flattenItems(menus)) {
+                const restaurant = menu.displayName || menu.name || `menu ${menu.id}`;
+                const date = formatDate(delivery.forDeliveryAt);
+                if (
+                  matches(
+                    `${item.name} ${item.description ?? ""} ${restaurant} ${date} ${mentionDate(delivery.forDeliveryAt)}`,
+                  )
+                )
+                  results.push(
+                    reference(
+                      mentionUri({ deliveryId: delivery.id, menuId: menu.id, itemId: item.id }),
+                      `${item.name} · ${restaurant} · ${date}`,
+                    ),
+                  );
+              }
+          }
+        }
+        return ok("Forkable references", { items: results.slice(0, 30) });
+      }),
+    read: (ref) =>
+      guard(async (client) => {
+        const { deliveries, userId } = await loadDeliveries(client);
+        const delivery = findDelivery(deliveries, ref.deliveryId);
+        if (!delivery)
+          throw new Error(
+            "This delivery is no longer in your upcoming deliveries. Refresh Forkable to find a current reference.",
+          );
+        if (ref.menuId == null || ref.itemId == null)
+          return ok(fmtDelivery(delivery, await inProgressIds(client), userId));
+        const { item, menu } = resolveOneItem(
+          await loadMenus(client, delivery),
+          ref.itemId,
+          ref.menuId,
+          ref.deliveryId,
+        );
+        return ok(
+          `Forkable meal for ${formatDate(delivery.forDeliveryAt)} (${windowName(delivery)}), deliveryId=${delivery.id}, menuId=${menu.id}, itemId=${item.id}.\n${menu.displayName || menu.name || "Restaurant"}\n${fmtItemDetail(itemDetail(item, menu))}`,
+        );
+      }),
+  });
+
   server.registerTool(
     "get_profile",
     {
@@ -678,9 +758,11 @@ export function registerAllTools(server: McpServer, writeGate: WriteGate): void 
       }),
   );
 
-  server.registerTool(
+  registerAppTool(
+    server,
     "list_deliveries",
     {
+      _meta: MEAL_APP_META,
       title: "List deliveries",
       description:
         "List deliveries, selected meals, and the IDs used by other tools. Defaults to today through " +
@@ -710,16 +792,19 @@ export function registerAllTools(server: McpServer, writeGate: WriteGate): void 
           loadDeliveries(client, args.from, DELIVERY_SEL, args.to),
           inProgressIds(client),
         ]);
-        if (!deliveries.length) return ok(`No deliveries between ${w.from} and ${w.to}.`);
+        if (!deliveries.length)
+          return ok(`No deliveries between ${w.from} and ${w.to}.`, { deliveries: [] });
         return ok(deliveries.map((d) => fmtDelivery(d, inFlight, userId)).join("\n\n"), {
           deliveries: deliveries.map((d) => compactDelivery(d, inFlight, userId)),
         });
       }),
   );
 
-  server.registerTool(
+  registerAppTool(
+    server,
     "get_menus",
     {
+      _meta: MEAL_APP_META,
       title: "Get menus for a delivery",
       description:
         "List menu items for a delivery. Item IDs can repeat across menus; pass both menuId and itemId " +
@@ -747,7 +832,8 @@ export function registerAllTools(server: McpServer, writeGate: WriteGate): void 
         const d = findDelivery(deliveries, deliveryId);
         if (!d) return errResult(`Delivery ${deliveryId} not found in your upcoming deliveries.`);
         const menus = await loadMenus(client, d);
-        if (!menus.length) return ok(`Delivery ${deliveryId} has no available menus.`);
+        if (!menus.length)
+          return ok(`Delivery ${deliveryId} has no available menus.`, { menus: [] });
         // Detail mode includes the modifier and option ids needed for set_meal.
         if (itemId != null) {
           const { item, menu } = resolveOneItem(menus, itemId, menuId, deliveryId);
@@ -772,9 +858,11 @@ export function registerAllTools(server: McpServer, writeGate: WriteGate): void 
       }),
   );
 
-  server.registerTool(
+  registerAppTool(
+    server,
     "search_items",
     {
+      _meta: MEAL_APP_META,
       title: "Search menu items",
       description: "Search items across a delivery's available menus by keyword.",
       inputSchema: z.object({
@@ -794,7 +882,7 @@ export function registerAllTools(server: McpServer, writeGate: WriteGate): void 
           "nodes { id menuId }",
         );
         const nodes = res?.nodes ?? [];
-        if (!nodes.length) return ok(`No items match "${query}".`);
+        if (!nodes.length) return ok(`No items match "${query}".`, { items: [] });
         const items = flattenItems(await loadMenus(client, d));
         const results = nodes.map((n) => {
           const it = findItem(items, n.menuId, n.id)?.item;
@@ -811,14 +899,16 @@ export function registerAllTools(server: McpServer, writeGate: WriteGate): void 
             `  ${r.itemId}  ${r.name ?? "(item)"}  ${formatKnownPrice(r.price)}  [menu ${r.menuId}]${imageMd({ name: r.name ?? "item", imageUrl: r.imageUrl })}`,
         );
         return ok(`Matches for "${query}":\n${lines.join("\n")}`, {
-          items: results.map(({ imageUrl: _imageUrl, ...item }) => item),
+          items: results,
         });
       }),
   );
 
-  server.registerTool(
+  registerAppTool(
+    server,
     "recommend_meals",
     {
+      _meta: MEAL_APP_META,
       title: "Recommend meals",
       description: "Return Forkable's ranked meal suggestions for a delivery.",
       inputSchema: z.object({
@@ -846,7 +936,7 @@ export function registerAllTools(server: McpServer, writeGate: WriteGate): void 
             "menuId itemId score",
           )) ?? [];
         const top = scores.toSorted((a, b) => b.score - a.score).slice(0, limit ?? 8);
-        if (!top.length) return ok("No recommendations available.");
+        if (!top.length) return ok("No recommendations available.", { recommendations: [] });
         const items = flattenItems(await loadMenus(client, d));
         const enriched = top.map((t, index) => {
           const it = findItem(items, t.menuId, t.itemId)?.item;
@@ -863,14 +953,16 @@ export function registerAllTools(server: McpServer, writeGate: WriteGate): void 
           (e, i) => `  ${i + 1}. ${e.name}  ${formatKnownPrice(e.price)}${imageMd(e)}`,
         );
         return ok(`Top picks for delivery ${deliveryId}:\n${lines.join("\n")}`, {
-          recommendations: enriched.map(({ imageUrl: _imageUrl, ...item }) => item),
+          recommendations: enriched,
         });
       }),
   );
 
-  server.registerTool(
+  registerAppTool(
+    server,
     "get_delivery_status",
     {
+      _meta: MEAL_APP_META,
       title: "Get delivery status",
       description:
         "Show meal fulfillment, courier ETA, arrival, and each owned order's tracking link, plus delivery access notes.",
@@ -879,14 +971,28 @@ export function registerAllTools(server: McpServer, writeGate: WriteGate): void 
         from: dateArg()
           .optional()
           .describe("Start of the search window (YYYY-MM-DD). Defaults to 14 days ago."),
+        to: dateArg()
+          .optional()
+          .describe(
+            "Inclusive end (YYYY-MM-DD). Supply both dates for a bounded historical lookup.",
+          ),
       }),
       annotations: { readOnlyHint: true, openWorldHint: true },
     },
-    async ({ deliveryId, from }) =>
+    async ({ deliveryId, from, to }) =>
       guard(async (client) => {
         // The default includes recent completed deliveries and the forward horizon.
         const since = from ?? dateOffsetLocal(-14);
-        const { deliveries: ds, userId } = await loadDeliveries(client, since, DELIVERY_DETAIL_SEL);
+        if (to && to < since)
+          return errResult(
+            "Window ends before it starts. Supply both from and to for a historical lookup.",
+          );
+        const { deliveries: ds, userId } = await loadDeliveries(
+          client,
+          since,
+          DELIVERY_DETAIL_SEL,
+          to,
+        );
         const d = findDelivery(ds, deliveryId);
         if (!d) {
           const seen = ds.length
@@ -933,6 +1039,7 @@ export function registerAllTools(server: McpServer, writeGate: WriteGate): void 
   server.registerTool(
     "set_meal",
     {
+      _meta: { ui: { visibility: ["model", "app"] }, "openai/widgetAccessible": true },
       title: "Set the meal for a delivery",
       description:
         "Set an exact menu item for a delivery. By default this adds if empty or replaces an " +
@@ -1098,6 +1205,7 @@ export function registerAllTools(server: McpServer, writeGate: WriteGate): void 
   server.registerTool(
     "set_meal_all",
     {
+      _meta: { ui: { visibility: ["model"] } },
       title: "Set the same meal across multiple deliveries",
       description:
         "Apply one exact menu item to several delivery days. Duplicate " +
@@ -1231,6 +1339,7 @@ export function registerAllTools(server: McpServer, writeGate: WriteGate): void 
   server.registerTool(
     "remove_meal",
     {
+      _meta: { ui: { visibility: ["model"] } },
       title: "Remove the meal from a delivery",
       description: "Remove one of your meals using its pieceId. " + WRITE_NOTE,
       inputSchema: z.object({
@@ -1268,6 +1377,7 @@ export function registerAllTools(server: McpServer, writeGate: WriteGate): void 
   server.registerTool(
     "rate_meal",
     {
+      _meta: { ui: { visibility: ["model"] } },
       title: "Rate a meal",
       description:
         "Rate one of your meals from 1–5 or edit its feedback. Use pieceId from list_deliveries. " +
@@ -1383,6 +1493,7 @@ export function registerAllTools(server: McpServer, writeGate: WriteGate): void 
   server.registerTool(
     "confirm_delivery",
     {
+      _meta: { ui: { visibility: ["model"] } },
       title: "Confirm (or unconfirm) a delivery",
       description: "Set a delivery's confirmation state. confirm=false unconfirms. " + WRITE_NOTE,
       inputSchema: z.object({

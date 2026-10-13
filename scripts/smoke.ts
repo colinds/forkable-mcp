@@ -21,6 +21,8 @@ import pkg from "../package.json" with { type: "json" };
 const exec = promisify(execFile);
 
 const EXPECTED_TOOLS = [
+  "open_forkable",
+  "search_mentions",
   "confirm_delivery",
   "get_delivery_status",
   "get_menus",
@@ -102,6 +104,26 @@ async function checkInstalled(runner: Runner, cwd: string, home: string): Promis
   if (missing.length) fail(`${runner} missing tools: ${missing.join(", ")}`);
   if (extra.length) fail(`${runner} unexpected tools: ${extra.join(", ")}`);
   log(`${runner} registered ${names.length} tools`);
+
+  const browser = listedTools.find((tool) => tool.name === "open_forkable");
+  const ui = browser?.["_meta"]?.ui as { resourceUri?: string } | undefined;
+  if (!ui?.resourceUri) fail(`${runner}: meal browser has no UI resource`);
+  for (const name of [
+    "list_deliveries",
+    "get_menus",
+    "search_items",
+    "recommend_meals",
+    "get_delivery_status",
+  ]) {
+    const metadata = listedTools.find((tool) => tool.name === name)?.["_meta"];
+    if ((metadata?.ui as { resourceUri?: string } | undefined)?.resourceUri !== ui.resourceUri)
+      fail(`${runner}: ${name} is not wired to the meal browser`);
+  }
+  const resource = await client.readResource({ uri: ui.resourceUri });
+  const html = resource.contents.find((content) => "text" in content);
+  if (!html || !("text" in html) || !html.text.includes('<script type="module">'))
+    fail(`${runner}: bundled browser HTML is missing`);
+  log(`${runner} meal browser resource is packaged and readable`);
 
   for (const name of ["set_meal", "set_meal_all"]) {
     const tool = listedTools.find((candidate) => candidate.name === name);

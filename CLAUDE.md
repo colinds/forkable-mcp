@@ -13,11 +13,16 @@ src/
   index.ts        CLI entry point
   server.ts       stdio lifecycle and keepalive
   tools.ts        MCP tools and Forkable request construction
+  ui-server.ts    MCP Apps resources and OpenAI entrypoints
+  mentions.ts     Composer reference registration
+  app/            React UI (components, hooks, shared contracts and host styling)
   write-gate.ts   preview, confirmation, and mutation recovery
   net/            GraphQL transport and error mapping
   auth/           login, browser-cookie ingest, and session storage
   order/          domain types, selections, local guards, formatting, and status
 tests/            Bun tests
+scripts/build.ts  bundles the server and self-contained UI
+scripts/dev.ts    watches server code and rebuilds UI changes
 scripts/smoke.ts  packed-install smoke test
 ```
 
@@ -295,6 +300,7 @@ bun run test:tz
 bun run check
 bun run fmt
 bun run smoke
+bun run test:browser
 ```
 
 `bun run smoke` packs the project, installs the tarball in a scratch project, and drives the installed
@@ -303,3 +309,15 @@ binary without credentials. Keep `scripts/` in the TypeScript project.
 Use TypeScript strict mode, two-space indentation, kebab-case files, and snake_case tool names. Reads
 use `get_`, `list_`, `search_`, or `recommend_`; writes use `set_`, `remove_`, `confirm_`, or `rate_`
 and accept an optional `confirmToken`.
+
+## MCP App
+
+`open_forkable` is a read-only UI entrypoint and an exception to the usual read-tool naming.
+Exact-meal launches require a delivery plus its menu/item pair. `bun run start` builds the UI
+before starting stdio; `bun run dev` rebuilds UI changes while watching the server. Reopen the
+MCP view after rebuilding. Keep build output off protocol stdout.
+
+Use the standard MCP Apps bridge and host styles. OpenAI metadata is an optional layer.
+Only `set_meal` is app-visible among write tools; it still uses the existing confirmation gate.
+Context updates must honor host modalities and exclude credentials and confirmation tokens.
+Browser regression tests use fixture data, not live meal mutations.

@@ -45,6 +45,14 @@ Load item details before setting modifiers. Modifier and option names are accept
 resolve uniquely; IDs are preferable when names repeat. Preserve an explicitly empty optional
 selection instead of restoring an old or default choice.
 
+## Show the interactive app
+
+When the user asks to see a meal or open the browser, call `open_forkable`. Pass the known
+`deliveryId` and, for a specific dish, its exact `menuId` and `itemId`. Do not substitute a
+Markdown image for the interactive view when the client supports MCP Apps. Delivery, menu,
+search, recommendation, and status reads also carry the app UI. Text remains available in
+clients without MCP Apps.
+
 ## Local preferences
 
 If file access is available, store user-stated food preferences in

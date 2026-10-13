@@ -1,45 +1,56 @@
 {
   "name": "forkable-mcp",
-  "type": "module",
   "version": "0.7.0",
   "description": "Unofficial MCP server for Forkable — order and manage corporate lunches from any MCP client.",
+  "keywords": [
+    "bun",
+    "forkable",
+    "lunch",
+    "mcp",
+    "model-context-protocol",
+    "node"
+  ],
+  "homepage": "https://github.com/colinds/forkable-mcp#readme",
+  "bugs": {
+    "url": "https://github.com/colinds/forkable-mcp/issues"
+  },
   "license": "MIT",
   "author": "Colin D'Souza",
-  "homepage": "https://github.com/colinds/forkable-mcp#readme",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/colinds/forkable-mcp.git"
   },
-  "bugs": {
-    "url": "https://github.com/colinds/forkable-mcp/issues"
-  },
-  "keywords": ["mcp", "model-context-protocol", "forkable", "lunch", "bun", "node"],
   "bin": {
     "forkable-mcp": "dist/index.js"
   },
-  "files": ["dist", "skills", "README.md", "LICENSE"],
-  "engines": {
-    "node": ">=22"
-  },
+  "files": [
+    "dist",
+    "skills",
+    "README.md",
+    "LICENSE"
+  ],
+  "type": "module",
   "scripts": {
-    "build": "bun build src/index.ts --target=node --format=esm --packages=external --outfile=dist/index.js",
+    "build": "bun run scripts/build.ts",
     "prepack": "bun run build",
-    "start": "bun run src/index.ts",
-    "dev": "bun --watch src/index.ts",
+    "start": "bun run build && bun run src/index.ts",
+    "dev": "bun run scripts/dev.ts",
     "auth": "bun run src/index.ts --auth",
     "test": "bun test",
     "test:tz": "TZ=Asia/Kolkata bun test",
     "typecheck": "tsc --noEmit",
     "lint": "oxlint",
     "lint:fix": "oxlint --fix",
-    "fmt": "oxfmt src tests scripts",
-    "fmt:check": "oxfmt --check src tests scripts",
+    "fmt": "oxfmt src tests scripts package.json tsconfig.json",
+    "fmt:check": "oxfmt --check src tests scripts package.json tsconfig.json",
     "smoke": "bun run scripts/smoke.ts",
-    "check": "oxlint && oxfmt --check src tests scripts && tsc --noEmit && bun test && bun run test:tz"
+    "check": "oxlint && bun run fmt:check && tsc --noEmit && bun test && bun run test:tz",
+    "test:browser": "playwright test --config=tests/browser/playwright.config.ts"
   },
   "dependencies": {
-    "@modelcontextprotocol/server": "^2.0.0",
     "@modelcontextprotocol/core": "^2.0.0",
+    "@modelcontextprotocol/ext-apps": "2.0.3",
+    "@modelcontextprotocol/server": "^2.0.0",
     "@steipete/sweet-cookie": "^0.4.1",
     "cookie": "^2.0.1",
     "set-cookie-parser": "^3.1.2",
@@ -47,9 +58,18 @@
   },
   "devDependencies": {
     "@modelcontextprotocol/client": "^2.0.0",
+    "@openai/mcp-extensions": "0.1.0",
+    "@playwright/test": "^1.63.0",
     "@types/bun": "^1.3.14",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
     "oxfmt": "^0.63.0",
     "oxlint": "^1.78.0",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
     "typescript": "^7.0.2"
+  },
+  "engines": {
+    "node": ">=22"
   }
 }

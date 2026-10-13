@@ -106,6 +106,7 @@ describe("meal ratings", () => {
     }) as typeof fetch;
     handlers = new Map();
     const server = {
+      registerResource() {},
       registerTool(
         name: string,
         definition: { inputSchema?: { parse: (args: unknown) => unknown } },
