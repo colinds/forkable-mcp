@@ -108,6 +108,7 @@ describe("meal ratings", () => {
     }) as typeof fetch;
     handlers = new Map();
     const server = {
+      server: { registerCapabilities() {} },
       registerResource() {},
       registerTool(
         name: string,

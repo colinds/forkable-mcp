@@ -487,3 +487,34 @@ html[data-display-mode="fullscreen"] .expand-control {
   align-items: center;
   gap: 12px;
 }
+
+.compact-search-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.compact-search-header h2 {
+  margin: 0;
+}
+.compact-search-header p {
+  margin: 4px 0 0;
+}
+.compact-search .menu-browser {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: 0;
+}
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}

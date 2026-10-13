@@ -1,21 +1,7 @@
 import { useEffect, useRef, useMemo } from "react";
 import type { Delivery } from "@/shared/contracts/meals.ts";
 
-const weekdayFormatter = new Intl.DateTimeFormat("en-US", { weekday: "short", timeZone: "UTC" });
-const dateFormatter = new Intl.DateTimeFormat("en-US", {
-  month: "short",
-  day: "numeric",
-  timeZone: "UTC",
-});
-
-function dateLabels(date: string) {
-  const value = new Date(`${date}T12:00:00Z`);
-  if (Number.isNaN(value.getTime())) return { weekday: "Delivery", date };
-  return {
-    weekday: weekdayFormatter.format(value),
-    date: dateFormatter.format(value),
-  };
-}
+import { dateLabels } from "../lib/delivery-labels.ts";
 
 export function DateStrip({
   deliveries,

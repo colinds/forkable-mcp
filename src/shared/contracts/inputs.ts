@@ -85,6 +85,7 @@ export const setMealInputSchema = z.object({
 export type SetMealInput = z.infer<typeof setMealInputSchema>;
 
 export interface BrowserToolInputs {
+  search_items: z.infer<typeof searchItemsInputSchema>;
   list_deliveries: z.infer<typeof listDeliveriesInputSchema>;
   get_menus: z.infer<typeof getMenusInputSchema>;
   recommend_meals: z.infer<typeof recommendMealsInputSchema>;

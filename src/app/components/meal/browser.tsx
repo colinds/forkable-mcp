@@ -1,4 +1,7 @@
-import { menuView } from "../../lib/menu-filters.ts";
+import { dateLabels } from "../../lib/delivery-labels.ts";
+import { searchResultsSchema } from "@/shared/contracts/meals.ts";
+import type { McpUiDisplayMode } from "@modelcontextprotocol/ext-apps";
+import { defaultFilters, menuView } from "../../lib/menu-filters.ts";
 import { isPastDelivery, type InitialView } from "../../lib/initial-view.ts";
 import { useRef, useState, useMemo } from "react";
 import { Button } from "../button.tsx";
@@ -20,14 +23,24 @@ export function MealBrowser({
   updateContext,
   initial,
   expand,
+  displayMode = "inline",
 }: {
   call: CallTool;
   openLink?: OpenLink;
   updateContext?: UpdateContext;
   initial?: InitialView;
   expand?: () => Promise<void>;
+  displayMode?: McpUiDisplayMode;
 }) {
   const [displayError, setDisplayError] = useState<string>();
+  const [showBrowser, setShowBrowser] = useState(false);
+  const searchLaunch = useMemo(
+    () =>
+      !!initial?.input.query?.trim() ||
+      searchResultsSchema.safeParse(initial?.result.structuredContent).success,
+    [initial],
+  );
+  const compactSearch = displayMode === "inline" && searchLaunch && !showBrowser;
   const browser = useMealBrowser(call, initial);
   const { state } = browser;
   const view = useMemo(
@@ -38,6 +51,14 @@ export function MealBrowser({
   const contextFailed = useModelContext(state, view, updateContext);
   const { delivery, detail, busy, notice, problem } = state;
   const opener = useRef<HTMLElement | null>(null);
+  const date = delivery ? dateLabels(delivery.date) : undefined;
+  function browseAll() {
+    browser.setQuery("");
+    browser.setFilters(defaultFilters);
+    setShowBrowser(true);
+    if (expand)
+      void expand().catch(() => setDisplayError("Full view is unavailable in this host."));
+  }
   let emptyMessage = "Unable to load deliveries. Refresh to try again.";
   if (state.deliveriesLoaded) emptyMessage = "No upcoming deliveries.";
   if (busy) emptyMessage = "Loading deliveries…";
@@ -46,31 +67,55 @@ export function MealBrowser({
     browser.choose(menuId, itemId, sourcePieceId);
   }
   return (
-    <div aria-busy={busy}>
-      <div className="delivery-toolbar">
-        <div className="delivery-heading">
-          <h2>Deliveries</h2>
-          <Button disabled={busy} onClick={browser.refresh}>
-            {busy ? "Loading…" : "Refresh"}
-          </Button>
+    <div aria-busy={busy} className={compactSearch ? "compact-search" : undefined}>
+      {compactSearch ? (
+        <div className="compact-search-header">
+          <div>
+            <h2>Search meals</h2>
+            {delivery && date && (
+              <p className="muted">
+                <time dateTime={delivery.date}>
+                  {date.weekday}, {date.date}
+                </time>
+                {delivery.service ? ` · ${delivery.service}` : ""}
+              </p>
+            )}
+          </div>
+          <div className="app-toolbar">
+            <Button disabled={busy} onClick={browser.refreshSearch}>
+              Refresh
+            </Button>
+            <Button disabled={busy} onClick={browseAll}>
+              Browse all meals
+            </Button>
+          </div>
         </div>
-        <div className="app-toolbar" role="group" aria-label="Meal browser actions">
-          {expand && (
-            <div className="expand-control">
-              <Button
-                disabled={busy}
-                onClick={() => {
-                  void expand().catch(() =>
-                    setDisplayError("Full view is unavailable in this host."),
-                  );
-                }}
-              >
-                Open full view
-              </Button>
-            </div>
-          )}
+      ) : (
+        <div className="delivery-toolbar">
+          <div className="delivery-heading">
+            <h2>Deliveries</h2>
+            <Button disabled={busy} onClick={browser.refresh}>
+              {busy ? "Loading…" : "Refresh"}
+            </Button>
+          </div>
+          <div className="app-toolbar" role="group" aria-label="Meal browser actions">
+            {expand && (
+              <div className="expand-control">
+                <Button
+                  disabled={busy}
+                  onClick={() => {
+                    void expand().catch(() =>
+                      setDisplayError("Full view is unavailable in this host."),
+                    );
+                  }}
+                >
+                  Open full view
+                </Button>
+              </div>
+            )}
+          </div>
         </div>
-      </div>
+      )}
       {displayError && (
         <p role="alert" className="notice">
           {displayError}
@@ -89,13 +134,15 @@ export function MealBrowser({
       {!state.deliveries.length && <p className="empty">{emptyMessage}</p>}
       {!!state.deliveries.length && (
         <>
-          <DateStrip
-            deliveries={state.deliveries}
-            selectedId={delivery?.deliveryId}
-            busy={busy}
-            onSelect={browser.setDelivery}
-          />
-          {delivery && (
+          {!compactSearch && (
+            <DateStrip
+              deliveries={state.deliveries}
+              selectedId={delivery?.deliveryId}
+              busy={busy}
+              onSelect={browser.setDelivery}
+            />
+          )}
+          {!compactSearch && delivery && (
             <SelectedMeals
               delivery={delivery}
               menus={state.menus}
@@ -104,7 +151,7 @@ export function MealBrowser({
               status={state.deliveryStatus}
             />
           )}
-          {delivery && (
+          {!compactSearch && delivery && (
             <DeliveryProgress
               key={delivery.deliveryId}
               delivery={delivery}
@@ -120,7 +167,9 @@ export function MealBrowser({
             </p>
           ) : (
             <section className="menu-browser" aria-labelledby="browse-menus-title">
-              <h2 id="browse-menus-title">Browse menus</h2>
+              <h2 id="browse-menus-title" className={compactSearch ? "sr-only" : undefined}>
+                {compactSearch ? "Search results" : "Browse menus"}
+              </h2>
               <MealFilters
                 menus={state.menus}
                 value={state.filters}
@@ -130,12 +179,12 @@ export function MealBrowser({
                 onChange={browser.setFilters}
                 onClear={() => browser.setQuery("")}
               />
-              {state.recommendationsLoading && (
+              {!compactSearch && state.recommendationsLoading && (
                 <p className="muted" role="status">
                   Loading recommendations…
                 </p>
               )}
-              {state.recommendationsUnavailable && (
+              {!compactSearch && state.recommendationsUnavailable && (
                 <p className="muted" role="status">
                   Recommendations are unavailable. You can still browse all meals.
                 </p>

@@ -21,6 +21,7 @@ import {
   menusSchema,
   itemDetailSchema,
   recommendationsSchema,
+  searchResultsSchema,
   type Delivery,
   type Detail,
   type Menu,
@@ -158,7 +159,7 @@ export function useMealBrowser(call: CallTool, initial?: InitialView) {
     const menus = menusSeed ?? data(await call("get_menus", args), menusSchema).menus;
     patchCurrent({ menus });
   }
-  async function refresh() {
+  async function refresh(preserveSearch = false) {
     ++loadGeneration.current;
     invalidate({
       ...emptySelection,
@@ -167,9 +168,9 @@ export function useMealBrowser(call: CallTool, initial?: InitialView) {
       delivery: undefined,
       menus: [],
       recommendations: [],
-      query: "",
+      query: preserveSearch ? state.query : "",
       searchMatches: undefined,
-      filters: defaultFilters,
+      filters: preserveSearch ? state.filters : defaultFilters,
     });
     const deliveries = data(
       await call("list_deliveries", range),
@@ -177,6 +178,13 @@ export function useMealBrowser(call: CallTool, initial?: InitialView) {
     ).deliveries.toSorted((a, b) => a.date.localeCompare(b.date) || a.deliveryId - b.deliveryId);
     const selected = deliveries.find((d) => d.deliveryId === delivery?.deliveryId) ?? deliveries[0];
     patch({ deliveries, deliveriesLoaded: true, delivery: selected, needsRefresh: false });
+    if (preserveSearch && selected && state.query.trim() && state.searchMatches !== undefined) {
+      const { items } = data(
+        await call("search_items", { deliveryId: selected.deliveryId, query: state.query }),
+        searchResultsSchema,
+      );
+      patch({ searchMatches: items });
+    }
     await loadMenus(selected);
   }
   // The originating tool result seeds the app instead of fetching the same data again.
@@ -318,6 +326,7 @@ export function useMealBrowser(call: CallTool, initial?: InitialView) {
     state,
     hasPreview: !!confirmation.current.pending,
     refresh: () => void run(refresh),
+    refreshSearch: () => void run(() => refresh(true)),
     choose,
     chooseOption,
     review: () => {

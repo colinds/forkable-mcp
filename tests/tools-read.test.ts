@@ -1,3 +1,4 @@
+import { Client as LegacyClient } from "@modelcontextprotocol/sdk/client/index.js";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -173,6 +174,7 @@ describe("read tool responses", () => {
 
     handlers = new Map();
     const server = {
+      server: { registerCapabilities() {} },
       registerResource() {},
       registerTool(name: string, _definition: unknown, handler: ToolHandler) {
         handlers.set(name, handler);
@@ -223,42 +225,50 @@ describe("read tool responses", () => {
     expect(menuRequests).toHaveLength(6);
   });
 
-  test("reauth errors retain their instructions through schema-aware MCP clients", async () => {
-    rmSync(join(home, "session.json"));
-    const email = process.env.FORKABLE_EMAIL;
-    delete process.env.FORKABLE_EMAIL;
-    const server = new McpServer({ name: "reauth-test", version: "0" });
-    registerAllTools(server, createWriteGate());
-    const client = new Client({ name: "reauth-client", version: "0" });
-    const [ct, st] = InMemoryTransport.createLinkedPair();
-    try {
-      await Promise.all([server.connect(st), client.connect(ct)]);
-      await client.listTools();
-      const calls = [
-        { name: "list_deliveries", arguments: {} },
-        { name: "get_menus", arguments: { deliveryId: DELIVERY_ID } },
-        { name: "search_items", arguments: { deliveryId: DELIVERY_ID, query: "bowl" } },
-        { name: "recommend_meals", arguments: { deliveryId: DELIVERY_ID } },
-        { name: "get_delivery_status", arguments: { deliveryId: DELIVERY_ID } },
-      ];
-      const results = await Promise.all(calls.map((call) => client.callTool(call)));
-      for (const result of results) {
-        expect(result.isError).toBe(true);
-        expect(result.structuredContent).toEqual({
+  for (const [version, ClientClass] of [
+    ["v1", LegacyClient],
+    ["v2", Client],
+  ] as const) {
+    test(`reauth errors retain their instructions through schema-aware MCP clients (${version})`, async () => {
+      rmSync(join(home, "session.json"));
+      const email = process.env.FORKABLE_EMAIL;
+      delete process.env.FORKABLE_EMAIL;
+      const server = new McpServer({ name: "reauth-test", version: "0" });
+      registerAllTools(server, createWriteGate());
+      const client = new ClientClass({ name: "reauth-client", version: "0" });
+      const [ct, st] = InMemoryTransport.createLinkedPair();
+      try {
+        await Promise.all([server.connect(st), client.connect(ct)]);
+        await client.listTools();
+        const calls = [
+          { name: "list_deliveries", arguments: {} },
+          { name: "get_menus", arguments: { deliveryId: DELIVERY_ID } },
+          { name: "search_items", arguments: { deliveryId: DELIVERY_ID, query: "bowl" } },
+          { name: "recommend_meals", arguments: { deliveryId: DELIVERY_ID } },
+          { name: "get_delivery_status", arguments: { deliveryId: DELIVERY_ID } },
+        ];
+        const results = await Promise.all(calls.map((call) => client.callTool(call)));
+        for (const result of results) {
+          expect(result.isError).toBe(true);
+          expect(result.structuredContent).toBeUndefined();
+          expect(result.content).toMatchObject([
+            { type: "text", text: expect.stringContaining("provide a fresh browser cookie") },
+          ]);
+        }
+        const profile = await client.callTool({ name: "get_profile", arguments: {} });
+        expect(profile.isError).toBe(true);
+        expect(profile.structuredContent).toEqual({
           error: "forkable_reauth_required",
           reason: "missing",
         });
-        expect(result.content).toMatchObject([
-          { type: "text", text: expect.stringContaining("provide a fresh browser cookie") },
-        ]);
+      } finally {
+        if (email === undefined) delete process.env.FORKABLE_EMAIL;
+        else process.env.FORKABLE_EMAIL = email;
+        await client.close();
+        await server.close();
       }
-    } finally {
-      if (email === undefined) delete process.env.FORKABLE_EMAIL;
-      else process.env.FORKABLE_EMAIL = email;
-      await client.close();
-      await server.close();
-    }
-  });
+    });
+  }
 
   test("read output validation tolerates missing optional wire fields", async () => {
     const incomplete = structuredClone(delivery);
@@ -293,51 +303,58 @@ describe("read tool responses", () => {
     }
   });
 
-  test("public result contracts survive MCP serialization without losing fields", async () => {
-    const server = new McpServer({ name: "contract-test", version: "0" });
-    registerAllTools(server, createWriteGate());
-    const client = new Client({ name: "contract-client", version: "0" });
-    const [ct, st] = InMemoryTransport.createLinkedPair();
-    try {
-      await Promise.all([server.connect(st), client.connect(ct)]);
-      const definitions = (await client.listTools()).tools;
-      const reads = [
-        { name: "list_deliveries", args: {}, schema: deliveriesSchema },
-        { name: "get_menus", args: { deliveryId: DELIVERY_ID }, schema: menusSchema },
-        {
-          name: "get_menus",
-          args: { deliveryId: DELIVERY_ID, menuId: MENU_ID, itemId: ITEM_ID },
-          schema: itemDetailSchema,
-        },
-        {
-          name: "search_items",
-          args: { deliveryId: DELIVERY_ID, query: "bowl" },
-          schema: searchResultsSchema,
-        },
-        {
-          name: "recommend_meals",
-          args: { deliveryId: DELIVERY_ID },
-          schema: recommendationsSchema,
-        },
-        {
-          name: "get_delivery_status",
-          args: { deliveryId: DELIVERY_ID },
-          schema: deliveryStatusSchema,
-        },
-      ];
-      await Promise.all(
-        reads.map(async ({ name, args, schema }) => {
-          expect(definitions.find((tool) => tool.name === name)?.outputSchema?.type).toBe("object");
-          const result = await client.callTool({ name, arguments: args });
-          expect(result.isError).not.toBe(true);
-          expect(result.structuredContent).toEqual(schema.parse(result.structuredContent));
-        }),
-      );
-    } finally {
-      await client.close();
-      await server.close();
-    }
-  });
+  for (const [version, ClientClass] of [
+    ["v1", LegacyClient],
+    ["v2", Client],
+  ] as const) {
+    test(`public result contracts survive MCP serialization without losing fields (${version})`, async () => {
+      const server = new McpServer({ name: "contract-test", version: "0" });
+      registerAllTools(server, createWriteGate());
+      const client = new ClientClass({ name: "contract-client", version: "0" });
+      const [ct, st] = InMemoryTransport.createLinkedPair();
+      try {
+        await Promise.all([server.connect(st), client.connect(ct)]);
+        const definitions = (await client.listTools()).tools;
+        const reads = [
+          { name: "list_deliveries", args: {}, schema: deliveriesSchema },
+          { name: "get_menus", args: { deliveryId: DELIVERY_ID }, schema: menusSchema },
+          {
+            name: "get_menus",
+            args: { deliveryId: DELIVERY_ID, menuId: MENU_ID, itemId: ITEM_ID },
+            schema: itemDetailSchema,
+          },
+          {
+            name: "search_items",
+            args: { deliveryId: DELIVERY_ID, query: "bowl" },
+            schema: searchResultsSchema,
+          },
+          {
+            name: "recommend_meals",
+            args: { deliveryId: DELIVERY_ID },
+            schema: recommendationsSchema,
+          },
+          {
+            name: "get_delivery_status",
+            args: { deliveryId: DELIVERY_ID },
+            schema: deliveryStatusSchema,
+          },
+        ];
+        await Promise.all(
+          reads.map(async ({ name, args, schema }) => {
+            expect(definitions.find((tool) => tool.name === name)?.outputSchema?.type).toBe(
+              "object",
+            );
+            const result = await client.callTool({ name, arguments: args });
+            expect(result.isError).not.toBe(true);
+            expect(result.structuredContent).toEqual(schema.parse(result.structuredContent));
+          }),
+        );
+      } finally {
+        await client.close();
+        await server.close();
+      }
+    });
+  }
 
   test("composer mentions advertise discovery and resolve fresh account-scoped resources", async () => {
     const server = new McpServer({ name: "mentions-test", version: "0" });
@@ -368,6 +385,12 @@ describe("read tool responses", () => {
         expect(definitions.find((tool) => tool.name === name)?.["_meta"]).toMatchObject({
           ui: { visibility: ["model"] },
         });
+      expect(client.getServerCapabilities()?.extensions?.["openai/mentions"]).toEqual({
+        searchTool: "search_mentions",
+      });
+      expect(client.getServerCapabilities()?.experimental?.["openai/mentions"]).toEqual({
+        searchTool: "search_mentions",
+      });
       const definition = (await client.listTools()).tools.find(
         (tool) => tool.name === "search_mentions",
       );

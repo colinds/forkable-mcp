@@ -44,6 +44,10 @@ const bridge = new AppBridge(
     },
   },
 );
+Object.assign(window, {
+  changeDisplayMode: (displayMode: "inline" | "fullscreen") =>
+    bridge.setHostContext({ displayMode }),
+});
 bridge.onupdatemodelcontext = async (context) => {
   if (params.has("text-context") && context.structuredContent)
     throw new Error("Host accepts text context only");
@@ -235,6 +239,8 @@ const respond = async (
         content: [{ type: "text", text: "Menus are not available for this historical delivery." }],
       };
   }
+  if (args.name === "search_items")
+    result = { items: params.has("no-matches") ? [] : [{ menuId: 20, itemId: 7 }] };
   if (args.name === "recommend_meals")
     result = {
       recommendations: [

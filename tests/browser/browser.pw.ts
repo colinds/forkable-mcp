@@ -532,3 +532,63 @@ test("optional read failures leave menus available", async ({ page }) => {
   await ui.getByRole("button", { name: /View Spicy tofu/ }).click();
   await expect(ui.getByRole("dialog")).toBeVisible();
 });
+
+for (const width of [375, 1000]) {
+  test(`inline search puts meal cards first at width ${width}`, async ({ page }, testInfo) => {
+    await page.setViewportSize({ width, height: 812 });
+    await page.goto("/?initial-search&context");
+    const ui = page.frameLocator("iframe");
+    const meal = ui.getByRole("button", { name: /View Another bowl/ });
+    await expect(meal).toBeVisible();
+    await expect(ui.getByRole("group", { name: "Delivery dates" })).toHaveCount(0);
+    await expect(ui.getByRole("region", { name: "Selected meals" })).toHaveCount(0);
+    await expect(ui.getByRole("region", { name: "Delivery updates" })).toHaveCount(0);
+    await expect(ui.getByText("Mon, Oct 5")).toBeVisible();
+    expect((await meal.boundingBox())!.y).toBeLessThan(320);
+    await page.screenshot({ path: testInfo.outputPath("compact-search.png") });
+    await ui.getByRole("button", { name: "Refresh", exact: true }).click();
+    await expect(ui.getByLabel("Find a meal")).toHaveValue("tofu");
+    await expect(meal).toBeVisible();
+    await expect(
+      ui.getByRole("region", { name: "Available meals" }).getByRole("button"),
+    ).toHaveCount(1);
+    await meal.click();
+    await expect(ui.getByRole("dialog")).toBeVisible();
+    await ui.getByLabel("Meal to replace").selectOption("b");
+    await ui.getByLabel("Kimchi").check();
+    await ui.getByRole("button", { name: "Review change" }).click();
+    await expect(ui.getByText("Nothing has been sent yet.")).toBeVisible();
+    await page.keyboard.press("Escape");
+    await ui.getByRole("button", { name: "Browse all meals" }).click();
+    await expect(ui.locator("html")).toHaveAttribute("data-display-mode", "fullscreen");
+    await expect(ui.getByRole("group", { name: "Delivery dates" })).toBeVisible();
+    await expect(ui.getByLabel("Find a meal")).toHaveValue("");
+    await expect(
+      ui.getByRole("region", { name: "Available meals" }).getByRole("button"),
+    ).toHaveCount(2);
+  });
+}
+
+test("host expansion preserves the search without refetching meals", async ({ page }) => {
+  await page.goto("/?initial-search");
+  const ui = page.frameLocator("iframe");
+  await expect(ui.getByRole("button", { name: /View Another bowl/ })).toBeEnabled();
+  const countCalls = () =>
+    page.evaluate(() => (window as unknown as { calls: unknown[] }).calls.length);
+  const before = await countCalls();
+  await page.evaluate(() =>
+    (window as unknown as { changeDisplayMode: (mode: string) => void }).changeDisplayMode(
+      "fullscreen",
+    ),
+  );
+  await expect(ui.getByRole("group", { name: "Delivery dates" })).toBeVisible();
+  await expect(ui.getByLabel("Find a meal")).toHaveValue("tofu");
+  await page.evaluate(() =>
+    (window as unknown as { changeDisplayMode: (mode: string) => void }).changeDisplayMode(
+      "inline",
+    ),
+  );
+  await expect(ui.getByRole("group", { name: "Delivery dates" })).toHaveCount(0);
+  await expect(ui.getByRole("button", { name: /View Another bowl/ })).toBeVisible();
+  expect(await countCalls()).toBe(before);
+});

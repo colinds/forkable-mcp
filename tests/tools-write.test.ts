@@ -106,6 +106,7 @@ describe("write tool planning", () => {
 
     handlers = new Map();
     const server = {
+      server: { registerCapabilities() {} },
       registerResource() {},
       registerTool(name: string, _definition: unknown, handler: ToolHandler) {
         handlers.set(name, handler);

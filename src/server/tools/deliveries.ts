@@ -6,7 +6,7 @@ import { type McpServer } from "@modelcontextprotocol/server";
 import { deliveryStatus, formatDeliveryStatus } from "@/server/order/status.ts";
 
 import { appResult, errResult } from "@/server/results.ts";
-import { guard } from "@/server/tools/shared.ts";
+import { appGuard } from "@/server/tools/shared.ts";
 import {
   DELIVERY_SEL,
   DELIVERY_DETAIL_SEL,
@@ -33,7 +33,7 @@ export function registerDeliveryListTool(server: McpServer): void {
       annotations: { readOnlyHint: true, openWorldHint: true },
     },
     async (args) =>
-      guard(async (client) => {
+      appGuard(async (client) => {
         // Validate after defaults so a past `to` without `from` cannot invert the range.
         const w = deliveryRange(args.from, args.to);
         if (w.to < w.from)
@@ -76,7 +76,7 @@ export function registerDeliveryStatusTool(server: McpServer): void {
       annotations: { readOnlyHint: true, openWorldHint: true },
     },
     async ({ deliveryId, from, to }) =>
-      guard(async (client) => {
+      appGuard(async (client) => {
         // The default includes recent completed deliveries and the forward horizon.
         const since = from ?? dateOffsetLocal(-14);
         if (to && to < since)
