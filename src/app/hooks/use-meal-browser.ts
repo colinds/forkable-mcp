@@ -46,6 +46,7 @@ interface BrowserState {
   query: string;
   filters: MenuFilters;
   searchMatches?: SearchMatch[];
+  searchFromServer: boolean;
   busy: boolean;
   notice: string;
   problem: boolean;
@@ -67,6 +68,7 @@ const initialState: BrowserState = {
   recommendations: [],
   query: "",
   filters: defaultFilters,
+  searchFromServer: false,
   busy: true,
   statusUnavailable: false,
   statusLoading: false,
@@ -170,6 +172,7 @@ export function useMealBrowser(call: CallTool, initial?: InitialView) {
       recommendations: [],
       query: preserveSearch ? state.query : "",
       searchMatches: undefined,
+      searchFromServer: preserveSearch && state.searchFromServer,
       filters: preserveSearch ? state.filters : defaultFilters,
     });
     const deliveries = data(
@@ -178,7 +181,7 @@ export function useMealBrowser(call: CallTool, initial?: InitialView) {
     ).deliveries.toSorted((a, b) => a.date.localeCompare(b.date) || a.deliveryId - b.deliveryId);
     const selected = deliveries.find((d) => d.deliveryId === delivery?.deliveryId) ?? deliveries[0];
     patch({ deliveries, deliveriesLoaded: true, delivery: selected, needsRefresh: false });
-    if (preserveSearch && selected && state.query.trim() && state.searchMatches !== undefined) {
+    if (preserveSearch && selected && state.query.trim() && state.searchFromServer) {
       const { items } = data(
         await call("search_items", { deliveryId: selected.deliveryId, query: state.query }),
         searchResultsSchema,
@@ -212,6 +215,7 @@ export function useMealBrowser(call: CallTool, initial?: InitialView) {
         delivery: selected,
         query: input.query ?? "",
         searchMatches: seed.searchItems,
+        searchFromServer: seed.searchItems !== undefined,
       });
       await loadMenus(selected, seed);
       if (selected && !isPastDelivery(selected.date)) {
@@ -294,7 +298,7 @@ export function useMealBrowser(call: CallTool, initial?: InitialView) {
       const outcome = writeResult(result);
       if (outcome?.mode === "executed") {
         try {
-          await refresh();
+          await refresh(true);
           patch({ notice: "Change sent. Delivery refreshed.", problem: false });
         } catch {
           patch({
@@ -335,7 +339,8 @@ export function useMealBrowser(call: CallTool, initial?: InitialView) {
     confirm: () => void run(confirm),
     back: () => invalidate(emptySelection),
     setFilters: (filters: MenuFilters) => patch({ filters }),
-    setQuery: (query: string) => patch({ query, searchMatches: undefined }),
+    setQuery: (query: string) =>
+      patch({ query, searchMatches: undefined, searchFromServer: false }),
     setSource: (source: string) => invalidate({ source }),
     setDelivery: (id: number) =>
       void run(async () => {
@@ -345,6 +350,7 @@ export function useMealBrowser(call: CallTool, initial?: InitialView) {
           delivery: selected,
           query: "",
           searchMatches: undefined,
+          searchFromServer: false,
           filters: defaultFilters,
         });
         await loadMenus(selected);
