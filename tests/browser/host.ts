@@ -58,6 +58,14 @@ const respond = async (
   args: Parameters<NonNullable<AppBridge["oncalltool"]>>[0],
 ): ReturnType<NonNullable<AppBridge["oncalltool"]>> => {
   calls.push({ name: args.name, arguments: args.arguments });
+  const refreshFailure = params.get("refresh-failure");
+  const count = calls.filter((call) => call.name === args.name).length;
+  if (
+    (refreshFailure === "list" && args.name === "list_deliveries" && count === 2) ||
+    (refreshFailure === "search" && args.name === "search_items" && count === 1)
+  ) {
+    return { isError: true, content: [{ type: "text", text: "Temporary search refresh failure" }] };
+  }
   if (
     params.has("slow-aux") &&
     args.arguments?.deliveryId === 1 &&

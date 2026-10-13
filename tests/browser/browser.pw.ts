@@ -592,3 +592,41 @@ test("host expansion preserves the search without refetching meals", async ({ pa
   await expect(ui.getByRole("button", { name: /View Another bowl/ })).toBeVisible();
   expect(await countCalls()).toBe(before);
 });
+
+for (const failure of ["list", "search"]) {
+  test(`server search retry preserves membership after ${failure} failure`, async ({ page }) => {
+    await page.goto(`/?initial-search&refresh-failure=${failure}`);
+    const ui = page.frameLocator("iframe");
+    const refresh = ui.getByRole("button", { name: "Refresh", exact: true });
+    await expect(ui.getByRole("button", { name: /View Another bowl/ })).toBeVisible();
+    await refresh.click();
+    await expect(ui.getByRole("alert")).toContainText("Temporary search refresh failure");
+    await refresh.click();
+    await expect(ui.getByLabel("Find a meal")).toHaveValue("tofu");
+    await expect(ui.getByRole("button", { name: /View Another bowl/ })).toBeVisible();
+    await expect(ui.getByRole("button", { name: /View Spicy tofu/ })).toHaveCount(0);
+    const searches = await page.evaluate(
+      () =>
+        (window as unknown as { calls: { name: string }[] }).calls.filter(
+          (call) => call.name === "search_items",
+        ).length,
+    );
+    expect(searches).toBe(failure === "search" ? 2 : 1);
+  });
+}
+
+test("compact search stays focused after confirming a meal", async ({ page }) => {
+  await page.goto("/?initial-search");
+  const ui = page.frameLocator("iframe");
+  await ui.getByRole("button", { name: /View Another bowl/ }).click();
+  await ui.getByLabel("Meal to replace").selectOption("b");
+  await ui.getByLabel("Kimchi").check();
+  await ui.getByRole("button", { name: "Review change" }).click();
+  await ui.getByRole("button", { name: "Confirm change" }).click();
+  await expect(ui.getByText("Change sent. Delivery refreshed.")).toBeVisible();
+  await expect(ui.getByLabel("Find a meal")).toHaveValue("tofu");
+  await expect(ui.getByRole("region", { name: "Available meals" }).getByRole("button")).toHaveCount(
+    1,
+  );
+  await expect(ui.getByRole("button", { name: /View Another bowl/ })).toBeVisible();
+});
