@@ -47,7 +47,9 @@ selection instead of restoring an old or default choice.
 
 ## Show the interactive app
 
-When the user asks to see a meal or open the browser, call `open_forkable`. Pass the known
+For requests such as "show me curry," call `search_items` with the delivery and keyword to show
+compact matching meals. When the user asks to open the full browser or see a specific meal, call
+`open_forkable`. Pass the known
 `deliveryId` and, for a specific dish, its exact `menuId` and `itemId`. Do not substitute a
 Markdown image for the interactive view when the client supports MCP Apps. Delivery, menu,
 search, recommendation, and status reads also carry the app UI. Text remains available in

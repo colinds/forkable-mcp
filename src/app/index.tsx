@@ -21,6 +21,7 @@ let connected = false;
 let input: InitialView["input"] = {};
 let initial: InitialView | undefined;
 let revision = 0;
+let renderedDisplayMode: string | undefined;
 let cancelled = false;
 let recovering = false;
 let recoveryReadStarted = false;
@@ -33,11 +34,13 @@ function offerRecovery(message: string) {
 }
 function renderView() {
   if (!connected || !initial) return;
+  renderedDisplayMode = app.getHostContext()?.displayMode;
   root.render(
     <MealBrowser
       key={revision}
       call={call}
       initial={initial}
+      displayMode={app.getHostContext()?.displayMode}
       expand={
         app.getHostContext()?.availableDisplayModes?.includes("fullscreen")
           ? async () => {
@@ -61,7 +64,10 @@ function renderView() {
     />,
   );
 }
-app.addEventListener("hostcontextchanged", () => applyHostContext(app.getHostContext()));
+app.addEventListener("hostcontextchanged", () => {
+  applyHostContext(app.getHostContext());
+  if (app.getHostContext()?.displayMode !== renderedDisplayMode) renderView();
+});
 app.ontoolinput = (params) => {
   input = browserInputSchema.safeParse(params.arguments).data ?? {};
   cancelled = false;

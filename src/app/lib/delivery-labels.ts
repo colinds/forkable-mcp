@@ -70,3 +70,19 @@ export function arrivalRange(
   const zone = / (?:[A-Z]{2,5}|UTC[+-]\d{2}:?\d{2})$/.exec(last)?.[0];
   return `${zone && first.endsWith(zone) ? first.slice(0, -zone.length) : first} - ${last}`;
 }
+
+const weekdayFormatter = new Intl.DateTimeFormat("en-US", { weekday: "short", timeZone: "UTC" });
+const dateFormatter = new Intl.DateTimeFormat("en-US", {
+  month: "short",
+  day: "numeric",
+  timeZone: "UTC",
+});
+
+export function dateLabels(date: string) {
+  const value = new Date(`${date}T12:00:00Z`);
+  if (Number.isNaN(value.getTime())) return { weekday: "Delivery", date };
+  return {
+    weekday: weekdayFormatter.format(value),
+    date: dateFormatter.format(value),
+  };
+}

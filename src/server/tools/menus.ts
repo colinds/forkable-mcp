@@ -13,7 +13,7 @@ import { MEAL_APP_META } from "@/server/ui-server.ts";
 import { type McpServer } from "@modelcontextprotocol/server";
 
 import { appResult, errResult } from "@/server/results.ts";
-import { guard } from "@/server/tools/shared.ts";
+import { appGuard } from "@/server/tools/shared.ts";
 import { loadDeliveries, findDelivery, loadMenus, loadDietLabels } from "@/server/order/data.ts";
 import {
   imageMd,
@@ -42,7 +42,7 @@ export function registerMenuTool(server: McpServer): void {
       annotations: { readOnlyHint: true, openWorldHint: true },
     },
     async ({ deliveryId, itemId, menuId }) =>
-      guard(async (client) => {
+      appGuard(async (client) => {
         const { deliveries } = await loadDeliveries(client);
         const d = findDelivery(deliveries, deliveryId);
         if (!d) return errResult(`Delivery ${deliveryId} not found in your upcoming deliveries.`);
@@ -83,13 +83,14 @@ export function registerSearchTool(server: McpServer): void {
     {
       _meta: MEAL_APP_META,
       title: "Search menu items",
-      description: "Search items across a delivery's available menus by keyword.",
+      description:
+        "Search items across a delivery's available menus by keyword. MCP Apps clients show compact inline results for requests such as 'show me curry'.",
       inputSchema: searchItemsInputSchema,
       outputSchema: searchResultsSchema,
       annotations: { readOnlyHint: true, openWorldHint: true },
     },
     async ({ deliveryId, query }) =>
-      guard(async (client) => {
+      appGuard(async (client) => {
         const d = findDelivery((await loadDeliveries(client)).deliveries, deliveryId);
         if (!d?.availableMenuIds?.length)
           return errResult(`Delivery ${deliveryId} not found or has no menus.`);
@@ -136,7 +137,7 @@ export function registerRecommendationTool(server: McpServer): void {
       annotations: { readOnlyHint: true, openWorldHint: true },
     },
     async ({ deliveryId, limit }) =>
-      guard(async (client) => {
+      appGuard(async (client) => {
         const { deliveries, userId } = await loadDeliveries(client);
         const d = findDelivery(deliveries, deliveryId);
         if (!d?.availableMenuIds?.length)

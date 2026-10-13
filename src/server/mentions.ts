@@ -33,6 +33,9 @@ export function registerMentions(
     read: (ref: MentionReference) => Promise<CallToolResult>;
   },
 ) {
+  const capability = { "openai/mentions": { searchTool: "search_mentions" } };
+  server.server.registerCapabilities({ extensions: capability, experimental: capability });
+
   server.registerTool(
     "search_mentions",
     {
