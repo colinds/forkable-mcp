@@ -1,13 +1,13 @@
 import type { CallToolResult } from "@modelcontextprotocol/server";
 import { describe, expect, test } from "bun:test";
-import { MutationError, MutationOutcomeUnknownError } from "@/net/errors.ts";
+import { MutationError, MutationOutcomeUnknownError } from "@/server/net/errors.ts";
 import {
   createWriteGate,
   hashWriteArgs,
   type GateCtx,
   type ExecutableWritePlan,
   type WritePlan,
-} from "@/write-gate.ts";
+} from "@/server/write-gate.ts";
 
 const basePlan: WritePlan = {
   op: "replacePiece",

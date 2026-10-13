@@ -3,7 +3,7 @@
 import { ingestCredentials } from "./ingest.ts";
 import { loginWithPassword } from "./login.ts";
 import { readSession, redact } from "./session.ts";
-import { ReauthRequiredError } from "@/net/errors.ts";
+import { ReauthRequiredError } from "@/server/net/errors.ts";
 import { type SupportedBrowser } from "./chrome.ts";
 import { readFile } from "node:fs/promises";
 import { createInterface } from "node:readline/promises";

@@ -3,11 +3,13 @@ import type { CallToolResult, McpServer } from "@modelcontextprotocol/server";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { patchSession } from "@/auth/session.ts";
-import { ENDPOINT } from "@/net/endpoints.ts";
-import type { Delivery, Piece } from "@/order/types.ts";
-import { addDaysLocal, deliveryRange, registerAllTools } from "@/tools.ts";
-import { createWriteGate } from "@/write-gate.ts";
+import { patchSession } from "@/server/auth/session.ts";
+import { ENDPOINT } from "@/server/net/endpoints.ts";
+import type { Delivery, Piece } from "@/server/order/types.ts";
+import { addDaysLocal } from "@/shared/dates.ts";
+import { deliveryRange } from "@/server/order/data.ts";
+import { registerAllTools } from "@/server/tools/index.ts";
+import { createWriteGate } from "@/server/write-gate.ts";
 
 type Handler = (args: Record<string, unknown>) => Promise<CallToolResult>;
 const USER_ID = 42;
@@ -106,6 +108,8 @@ describe("meal ratings", () => {
     }) as typeof fetch;
     handlers = new Map();
     const server = {
+      server: { registerCapabilities() {} },
+      registerResource() {},
       registerTool(
         name: string,
         definition: { inputSchema?: { parse: (args: unknown) => unknown } },

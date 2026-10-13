@@ -40,7 +40,7 @@ export interface Menu {
   disableSpecialInstructions?: boolean;
 }
 
-/** The dashboard supplies a record even before the first score is submitted. */
+/** A rating record can exist before the first score is submitted. */
 export interface UserRating {
   id: string | number;
   level?: number | null;
@@ -56,7 +56,7 @@ export interface Piece {
   itemId: number;
   menuId: number;
   userId?: number;
-  name?: string;
+  name?: string | null;
   nonHiddenAttributes?: { label?: string; value?: string }[];
   group?: string | null;
   isConfirmed?: boolean | null;

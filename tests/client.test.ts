@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { ForkableClient } from "@/net/client.ts";
-import { MutationError, MutationOutcomeUnknownError } from "@/net/errors.ts";
-import { type FetchImpl } from "@/net/endpoints.ts";
-import { type SessionRecord } from "@/auth/session.ts";
+import { ForkableClient } from "@/server/net/client.ts";
+import { MutationError, MutationOutcomeUnknownError } from "@/server/net/errors.ts";
+import { type FetchImpl } from "@/server/net/endpoints.ts";
+import { type SessionRecord } from "@/server/auth/session.ts";
 
 function response(
   status: number,

@@ -58,6 +58,11 @@ Restart or reconnect your client, then ask something like:
 
 > What's for lunch this week?
 
+## Meal browser
+
+Browse and choose meals visually in clients that support MCP Apps. Open Forkable from the sidebar,
+or ask to see your meals.
+
 ## Skills
 
 Three [agent skills](https://agentskills.io) ship with the server:
@@ -79,6 +84,7 @@ The source files are in [`skills/`](./skills).
 
 | Tool                  | What it does                                                       |
 | --------------------- | ------------------------------------------------------------------ |
+| `open_forkable`       | Opens the interactive meal browser in MCP Apps clients              |
 | `list_deliveries`     | Shows upcoming deliveries and selected meals                       |
 | `get_delivery_status` | Shows courier status, ETA, arrival time, tracking, and access notes |
 | `get_menus`           | Lists menus and item options for a delivery                         |

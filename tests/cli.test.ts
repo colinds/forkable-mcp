@@ -1,6 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { EventEmitter } from "node:events";
-import { promptHiddenPassword, resolveLoginPassword, validateAuthCliArgs } from "@/auth/cli.ts";
+import {
+  promptHiddenPassword,
+  resolveLoginPassword,
+  validateAuthCliArgs,
+} from "@/server/auth/cli.ts";
 
 function fakeTty() {
   const input = new EventEmitter() as NodeJS.ReadStream;

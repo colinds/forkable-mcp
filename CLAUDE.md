@@ -11,13 +11,17 @@ There is no HTTP server.
 ```text
 src/
   index.ts        CLI entry point
-  server.ts       stdio lifecycle and keepalive
-  tools.ts        MCP tools and Forkable request construction
-  write-gate.ts   preview, confirmation, and mutation recovery
-  net/            GraphQL transport and error mapping
-  auth/           login, browser-cookie ingest, and session storage
-  order/          domain types, selections, local guards, formatting, and status
+  app/            React components, hooks, UI state, and host styling
+  server/         Authentication, API access, and write gate
+    tools/        Tool registration by domain; index.ts only composes registrations
+    order/        API loading, wire types, ownership, selections, and presentation
+  shared/
+    contracts/    Public MCP input/output schemas and inferred types
+    dates.ts      Calendar helpers shared by app and server
+    images.ts     Allowed meal-image origins and URL validation
 tests/            Bun tests
+scripts/build.ts  bundles the server and self-contained UI
+scripts/dev.ts    watches server code and rebuilds UI changes
 scripts/smoke.ts  packed-install smoke test
 ```
 
@@ -143,21 +147,20 @@ fields has returned HTTP 503. Keep `confirmDelivery` on its known selection.
 
 ## Meal ratings
 
-`rate_meal` uses the authenticated dashboard's `rateMeal` mutation with selection `errors`.
+`rate_meal` uses the `rateMeal` mutation with selection `errors`.
 Resolve `deliveryId` and a unique, positively owned `pieceId`, then send `piece.userRating.id` as
 `id` with `channel: "mc"`. A missing rating record or id is unavailable; never invent one. Buffet
-ratings use a different flow and are unsupported here. The captured dashboard's `MealRating.save`
-sends `attachment` as null or the stored URL and requests only `errors` from `rateMeal`. Preserve
-that known request shape; the `errorDetails` behavior observed on meal-order mutations does not
-establish support for that field on rating mutations. The dashboard's textarea sends a string for
-comments, including empty strings. Server persistence of clearing edits has not been live-tested.
+ratings use a different flow and are unsupported here. Send `attachment` as null or the stored URL
+and request only `errors` from `rateMeal`. Support for `errorDetails` on meal-order mutations does
+not establish support on rating mutations. Send comments as strings, including empty strings.
+Server persistence of clearing edits has not been live-tested.
 
 A live initial rating submission and readback succeeded with the null attachment and `errors`-only
 payload selection. An omitted `allowRatingFollowUps` changed from unreported to `true` in the
 readback. Describe an unreported preference as using Forkable's default, not as remaining unchanged;
 do not invent a local default or change the account-wide preference.
 
-Scores are integers from 1–5. Levels 4–5 use the dashboard's compliment codes; 1–3 use its issue
+Scores are integers from 1–5. Levels 4–5 use compliment codes; 1–3 use issue
 codes. Explicit incompatible reasons are rejected. Omitted reasons retain unknown server codes and
 drop only known incompatible codes, even when the stored level is absent. Duplicate reasons are
 removed. Other omitted feedback preserves existing values; explicit empty reasons or comments
@@ -295,6 +298,7 @@ bun run test:tz
 bun run check
 bun run fmt
 bun run smoke
+bun run test:browser
 ```
 
 `bun run smoke` packs the project, installs the tarball in a scratch project, and drives the installed
@@ -303,3 +307,20 @@ binary without credentials. Keep `scripts/` in the TypeScript project.
 Use TypeScript strict mode, two-space indentation, kebab-case files, and snake_case tool names. Reads
 use `get_`, `list_`, `search_`, or `recommend_`; writes use `set_`, `remove_`, `confirm_`, or `rate_`
 and accept an optional `confirmToken`.
+
+## MCP App
+
+`open_forkable` is a read-only UI entrypoint and an exception to the usual read-tool naming.
+Exact-meal launches require a delivery plus its menu/item pair. `bun run start` builds the UI
+before starting stdio; `bun run dev` rebuilds UI changes while watching the server. Reopen the
+MCP view after rebuilding. Keep build output off protocol stdout.
+
+Keep app and server dependencies directed into `shared`, never into each other. Shared modules
+must be browser-safe. Define public tool schemas once in `shared/contracts`, infer their types,
+and use them for server registration and frontend response validation. Keep raw Forkable API
+models on the server and UI state in the app. The linter enforces import boundaries.
+
+Use the standard MCP Apps bridge and host styles. OpenAI metadata is an optional layer.
+Only `set_meal` is app-visible among write tools; it still uses the existing confirmation gate.
+Context updates must honor host modalities and exclude credentials and confirmation tokens.
+Browser regression tests use fixture data, not live meal mutations.

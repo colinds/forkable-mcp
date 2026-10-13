@@ -10,5 +10,40 @@
     "no-unused-vars": "warn",
     "eqeqeq": ["error", "smart"]
   },
-  "ignorePatterns": ["node_modules", "exploration", "dist"]
+  "ignorePatterns": ["node_modules", "exploration", "dist"],
+  "overrides": [
+    {
+      "files": ["src/app/**"],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "patterns": ["node:*", "bun", "@/server/**", "**/server/**"]
+          }
+        ]
+      }
+    },
+    {
+      "files": ["src/server/**"],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "patterns": ["@/app/**", "**/app/**"]
+          }
+        ]
+      }
+    },
+    {
+      "files": ["src/shared/**"],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "patterns": ["node:*", "bun", "@/server/**", "**/server/**", "@/app/**", "**/app/**"]
+          }
+        ]
+      }
+    }
+  ]
 }
