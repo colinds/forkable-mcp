@@ -1,5 +1,5 @@
 import { useEffect, useRef, useMemo } from "react";
-import type { Delivery } from "../lib/model.ts";
+import type { Delivery } from "@/shared/contracts/meals.ts";
 
 const weekdayFormatter = new Intl.DateTimeFormat("en-US", { weekday: "short", timeZone: "UTC" });
 const dateFormatter = new Intl.DateTimeFormat("en-US", {

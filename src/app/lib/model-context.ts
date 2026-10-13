@@ -1,35 +1,24 @@
-import { visibleMeals, restaurantGroups, type MenuFilters } from "./menu-filters.ts";
+import { type MenuView, type MenuFilters } from "./menu-filters.ts";
 import type { App, McpUiSupportedContentBlockModalities } from "@modelcontextprotocol/ext-apps";
-import type { Delivery, Detail, Menu, Recommendation, SearchMatch } from "./model.ts";
+import type { Delivery, Detail } from "@/shared/contracts/meals.ts";
 export type ModelContext = Parameters<App["updateModelContext"]>[0];
 export type UpdateContext = (context: ModelContext) => Promise<unknown>;
 
 /** Explicit allowlist: never include auth state, raw tool results, or confirmation credentials. */
-export function browserContext(view: {
-  delivery?: Delivery;
-  detail?: Detail;
-  query: string;
-  searchMatches?: SearchMatch[];
-  filters: MenuFilters;
-  recommendations: Recommendation[];
-  menus: Menu[];
-  choices: Record<string, number[]>;
-  source: string;
-  needsRefresh: boolean;
-}): ModelContext {
+export function browserContext(
+  view: {
+    delivery?: Delivery;
+    detail?: Detail;
+    query: string;
+    filters: MenuFilters;
+    choices: Record<string, number[]>;
+    source: string;
+    needsRefresh: boolean;
+  },
+  results: MenuView,
+): ModelContext {
   const delivery = view.delivery;
-  const searching = view.query.trim().length > 0;
-  const results = visibleMeals(
-    view.menus,
-    view.recommendations,
-    view.query,
-    view.filters,
-    view.searchMatches,
-  );
-  const ordered = searching
-    ? results
-    : restaurantGroups(view.menus, results).flatMap((group) => group.items);
-  const visible = ordered.map(({ menu, item }) => ({
+  const visible = results.ordered.slice(0, 30).map(({ menu, item }) => ({
     menuId: menu.menuId,
     itemId: item.itemId,
     name: item.name,
@@ -54,7 +43,7 @@ export function browserContext(view: {
         }
       : null,
     search: view.query,
-    browseLayout: searching ? "search-results" : "restaurants",
+    browseLayout: results.searching ? "search-results" : "restaurants",
     filters: view.filters,
     focusedMeal: view.detail
       ? {
@@ -67,8 +56,8 @@ export function browserContext(view: {
           replacementPieceId: view.source || null,
         }
       : null,
-    visibleMeals: visible.slice(0, 30),
-    totalMatchingMeals: visible.length,
+    visibleMeals: visible,
+    totalMatchingMeals: results.items.length,
     requiresDeliveryRefresh: view.needsRefresh,
   };
   return {

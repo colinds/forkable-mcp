@@ -2,8 +2,8 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { parseCurl, mergeSetCookies, hasSessionCookie } from "@/auth/cookies.ts";
-import { forkableHeaders } from "@/net/endpoints.ts";
+import { parseCurl, mergeSetCookies, hasSessionCookie } from "@/server/auth/cookies.ts";
+import { forkableHeaders } from "@/server/net/endpoints.ts";
 import {
   applyNetworkSessionUpdate,
   clearDelegation,
@@ -11,7 +11,7 @@ import {
   readSession,
   redact,
   type SessionRecord,
-} from "@/auth/session.ts";
+} from "@/server/auth/session.ts";
 
 describe("parseCurl", () => {
   test("extracts cookie from -b flag and csrf from -H", () => {

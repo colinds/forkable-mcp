@@ -1,7 +1,9 @@
 import { useEffect, useRef } from "react";
 import { Button } from "../button.tsx";
 import { MealPhoto } from "./photo.tsx";
-import { money, type Delivery, type Detail } from "../../lib/model.ts";
+
+import { money } from "@/app/lib/format.ts";
+import { type Delivery, type Detail } from "@/shared/contracts/meals.ts";
 import type { MealBrowserController } from "../../hooks/use-meal-browser.ts";
 export function MealDetail({
   browser,

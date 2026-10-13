@@ -1,7 +1,14 @@
+import { addDaysLocal, isCalendarDate } from "@/shared/dates.ts";
 import { expect, test, describe } from "bun:test";
-import { buildSelectionsHash, resolveItemModifiers } from "@/order/selections.ts";
-import { evaluateGuards, blockers, ownedOrders, allPieces, ownPieces } from "@/order/guards.ts";
-import { deliveryStatus, formatDeliveryStatus } from "@/order/status.ts";
+import { buildSelectionsHash, resolveItemModifiers } from "@/server/order/selections.ts";
+import {
+  evaluateGuards,
+  blockers,
+  ownedOrders,
+  allPieces,
+  ownPieces,
+} from "@/server/order/guards.ts";
+import { deliveryStatus, formatDeliveryStatus } from "@/server/order/status.ts";
 import {
   formatMoney,
   formatDate,
@@ -12,15 +19,10 @@ import {
   formatCountdown,
   groupSuffix,
   pieceBadges,
-} from "@/order/format.ts";
-import {
-  fmtDelivery,
-  compactDelivery,
-  deliveryRange,
-  addDaysLocal,
-  isCalendarDate,
-} from "@/tools.ts";
-import { type MenuItem, type MenuModifier, type Delivery } from "@/order/types.ts";
+} from "@/server/order/format.ts";
+import { fmtDelivery, compactDelivery } from "@/server/order/delivery.ts";
+import { deliveryRange } from "@/server/order/data.ts";
+import { type MenuItem, type MenuModifier, type Delivery } from "@/server/order/types.ts";
 
 // Required single-select and optional multi-select fixtures.
 const protein: MenuModifier = {
@@ -281,7 +283,7 @@ describe("weekdayOf", () => {
 
 describe("formatDateTime", () => {
   // Rendering uses the timestamp's named wall clock without host-zone conversion.
-  test("shows the cutoff as the dashboard does", () => {
+  test("shows the replacement cutoff in delivery-local time", () => {
     expect(formatDateTime(CUTOFF)).toBe("Mon 2026-08-10 11:45 AM");
   });
 

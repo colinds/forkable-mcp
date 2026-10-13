@@ -2,13 +2,13 @@
 
 import { McpServer } from "@modelcontextprotocol/server";
 import { serveStdio } from "@modelcontextprotocol/server/stdio";
-import { registerAllTools } from "./tools.ts";
+import { registerAllTools } from "@/server/tools/index.ts";
 import { FORK_ICONS } from "./ui-icon.ts";
 import { registerMealBrowser } from "./ui-server.ts";
-import pkg from "../package.json" with { type: "json" };
-import { ForkableClient } from "@/net/client.ts";
-import { provisionFromEnvIfNeeded } from "@/auth/ingest.ts";
-import { createWriteGate } from "@/write-gate.ts";
+import pkg from "../../package.json" with { type: "json" };
+import { ForkableClient } from "@/server/net/client.ts";
+import { provisionFromEnvIfNeeded } from "@/server/auth/ingest.ts";
+import { createWriteGate } from "@/server/write-gate.ts";
 
 /** Build a fresh MCP server with all tools registered (one per stdio connection). */
 function makeServer(): McpServer {

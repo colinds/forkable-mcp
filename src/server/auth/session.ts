@@ -3,7 +3,7 @@
 import { mkdir, readFile, rename, chmod, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join, dirname } from "node:path";
-import { ReauthRequiredError } from "@/net/errors.ts";
+import { ReauthRequiredError } from "@/server/net/errors.ts";
 import { hasSessionCookie, mergeSetCookies } from "./cookies.ts";
 
 export interface SessionRecord {

@@ -5,6 +5,8 @@ const params = new URLSearchParams(location.search);
 const calls: { name: string; arguments?: Record<string, unknown> }[] = [];
 const contextUpdates: unknown[] = [];
 Object.assign(window, { calls, contextUpdates });
+const pendingAux: (() => void)[] = [];
+Object.assign(window, { releaseAux: () => pendingAux.splice(0).forEach((release) => release()) });
 let changed = false;
 const item = {
   itemId: 7,
@@ -52,6 +54,16 @@ const respond = async (
   args: Parameters<NonNullable<AppBridge["oncalltool"]>>[0],
 ): ReturnType<NonNullable<AppBridge["oncalltool"]>> => {
   calls.push({ name: args.name, arguments: args.arguments });
+  if (
+    params.has("slow-aux") &&
+    args.arguments?.deliveryId === 1 &&
+    ["recommend_meals", "get_delivery_status"].includes(args.name)
+  ) {
+    await new Promise<void>((resolve) => pendingAux.push(resolve));
+  }
+  if (params.has("aux-error") && ["recommend_meals", "get_delivery_status"].includes(args.name)) {
+    return { isError: true, content: [{ type: "text", text: "Auxiliary read unavailable" }] };
+  }
   if (params.has("error"))
     return {
       isError: true,
@@ -108,6 +120,8 @@ const respond = async (
   }
   let statusDate = args.arguments?.deliveryId === 2 ? "2026-10-06" : "2026-10-05";
   if (params.has("historical")) statusDate = "2020-01-02";
+  let group = "A3";
+  if (params.has("slow-aux")) group = args.arguments?.deliveryId === 1 ? "OLD" : "NEW";
   if (args.name === "get_delivery_status")
     result = {
       status: {
@@ -135,7 +149,7 @@ const respond = async (
             price: 15,
             venue: "Seoul Kitchen",
             options: ["Side: Kimchi"],
-            group: "A3",
+            group,
             isConfirmed: true,
           },
         ],
@@ -222,7 +236,15 @@ const respond = async (
       };
   }
   if (args.name === "recommend_meals")
-    result = { recommendations: [{ menuId: 10, itemId: 7, rank: 1 }] };
+    result = {
+      recommendations: [
+        {
+          menuId: params.has("slow-aux") && args.arguments?.deliveryId === 2 ? 20 : 10,
+          itemId: 7,
+          rank: 1,
+        },
+      ],
+    };
   if (args.name === "set_meal") {
     if (args.arguments?.confirmToken) {
       if (params.has("slow-confirm")) await new Promise((resolve) => setTimeout(resolve, 800));

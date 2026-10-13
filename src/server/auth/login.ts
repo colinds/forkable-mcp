@@ -1,8 +1,13 @@
 // Password login supports headless session refresh; SSO-only accounts must import a cookie.
 
-import { ENDPOINT, PUBLIC_ENDPOINT, forkableHeaders, type FetchImpl } from "@/net/endpoints.ts";
-import { fetchCsrf, type Me } from "@/net/client.ts";
-import { buildMutation } from "@/net/gql.ts";
+import {
+  ENDPOINT,
+  PUBLIC_ENDPOINT,
+  forkableHeaders,
+  type FetchImpl,
+} from "@/server/net/endpoints.ts";
+import { fetchCsrf, type Me } from "@/server/net/client.ts";
+import { buildMutation } from "@/server/net/gql.ts";
 import { mergeSetCookies } from "./cookies.ts";
 import { type SessionRecord, patchSession } from "./session.ts";
 

@@ -6,31 +6,34 @@ import {
   fulfillmentLabel,
   trackingUrl,
 } from "../lib/delivery-labels.ts";
-import { money, type Delivery, type DeliveryStatus, type OpenLink } from "../lib/model.ts";
+import { type OpenLink } from "../lib/tools.ts";
+import { money } from "@/app/lib/format.ts";
+import { type Delivery, type DeliveryStatus } from "@/shared/contracts/meals.ts";
 
 export function DeliveryProgress({
   delivery,
   status,
   unavailable,
+  loading,
   openLink,
 }: {
   delivery: Delivery;
   status?: DeliveryStatus;
   unavailable: boolean;
+  loading: boolean;
   openLink?: OpenLink;
 }) {
   const [linkError, setLinkError] = useState(false);
+  let statusLabel = fulfillmentLabel(status?.fulfillment ?? delivery.fulfillment);
+  if (unavailable) statusLabel = "Delivery updates unavailable";
+  if (loading) statusLabel = "Loading delivery updates…";
   return (
     <section className="delivery-progress" aria-label="Delivery updates">
       <div className="delivery-summary">
         <span className="status-badge">
           {delivery.status === "confirmed" ? "Confirmed" : "Meal selection"}
         </span>
-        <span>
-          {unavailable
-            ? "Delivery updates unavailable"
-            : fulfillmentLabel(status?.fulfillment ?? delivery.fulfillment)}
-        </span>
+        <span>{statusLabel}</span>
       </div>
       <div className="delivery-meta">
         {!!status?.deliveryWindow?.length && (

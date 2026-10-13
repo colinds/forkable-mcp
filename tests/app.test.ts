@@ -1,21 +1,20 @@
-import { initialRange, openBrowserInputSchema } from "@/app/lib/initial-view.ts";
+import { initialRange } from "@/app/lib/initial-view.ts";
+import { openBrowserInputSchema } from "@/shared/contracts/browser.ts";
 import { browserContext } from "@/app/lib/model-context.ts";
-import { defaultFilters, visibleMeals, restaurantGroups } from "@/app/lib/menu-filters.ts";
+import {
+  defaultFilters,
+  visibleMeals,
+  restaurantGroups,
+  menuView,
+} from "@/app/lib/menu-filters.ts";
 import { fulfillmentLabel, arrivalTime } from "@/app/lib/delivery-labels.ts";
 import { describe, expect, test } from "bun:test";
 import { Client } from "@modelcontextprotocol/client";
 import { McpServer, InMemoryTransport } from "@modelcontextprotocol/server";
-import { registerMealBrowser, APP_URI } from "@/ui-server.ts";
-import {
-  Confirmation,
-  data,
-  menusSchema,
-  selectionArgs,
-  imageUrl,
-  type Delivery,
-  type Detail,
-  type CallTool,
-} from "@/app/lib/model.ts";
+import { registerMealBrowser, APP_URI } from "@/server/ui-server.ts";
+import { Confirmation, data, selectionArgs, type CallTool } from "@/app/lib/tools.ts";
+import { imageUrl } from "@/shared/images.ts";
+import { menusSchema, type Delivery, type Detail } from "@/shared/contracts/meals.ts";
 
 const delivery: Delivery = {
   deliveryId: 1,
@@ -69,16 +68,12 @@ describe("meal browser", () => {
         (await client.callTool({ name: "open_forkable", arguments: { menuId: 10, itemId: 7 } }))
           .isError,
       ).toBe(true);
-      for (const arguments_ of [
-        { from: "today" },
-        { from: "2026-02-30" },
-        { from: "2026-10-20", to: "2026-10-10" },
-      ]) {
-        // eslint-disable-next-line no-await-in-loop -- Exercise separate protocol validation failures.
-        expect(
-          (await client.callTool({ name: "open_forkable", arguments: arguments_ })).isError,
-        ).toBe(true);
-      }
+      const invalidResults = await Promise.all(
+        [{ from: "today" }, { from: "2026-02-30" }, { from: "2026-10-20", to: "2026-10-10" }].map(
+          (args) => client.callTool({ name: "open_forkable", arguments: args }),
+        ),
+      );
+      for (const result of invalidResults) expect(result.isError).toBe(true);
       const resource = (await client.readResource({ uri: APP_URI })).contents[0]!;
       expect(resource.mimeType).toBe("text/html;profile=mcp-app");
       expect(resource["_meta"]?.ui).toMatchObject({
@@ -120,21 +115,22 @@ describe("meal browser", () => {
     const call: CallTool = async (_name, args) => {
       calls.push(args);
       return {
-        structuredContent: args.confirmToken
-          ? { mode: "outcome_unknown" }
-          : {
-              mode: "preview",
-              summary: "Fixture preview",
-              confirmToken: "token",
-              expiresAt: new Date(Date.now() + 10000).toISOString(),
-            },
+        structuredContent:
+          "confirmToken" in args && args.confirmToken
+            ? { mode: "outcome_unknown" }
+            : {
+                mode: "preview",
+                summary: "Fixture preview",
+                confirmToken: "token",
+                expiresAt: new Date(Date.now() + 10000).toISOString(),
+              },
       };
     };
-    const args = { menuId: 1, itemId: 2 };
+    const args = { deliveryId: 3, menuId: 1, itemId: 2 };
     await gate.preview(call, args);
     args.menuId = 99;
     await gate.confirm(call);
-    expect(calls[1]).toEqual({ menuId: 1, itemId: 2, confirmToken: "token" });
+    expect(calls[1]).toEqual({ deliveryId: 3, menuId: 1, itemId: 2, confirmToken: "token" });
     await expect(gate.confirm(call)).rejects.toThrow("expired");
     expect(calls).toHaveLength(2);
   });
@@ -148,14 +144,15 @@ describe("meal browser", () => {
         expiresAt: new Date(gate.pending?.expiresAt ?? 0).toISOString(),
       },
     });
-    await gate.preview(call, {});
+    await gate.preview(call, { deliveryId: 3, menuId: 1, itemId: 2 });
     await expect(gate.confirm(call)).rejects.toThrow("expired");
-    await gate.preview(
-      async () => ({ isError: true, structuredContent: { mode: "rejected" } }),
-      {},
-    );
+    await gate.preview(async () => ({ isError: true, structuredContent: { mode: "rejected" } }), {
+      deliveryId: 3,
+      menuId: 1,
+      itemId: 2,
+    });
     expect(gate.pending).toBeUndefined();
-    await gate.preview(call, {});
+    await gate.preview(call, { deliveryId: 3, menuId: 1, itemId: 2 });
     gate.clear();
     await expect(gate.confirm(call)).rejects.toThrow("expired");
   });
@@ -222,14 +219,22 @@ test("model context contains view identity and filters, never confirmation crede
     preview: { confirmToken: "do-not-share" },
     cookie: "do-not-share",
   };
-  const context = browserContext(state);
+  const context = browserContext(
+    state,
+    menuView(state.menus, state.recommendations, state.query, state.filters),
+  );
   expect(context.structuredContent).toMatchObject({
     delivery: { deliveryId: 1 },
     focusedMeal: { menuId: 2, itemId: 3 },
     search: "fruit",
   });
   expect(JSON.stringify(context)).not.toContain("do-not-share");
-  expect(browserContext({ ...state, detail: undefined }).structuredContent?.focusedMeal).toBeNull();
+  expect(
+    browserContext(
+      { ...state, detail: undefined },
+      menuView(state.menus, state.recommendations, state.query, state.filters),
+    ).structuredContent?.focusedMeal,
+  ).toBeNull();
 });
 
 test("restaurant grouping keeps identities and sorts within groups rather than mixing menus", () => {
@@ -300,4 +305,40 @@ test("exact meal launches require the delivery and both item identifiers", () =>
   );
   expect(openBrowserInputSchema.safeParse({ deliveryId: 1 }).success).toBe(true);
   expect(openBrowserInputSchema.safeParse({}).success).toBe(true);
+});
+
+test("chat context uses the same ordered menu view and caps its meal projection", () => {
+  const menus = ["Second Restaurant", "First Restaurant"].map((name, index) => ({
+    menuId: index + 1,
+    name,
+    items: Array.from({ length: 20 }, (_, itemId) => ({
+      itemId,
+      name: `Meal ${itemId}`,
+      price: itemId,
+      imageUrl: null,
+    })),
+  }));
+  const filters = { ...defaultFilters, sort: "price-high" as const };
+  const view = menuView(menus, [], "", filters);
+  const context = browserContext(
+    {
+      query: "",
+      filters,
+      choices: {},
+      source: "",
+      needsRefresh: false,
+    },
+    view,
+  ).structuredContent!;
+  expect(context.totalMatchingMeals).toBe(40);
+  expect(context.visibleMeals).toEqual(
+    view.ordered.slice(0, 30).map(({ menu, item }) => ({
+      menuId: menu.menuId,
+      itemId: item.itemId,
+      name: item.name,
+      restaurant: menu.name,
+      price: item.price,
+    })),
+  );
+  expect(view.restaurants.map((group) => group.name)).toEqual(menus.map((menu) => menu.name));
 });

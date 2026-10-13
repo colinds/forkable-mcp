@@ -2,10 +2,10 @@ import { expect, test, describe, beforeEach, afterEach } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { ingestCredentials } from "@/auth/ingest.ts";
-import { loginWithPassword } from "@/auth/login.ts";
-import { patchSession, readSession } from "@/auth/session.ts";
-import { type FetchImpl } from "@/net/endpoints.ts";
+import { ingestCredentials } from "@/server/auth/ingest.ts";
+import { loginWithPassword } from "@/server/auth/login.ts";
+import { patchSession, readSession } from "@/server/auth/session.ts";
+import { type FetchImpl } from "@/server/net/endpoints.ts";
 
 function res(status: number, body: unknown, setCookies: string[] = []): Response {
   return {

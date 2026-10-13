@@ -491,3 +491,44 @@ test("text-only context hosts receive no unsupported structured payload", async 
   expect((await updates()).every((update) => !update.structuredContent)).toBe(true);
   await expect(ui.getByText("Chat context could not be updated.", { exact: false })).toHaveCount(0);
 });
+
+test("menus remain usable while optional reads are pending", async ({ page }) => {
+  await page.goto("/?slow-aux");
+  const ui = page.frameLocator("iframe");
+  await expect(ui.getByText("Loading recommendations…")).toBeVisible();
+  await expect(ui.getByText("Loading delivery updates…")).toBeVisible();
+  await ui.getByRole("button", { name: /View Spicy tofu/ }).click();
+  await expect(ui.getByRole("dialog")).toBeVisible();
+  await expect(ui.getByLabel("Kimchi")).toBeEnabled();
+  await page.evaluate(() => (window as unknown as { releaseAux: () => void }).releaseAux());
+  await expect(ui.getByText("Loading recommendations…")).toHaveCount(0);
+  await expect(ui.getByRole("dialog")).toBeVisible();
+});
+
+test("late auxiliary responses cannot overwrite the next delivery", async ({ page }) => {
+  await page.goto("/?slow-aux&dates");
+  const ui = page.frameLocator("iframe");
+  await expect(ui.getByText("Loading recommendations…")).toBeVisible();
+  await ui.getByRole("button", { name: "Tue, Oct 6, Lunch, Office" }).click();
+  await expect(ui.getByRole("region", { name: "Selected meals" })).toContainText("Group NEW");
+  await ui.getByRole("button", { name: /^Filters/ }).click();
+  await ui.getByLabel("Recommended only", { exact: true }).check();
+  await expect(ui.getByRole("button", { name: /View Another bowl/ })).toBeVisible();
+  await page.evaluate(() => (window as unknown as { releaseAux: () => void }).releaseAux());
+  // Allow the released bridge responses to reach the app before checking the stale-write guard.
+  await page.waitForTimeout(150);
+  await expect(ui.getByRole("region", { name: "Selected meals" })).toContainText("Group NEW");
+  await expect(ui.getByRole("button", { name: /View Another bowl/ })).toBeVisible();
+  await expect(ui.getByRole("button", { name: /View Spicy tofu/ })).toHaveCount(0);
+});
+
+test("optional read failures leave menus available", async ({ page }) => {
+  await page.goto("/?aux-error");
+  const ui = page.frameLocator("iframe");
+  await expect(
+    ui.getByText("Recommendations are unavailable. You can still browse all meals."),
+  ).toBeVisible();
+  await expect(ui.getByText("Delivery updates unavailable")).toBeVisible();
+  await ui.getByRole("button", { name: /View Spicy tofu/ }).click();
+  await expect(ui.getByRole("dialog")).toBeVisible();
+});

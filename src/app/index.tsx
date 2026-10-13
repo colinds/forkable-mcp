@@ -4,9 +4,10 @@ import "@openai/mcp-extensions/app/styles.css";
 import "./styles.css";
 import { MealBrowser } from "./components/meal/browser.tsx";
 import { applyHostContext } from "./lib/host-theme.ts";
-import { browserInputSchema, type InitialView } from "./lib/initial-view.ts";
+import { type InitialView } from "./lib/initial-view.ts";
+import { browserInputSchema } from "@/shared/contracts/browser.ts";
 import { supportedContext } from "./lib/model-context.ts";
-import type { CallTool } from "./lib/model.ts";
+import type { CallTool } from "./lib/tools.ts";
 const app = new App(
   { name: "Forkable", version: "1.0.0" },
   { availableDisplayModes: ["inline", "fullscreen"] },

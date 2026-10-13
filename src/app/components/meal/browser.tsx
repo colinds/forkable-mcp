@@ -1,5 +1,6 @@
+import { menuView } from "../../lib/menu-filters.ts";
 import { isPastDelivery, type InitialView } from "../../lib/initial-view.ts";
-import { useRef, useState } from "react";
+import { useRef, useState, useMemo } from "react";
 import { Button } from "../button.tsx";
 import { DateStrip } from "../date-strip.tsx";
 import { MealFilters } from "./filters.tsx";
@@ -11,7 +12,7 @@ import { SelectedMeals } from "./selected.tsx";
 import { useModelContext } from "../../hooks/use-model-context.ts";
 import type { UpdateContext } from "../../lib/model-context.ts";
 import { useMealBrowser } from "../../hooks/use-meal-browser.ts";
-import type { CallTool, OpenLink } from "../../lib/model.ts";
+import type { CallTool, OpenLink } from "../../lib/tools.ts";
 
 export function MealBrowser({
   call,
@@ -29,7 +30,12 @@ export function MealBrowser({
   const [displayError, setDisplayError] = useState<string>();
   const browser = useMealBrowser(call, initial);
   const { state } = browser;
-  const contextFailed = useModelContext(state, updateContext);
+  const view = useMemo(
+    () =>
+      menuView(state.menus, state.recommendations, state.query, state.filters, state.searchMatches),
+    [state.menus, state.recommendations, state.query, state.filters, state.searchMatches],
+  );
+  const contextFailed = useModelContext(state, view, updateContext);
   const { delivery, detail, busy, notice, problem } = state;
   const opener = useRef<HTMLElement | null>(null);
   let emptyMessage = "Unable to load deliveries. Refresh to try again.";
@@ -104,6 +110,7 @@ export function MealBrowser({
               delivery={delivery}
               status={state.deliveryStatus}
               unavailable={state.statusUnavailable}
+              loading={state.statusLoading}
               openLink={openLink}
             />
           )}
@@ -123,12 +130,20 @@ export function MealBrowser({
                 onChange={browser.setFilters}
                 onClear={() => browser.setQuery("")}
               />
+              {state.recommendationsLoading && (
+                <p className="muted" role="status">
+                  Loading recommendations…
+                </p>
+              )}
+              {state.recommendationsUnavailable && (
+                <p className="muted" role="status">
+                  Recommendations are unavailable. You can still browse all meals.
+                </p>
+              )}
               <MealCards
                 menus={state.menus}
-                recommendations={state.recommendations}
-                searchMatches={state.searchMatches}
+                view={view}
                 query={state.query}
-                filters={state.filters}
                 busy={busy}
                 choose={choose}
               />

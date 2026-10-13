@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { Client } from "@modelcontextprotocol/client";
 import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
-import { APP_URI } from "@/ui-server.ts";
+import { APP_URI } from "@/server/ui-server.ts";
 
 test("source startup builds a missing UI bundle before serving stdio", async () => {
   const dir = await mkdtemp(join(tmpdir(), "forkable-source-start-"));

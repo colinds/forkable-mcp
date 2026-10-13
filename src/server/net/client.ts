@@ -15,8 +15,8 @@ import {
   requireSession,
   type NetworkSessionUpdate,
   type SessionRecord,
-} from "@/auth/session.ts";
-import { mergeSetCookies } from "@/auth/cookies.ts";
+} from "@/server/auth/session.ts";
+import { mergeSetCookies } from "@/server/auth/cookies.ts";
 import { setTimeout as delay } from "node:timers/promises";
 
 /** GET /api/v2/csrf_token with the cookie. Returns the token and any rotated Set-Cookies. */

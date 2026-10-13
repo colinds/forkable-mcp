@@ -1,4 +1,4 @@
-import type { Menu, Recommendation, SearchMatch } from "./model.ts";
+import type { Menu, Recommendation, SearchMatch } from "@/shared/contracts/meals.ts";
 export interface MenuFilters {
   restaurantId: number | null;
   diet: string;
@@ -85,3 +85,23 @@ export function restaurantGroups(menus: Menu[], items: ReturnType<typeof visible
   for (const result of items) groups.get(restaurantKey(result.menu.name))?.items.push(result);
   return [...groups.values()].filter((group) => group.items.length);
 }
+
+export function menuView(
+  menus: Menu[],
+  recommendations: Recommendation[],
+  query: string,
+  filters: MenuFilters,
+  searchMatches?: SearchMatch[],
+) {
+  const items = visibleMeals(menus, recommendations, query, filters, searchMatches);
+  const restaurants = restaurantGroups(menus, items);
+  const searching = query.trim().length > 0;
+  return {
+    items,
+    restaurants,
+    searching,
+    ordered: searching ? items : restaurants.flatMap((group) => group.items),
+  };
+}
+
+export type MenuView = ReturnType<typeof menuView>;
