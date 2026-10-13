@@ -3,6 +3,7 @@ import { App } from "@modelcontextprotocol/ext-apps";
 import "@openai/mcp-extensions/app/styles.css";
 import "./styles.css";
 import { MealBrowser } from "./components/meal/browser.tsx";
+import { observeAppSize } from "./lib/host-size.ts";
 import { applyHostContext } from "./lib/host-theme.ts";
 import { type InitialView } from "./lib/initial-view.ts";
 import { browserInputSchema } from "@/shared/contracts/browser.ts";
@@ -11,12 +12,15 @@ import type { CallTool } from "./lib/tools.ts";
 const app = new App(
   { name: "Forkable", version: "1.0.0" },
   { availableDisplayModes: ["inline", "fullscreen"] },
+  { autoResize: false },
 );
 const call: CallTool = (name, args) => {
   if (recovering) recoveryReadStarted = true;
   return app.callServerTool({ name, arguments: args });
 };
-const root = createRoot(document.querySelector<HTMLElement>("#app")!);
+const element = document.querySelector<HTMLElement>("#app")!;
+const root = createRoot(element);
+let sizing: ReturnType<typeof observeAppSize> | undefined;
 let connected = false;
 let input: InitialView["input"] = {};
 let initial: InitialView | undefined;
@@ -66,6 +70,7 @@ function renderView() {
 }
 app.addEventListener("hostcontextchanged", () => {
   applyHostContext(app.getHostContext());
+  sizing?.update();
   if (app.getHostContext()?.displayMode !== renderedDisplayMode) renderView();
 });
 app.ontoolinput = (params) => {
@@ -92,6 +97,8 @@ try {
   await app.connect();
   connected = true;
   applyHostContext(app.getHostContext());
+  sizing = observeAppSize(app, element);
+  window.addEventListener("pagehide", () => sizing?.disconnect(), { once: true });
   renderView();
   if (!initial)
     waiting = setTimeout(() => {
