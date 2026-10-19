@@ -36,7 +36,7 @@ export function registerMealBrowser(
     title: "Forkable",
     icons: FORK_ICONS,
     description:
-      "Show the interactive Forkable app when the user asks to see a meal or browse lunch. Optionally pass deliveryId to focus a delivery. To show a specific dish, pass deliveryId, menuId and itemId together. Works as text in clients without MCP Apps.",
+      "Show the interactive Forkable app when the user asks to see a meal or browse lunch. Pass view=delivery with deliveryId for a focused delivery answer, view=meals for meal results, or view=browse for the full browser. Views are chosen automatically when omitted. Pass query and/or filters to show matching meals inline, combining restaurantId, diet, maxPrice, recommendedOnly, and sort. All matching meals are shown; filters match the app controls. limit controls how many recommendations are requested. To show a specific dish, pass deliveryId, menuId and itemId together. Clients without MCP Apps should use list_deliveries and get_menus for meal data; this tool only returns launch instructions.",
     inputSchema: openBrowserInputSchema,
     annotations: { readOnlyHint: true, openWorldHint: false },
     _meta: {

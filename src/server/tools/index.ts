@@ -1,3 +1,4 @@
+import { registerPrepareMealTool } from "./prepare-meal.ts";
 import { registerMentionTools } from "./mentions.ts";
 import { registerProfileTool } from "./profile.ts";
 import { registerDeliveryListTool, registerDeliveryStatusTool } from "./deliveries.ts";
@@ -25,4 +26,5 @@ export function registerAllTools(server: McpServer, writeGate: WriteGate): void 
   registerRemoveMealTool(server, writeGate);
   registerRatingTool(server, writeGate);
   registerConfirmDeliveryTool(server, writeGate);
+  registerPrepareMealTool(server);
 }

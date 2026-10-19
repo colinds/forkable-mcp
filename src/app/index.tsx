@@ -1,3 +1,4 @@
+import { createDraftWriter, supportsEditableDrafts } from "./lib/chat-draft.ts";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { App } from "@modelcontextprotocol/ext-apps";
@@ -27,7 +28,9 @@ let input: InitialView["input"] = {};
 let initial: InitialView | undefined;
 let revision = 0;
 let renderedDisplayMode: string | undefined;
+let renderedDraftSupport = false;
 const updateContext = createContextUpdater(app);
+const writeDraft = createDraftWriter(app);
 let cancelled = false;
 let recovering = false;
 let recoveryReadStarted = false;
@@ -41,11 +44,12 @@ function offerRecovery(message: string) {
 function renderView() {
   if (!connected || !initial) return;
   renderedDisplayMode = app.getHostContext()?.displayMode;
+  renderedDraftSupport = supportsEditableDrafts(app);
   root.render(
     <StrictMode>
       <MealBrowser
         key={revision}
-        call={call}
+        host={{ callTool: call, createDraft: renderedDraftSupport ? writeDraft : undefined }}
         initial={initial}
         displayMode={app.getHostContext()?.displayMode}
         expand={
@@ -72,7 +76,11 @@ function renderView() {
 app.addEventListener("hostcontextchanged", () => {
   applyHostContext(app.getHostContext());
   sizing?.update();
-  if (app.getHostContext()?.displayMode !== renderedDisplayMode) renderView();
+  if (
+    app.getHostContext()?.displayMode !== renderedDisplayMode ||
+    supportsEditableDrafts(app) !== renderedDraftSupport
+  )
+    renderView();
 });
 app.ontoolinput = (params) => {
   input = browserInputSchema.safeParse(params.arguments).data ?? {};

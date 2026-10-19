@@ -1,3 +1,4 @@
+import { ArrowUpRight } from "lucide-react";
 import { useState } from "react";
 import {
   arrivalTime,
@@ -7,7 +8,7 @@ import {
   trackingUrl,
 } from "../lib/delivery-labels.ts";
 import { type OpenLink } from "../lib/tools.ts";
-import { money } from "@/app/lib/format.ts";
+import { money } from "@/shared/currency.ts";
 import { type Delivery, type DeliveryStatus } from "@/shared/contracts/meals.ts";
 
 export function DeliveryProgress({
@@ -94,15 +95,7 @@ export function DeliveryProgress({
                 }}
               >
                 Track Order
-                <svg
-                  aria-hidden="true"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.8"
-                >
-                  <path d="M8 5h11v11M19 5 5 19" />
-                </svg>
+                <ArrowUpRight aria-hidden="true" />
               </a>
             )}
           </div>

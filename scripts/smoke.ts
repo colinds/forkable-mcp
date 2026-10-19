@@ -22,6 +22,7 @@ const exec = promisify(execFile);
 
 const EXPECTED_TOOLS = [
   "open_forkable",
+  "prepare_meal",
   "search_mentions",
   "confirm_delivery",
   "get_delivery_status",

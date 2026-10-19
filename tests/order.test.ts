@@ -1,6 +1,9 @@
 import { addDaysLocal, isCalendarDate } from "@/shared/dates.ts";
 import { expect, test, describe } from "bun:test";
 import { buildSelectionsHash, resolveItemModifiers } from "@/server/order/selections.ts";
+import { compactItemDetail, itemDetail } from "@/server/order/menu.ts";
+import { selectedMealTotal } from "@/shared/meal-options.ts";
+import { mealForm } from "@/server/forms/meal.ts";
 import {
   evaluateGuards,
   blockers,
@@ -22,7 +25,46 @@ import {
 } from "@/server/order/format.ts";
 import { fmtDelivery, compactDelivery } from "@/server/order/delivery.ts";
 import { deliveryRange } from "@/server/order/data.ts";
-import { type MenuItem, type MenuModifier, type Delivery } from "@/server/order/types.ts";
+import {
+  type Menu,
+  type MenuItem,
+  type MenuModifier,
+  type Delivery,
+} from "@/server/order/types.ts";
+
+test("display, draft and form option prices match ordering's option-set fallback", () => {
+  const meal: MenuItem = {
+    id: 1,
+    menuId: 10,
+    name: "Bowl",
+    price: 12,
+    modifiers: [
+      {
+        id: 2,
+        name: "Extras",
+        optionSetId: 3,
+        max: 3,
+        options: [
+          { id: 4, name: "Inherited" },
+          { id: 5, name: "Free", price: 0 },
+          { id: 6, name: "Premium", price: 2 },
+        ],
+      },
+    ],
+  };
+  const menu: Menu = { id: 10, sections: [{ items: [meal] }], optionSets: [{ id: 3, price: 1 }] };
+  const detail = compactItemDetail(itemDetail(meal, menu));
+  expect(detail.modifiers[0]!.options.map((option) => option.price)).toEqual([1, 0, 2]);
+  for (const optionId of [4, 5, 6]) {
+    const built = buildSelectionsHash({
+      menu,
+      item: meal,
+      choices: [{ modifier: 2, options: [optionId] }],
+    });
+    expect(selectedMealTotal(detail, { 2: [optionId] })).toBe(12 + built.extra);
+  }
+  expect(JSON.stringify(mealForm(detail, []))).toContain("+$1.00");
+});
 
 // Required single-select and optional multi-select fixtures.
 const protein: MenuModifier = {

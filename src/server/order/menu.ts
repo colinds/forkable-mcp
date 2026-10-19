@@ -1,5 +1,5 @@
 import { type Menu as PublicMenu, type Detail } from "@/shared/contracts/meals.ts";
-import { resolveItemModifiers } from "@/server/order/selections.ts";
+import { optionPrice, resolveItemModifiers } from "@/server/order/selections.ts";
 import { formatMoney } from "@/server/order/format.ts";
 import { type Menu, type MenuItem } from "@/server/order/types.ts";
 
@@ -116,7 +116,11 @@ export function itemDetail(item: MenuItem, menu: Menu) {
       required: !!mod.required,
       min: mod.min ?? null,
       max: mod.max ?? null,
-      options: mod.options.map((o) => ({ id: o.id, name: o.name, price: o.price ?? 0 })),
+      options: mod.options.map((o) => ({
+        id: o.id,
+        name: o.name,
+        price: optionPrice(o, mod, menu),
+      })),
     })),
   };
 }
@@ -125,14 +129,18 @@ export function itemDetail(item: MenuItem, menu: Menu) {
 export function fmtItemDetail(d: ReturnType<typeof itemDetail>): string {
   return [
     `${d.name}  ${formatKnownPrice(d.price)}${d.description ? ` — ${d.description}` : ""}`,
-    ...d.modifiers.map((mod) => {
-      const req = mod.required ? " (required)" : "";
-      const opts = mod.options
-        .map((o) => `${o.id}:${o.name}${o.price ? ` +${formatMoney(o.price)}` : ""}`)
-        .join(", ");
-      return `  ${mod.name}${req} [${mod.min ?? 0}-${mod.max ?? "∞"}]: ${opts}`;
-    }),
+    ...fmtItemModifiers(d),
   ].join("\n");
+}
+
+export function fmtItemModifiers(d: ReturnType<typeof itemDetail>): string[] {
+  return d.modifiers.map((mod) => {
+    const req = mod.required ? " (required)" : "";
+    const opts = mod.options
+      .map((o) => `${o.id}:${o.name}${o.price ? ` +${formatMoney(o.price)}` : ""}`)
+      .join(", ");
+    return `  ${mod.name}${req} [${mod.min ?? 0}-${mod.max ?? "∞"}]: ${opts}`;
+  });
 }
 
 // Markdown keeps dish images visible in clients that render tool text.

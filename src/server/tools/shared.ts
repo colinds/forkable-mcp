@@ -1,5 +1,5 @@
 import { text, errResult } from "../results.ts";
-import { type CallToolResult } from "@modelcontextprotocol/server";
+import { type CallToolResult, type InputRequiredResult } from "@modelcontextprotocol/server";
 import { ForkableClient } from "@/server/net/client.ts";
 import { ReauthRequiredError } from "@/server/net/errors.ts";
 import { requireSession, type SessionRecord } from "@/server/auth/session.ts";
@@ -33,10 +33,10 @@ async function tryEnvRelogin(): Promise<boolean> {
 }
 
 /** Run a tool body with a live client + session, mapping ReauthRequiredError to a friendly result. */
-export async function guard(
-  fn: (client: ForkableClient, session: SessionRecord) => Promise<CallToolResult>,
-): Promise<CallToolResult> {
-  const run = async (): Promise<CallToolResult> => {
+export async function guard<T extends CallToolResult | InputRequiredResult>(
+  fn: (client: ForkableClient, session: SessionRecord) => Promise<T>,
+): Promise<T | CallToolResult> {
+  const run = async (): Promise<T> => {
     const session = await requireSession();
     return fn(new ForkableClient({ session }), session);
   };
@@ -75,7 +75,9 @@ export const WRITE_NOTE =
   "Returns a preview and confirmToken. Call again with the same arguments plus that token to send the change.";
 
 /** SDK v1 clients validate any structured payload, even on an error result. */
-export async function appGuard(fn: Parameters<typeof guard>[0]): Promise<CallToolResult> {
+export async function appGuard(
+  fn: (client: ForkableClient, session: SessionRecord) => Promise<CallToolResult>,
+): Promise<CallToolResult> {
   const result = await guard(fn);
   return result.isError ? { ...result, structuredContent: undefined } : result;
 }

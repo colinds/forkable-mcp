@@ -432,6 +432,7 @@ describe("read tool responses", () => {
       );
       const resource = await client.readResource({ uri: items[0]!.uri });
       expect(resource.contents[0]).toMatchObject({ mimeType: "text/markdown" });
+      expect(JSON.stringify(resource.contents)).toContain(items[0]!.uri);
       expect(
         resource.contents[0] && "text" in resource.contents[0] ? resource.contents[0].text : "",
       ).toContain("A useful description");

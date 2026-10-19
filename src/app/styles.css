@@ -4,15 +4,20 @@
   margin: auto;
   padding: 24px;
 }
+.lucide {
+  flex-shrink: 0;
+  stroke-width: 1.75;
+}
+.btn > .lucide {
+  width: 18px;
+  height: 18px;
+}
 .icon-button {
   display: inline-grid;
   place-items: center;
   width: 36px;
   height: 36px;
   padding: 8px;
-}
-.icon-button svg {
-  flex-shrink: 0;
 }
 .app-toolbar {
   display: flex;
@@ -139,6 +144,8 @@ button:disabled {
   border-radius: var(--radius);
 }
 .detail-actions {
+  display: grid;
+  gap: 8px;
   position: sticky;
   bottom: -1px;
   padding: 16px 0 0;
@@ -324,16 +331,6 @@ legend {
   padding: 4px 10px;
   font-size: var(--font-text-sm-size, 0.929em);
 }
-.delivery-toolbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  margin-bottom: 14px;
-}
-.delivery-toolbar h2 {
-  font-size: 1.15em;
-}
 .delivery-meta {
   display: flex;
   flex-wrap: wrap;
@@ -416,7 +413,6 @@ legend {
   background: transparent;
   color: var(--muted-foreground);
   font: inherit;
-  font-size: 22px;
 }
 .search-clear:hover {
   background: var(--secondary);
@@ -493,15 +489,8 @@ html[data-display-mode="inline"] #app {
   max-height: 720px;
   overflow-y: auto;
 }
-html[data-display-mode="fullscreen"] .expand-control {
-  display: none;
-}
 
 @media (max-width: 480px) {
-  .delivery-toolbar {
-    gap: 10px;
-    align-items: flex-start;
-  }
   .app-toolbar {
     gap: 6px;
     flex-wrap: wrap;
@@ -534,13 +523,7 @@ html[data-display-mode="fullscreen"] .expand-control {
   }
 }
 
-.delivery-heading {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.compact-search-header {
+.browser-toolbar {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -548,13 +531,13 @@ html[data-display-mode="fullscreen"] .expand-control {
   gap: 12px;
   margin-bottom: 16px;
 }
-.compact-search-header h2 {
+.browser-toolbar h2 {
   margin: 0;
 }
-.compact-search-header p {
+.browser-toolbar p {
   margin: 4px 0 0;
 }
-.compact-search .menu-browser {
+.compact-view .menu-browser {
   margin-top: 0;
   padding-top: 0;
   border-top: 0;

@@ -1,7 +1,14 @@
+import { Search, SlidersHorizontal, RotateCcw, X } from "lucide-react";
+import { IconButton } from "../icon-button.tsx";
 import { Button } from "../button.tsx";
 import { useRef, useState, useMemo } from "react";
 import type { Menu } from "@/shared/contracts/meals.ts";
-import { defaultFilters, restaurantMenus, type MenuFilters } from "../../lib/menu-filters.ts";
+import {
+  activeFilterCount,
+  defaultFilters,
+  restaurantMenus,
+  type MenuFilters,
+} from "../../lib/menu-filters.ts";
 
 export function MealFilters({
   menus,
@@ -32,25 +39,12 @@ export function MealFilters({
     [menus],
   );
   const restaurants = useMemo(() => restaurantMenus(menus), [menus]);
-  const active =
-    Number(value.restaurantId != null) +
-    Number(!!value.diet) +
-    Number(value.maxPrice != null) +
-    Number(value.recommendedOnly);
+  const active = activeFilterCount(value);
   return (
     <div className="menu-controls">
       <div className="search-toolbar">
         <div className="meal-search">
-          <svg
-            aria-hidden="true"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.7"
-          >
-            <circle cx="10.5" cy="10.5" r="6.5" />
-            <path d="m16 16 4.5 4.5" />
-          </svg>
+          <Search aria-hidden="true" />
           <input
             ref={search}
             id="search"
@@ -63,18 +57,16 @@ export function MealFilters({
             onChange={(event) => onQueryChange(event.currentTarget.value)}
           />
           {query && (
-            <button
-              type="button"
-              className="search-clear cursor-interaction"
-              aria-label="Clear search"
+            <IconButton
+              icon={X}
+              className="search-clear"
+              label="Clear search"
               disabled={busy}
               onClick={() => {
                 onQueryChange("");
                 search.current?.focus();
               }}
-            >
-              ×
-            </button>
+            />
           )}
         </div>
         <Button
@@ -83,15 +75,7 @@ export function MealFilters({
           aria-controls="menu-filter-panel"
           onClick={() => setExpanded(!expanded)}
         >
-          <svg
-            aria-hidden="true"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.7"
-          >
-            <path d="M4 7h16M4 17h16M9 4v6M15 14v6" />
-          </svg>
+          <SlidersHorizontal aria-hidden="true" />
           Filters{active > 0 && <span className="filter-count">{active}</span>}
         </Button>
       </div>
@@ -109,7 +93,7 @@ export function MealFilters({
                     ...value,
                     restaurantId: event.currentTarget.value
                       ? Number(event.currentTarget.value)
-                      : null,
+                      : undefined,
                   })
                 }
               >
@@ -150,7 +134,7 @@ export function MealFilters({
                     ...value,
                     maxPrice: Number.isFinite(event.currentTarget.valueAsNumber)
                       ? Math.max(0, event.currentTarget.valueAsNumber)
-                      : null,
+                      : undefined,
                   })
                 }
               />
@@ -188,6 +172,7 @@ export function MealFilters({
                 onClear();
               }}
             >
+              <RotateCcw aria-hidden="true" />
               Clear search and filters
             </Button>
           </fieldset>

@@ -1,4 +1,6 @@
 import { test, expect } from "@playwright/test";
+import { fixtureUrl, type FixtureConfig } from "./fixture-config.ts";
+import type { MenuFilters } from "@/shared/contracts/menu-filters.ts";
 
 test.beforeEach(async ({ page }) => {
   await page.clock.setFixedTime(new Date("2026-10-05T12:00:00-07:00"));
@@ -56,9 +58,9 @@ test("photos, theme, search, options, exact target and one-click submission", as
   expect(calls[1]!.arguments).toEqual({ ...calls[0]!.arguments, confirmToken: "fixture-token" });
   await expect(ui.getByRole("status")).toContainText("Delivery refreshed");
 });
-for (const scenario of ["unknown", "rejected", "expired", "blocked"])
+for (const scenario of ["unknown", "rejected", "expired", "blocked"] as const)
   test(`${scenario} never automatically retries`, async ({ page }) => {
-    await page.goto(`/?${scenario}`);
+    await page.goto(fixtureUrl({ write: { outcome: scenario } }));
     const ui = page.frameLocator("iframe");
     await ui.getByRole("button", { name: /View Spicy tofu/ }).click();
     await ui.getByLabel("Meal to replace").selectOption("a");
@@ -85,9 +87,9 @@ test("narrow layout, missing photos, empty and auth error states", async ({ page
   expect(await ui.locator("body").evaluate((node) => node.scrollWidth <= window.innerWidth)).toBe(
     true,
   );
-  await page.goto("/?empty");
+  await page.goto(fixtureUrl({ deliveryScenario: "empty" }));
   await expect(ui.getByText("No upcoming deliveries.")).toBeVisible();
-  await page.goto("/?error");
+  await page.goto(fixtureUrl({ readError: true }));
   await expect(ui.getByRole("alert")).toContainText("session expired");
 });
 
@@ -124,7 +126,7 @@ test("dates scroll horizontally, keep same-day services distinct, and support ke
   page,
 }, testInfo) => {
   await page.setViewportSize({ width: 390, height: 850 });
-  await page.goto("/?dates");
+  await page.goto(fixtureUrl({ deliveryScenario: "dates" }));
   const ui = page.frameLocator("iframe");
   const strip = ui.getByRole("group", { name: "Delivery dates" });
   await expect(strip.getByRole("button")).toHaveCount(8);
@@ -187,7 +189,7 @@ test("delivery details translate lifecycle states and show actual ETA, options a
   );
   await expect(ui.getByRole("region", { name: "Selected meals" })).toContainText("Side: Kimchi");
   await expect(ui.getByRole("region", { name: "Selected meals" })).toContainText("Group A3");
-  await page.goto("/?tracking");
+  await page.goto(fixtureUrl({ tracking: true }));
   const progress = ui.getByRole("region", { name: "Delivery updates" });
   await expect(progress).toContainText("Arriving On Time");
   await expect(progress).toContainText("11:50am - 12:10pm PDT");
@@ -199,7 +201,7 @@ test("delivery details translate lifecycle states and show actual ETA, options a
 });
 
 test("search and filters use real menu fields and reset on delivery change", async ({ page }) => {
-  await page.goto("/?dates");
+  await page.goto(fixtureUrl({ deliveryScenario: "dates" }));
   const ui = page.frameLocator("iframe");
   const meals = ui.getByRole("region", { name: "Available meals" });
   await ui.getByLabel("Find a meal").fill("mango seoul");
@@ -223,7 +225,7 @@ test("search and filters use real menu fields and reset on delivery change", asy
 test("chat receives delivery, search and modal context without confirmation tokens", async ({
   page,
 }) => {
-  await page.goto("/?context");
+  await page.goto(fixtureUrl({ context: {} }));
   const ui = page.frameLocator("iframe");
   const current = () =>
     page.evaluate(
@@ -245,7 +247,11 @@ test("chat receives delivery, search and modal context without confirmation toke
 });
 
 test("meal tool results launch the exact meal and are not fetched twice", async ({ page }) => {
-  await page.goto("/?initial-item");
+  await page.goto(
+    fixtureUrl({
+      launch: { name: "get_menus", arguments: { deliveryId: 1, menuId: 20, itemId: 7 } },
+    }),
+  );
   const ui = page.frameLocator("iframe");
   await expect(ui.getByRole("dialog", { name: "Spicy tofu bowl" })).toBeVisible();
   const detailCalls = await page.evaluate(() =>
@@ -259,7 +265,12 @@ test("meal tool results launch the exact meal and are not fetched twice", async 
 test("delivery results seed the browser and standard fullscreen expansion works", async ({
   page,
 }) => {
-  await page.goto("/?initial-list&dates");
+  await page.goto(
+    fixtureUrl({
+      launch: { name: "list_deliveries", arguments: { from: "2026-10-05", to: "2026-10-13" } },
+      deliveryScenario: "dates",
+    }),
+  );
   const ui = page.frameLocator("iframe");
   await expect(ui.getByRole("button", { name: "Refresh", exact: true })).toBeEnabled();
   expect(
@@ -273,13 +284,15 @@ test("delivery results seed the browser and standard fullscreen expansion works"
   await ui.getByRole("button", { name: "Open full view" }).click();
   await expect(ui.locator("html")).toHaveAttribute("data-display-mode", "fullscreen");
   await expect(ui.getByRole("button", { name: "Open full view" })).toBeHidden();
-  await page.goto("/?initial-status&dates");
-  await expect(ui.getByRole("group", { name: "Delivery dates" }).getByRole("button")).toHaveCount(
-    8,
+  await page.goto(
+    fixtureUrl({
+      launch: { name: "get_delivery_status", arguments: { deliveryId: 2 } },
+      deliveryScenario: "dates",
+    }),
   );
-  await expect(
-    ui.getByRole("group", { name: "Delivery dates" }).getByRole("button").nth(1),
-  ).toHaveAttribute("aria-pressed", "true");
+  await expect(ui.getByRole("heading", { name: "Your delivery" })).toBeVisible();
+  await expect(ui.getByRole("group", { name: "Delivery dates" })).toHaveCount(0);
+  await expect(ui.locator(".browser-toolbar time")).toHaveAttribute("datetime", "2026-10-06");
 });
 
 test("restaurant sections persist for filters and combine only during search", async ({
@@ -293,7 +306,7 @@ test("restaurant sections persist for filters and combine only during search", a
       body: '<svg xmlns="http://www.w3.org/2000/svg" width="640" height="400" viewBox="0 0 640 400"><rect width="640" height="400" fill="#ddd6c9"/><ellipse cx="320" cy="207" rx="158" ry="147" fill="#f8f4ea"/><ellipse cx="320" cy="204" rx="130" ry="122" fill="#b78147"/><path d="M220 150Q320 65 398 160L370 229 257 228Z" fill="#4d753b"/><path d="M227 191Q162 244 282 303L311 241Z" fill="#d99b3c"/><path d="M339 191Q448 173 414 257L353 292 319 247Z" fill="#863e2d"/><path d="m250 154 21 65m17-85 10 69m32-71 4 61m30-57-8 47" stroke="#90a85d" stroke-width="9"/><path d="m295 213 23 9m-48 13 25 8m24 17 19 9" stroke="#ead6a5" stroke-width="7"/></svg>',
     }),
   );
-  await page.goto("/?layout&tracking&dates");
+  await page.goto(fixtureUrl({ menus: "restaurants", tracking: true, deliveryScenario: "dates" }));
   const ui = page.frameLocator("iframe");
   const meals = ui.getByRole("region", { name: "Available meals" });
   await expect(meals.locator(".restaurant-group")).toHaveCount(2);
@@ -345,13 +358,25 @@ test("restaurant sections persist for filters and combine only during search", a
 test("historical status launches and refreshes its original range without upcoming menus", async ({
   page,
 }) => {
-  await page.goto("/?historical");
+  await page.goto(
+    fixtureUrl({
+      deliveryScenario: "historical",
+      launch: { name: "get_delivery_status", arguments: { deliveryId: 1 } },
+    }),
+  );
   const ui = page.frameLocator("iframe");
   await expect(ui.getByRole("region", { name: "Selected meals" })).toContainText(
     "Chicken rice bowl",
   );
-  await expect(ui.getByRole("group", { name: "Delivery dates" })).toContainText("Jan 2");
+  await expect(ui.locator(".browser-toolbar time")).toHaveAttribute("datetime", "2020-01-02");
+  await expect(ui.getByRole("group", { name: "Delivery dates" })).toHaveCount(0);
   await expect(ui.getByRole("region", { name: "Delivery updates" })).toContainText("Reported due");
+  const beforeRefresh = await page.evaluate(
+    () =>
+      (window as unknown as { calls: { name: string }[] }).calls.filter(
+        (call) => call.name === "list_deliveries",
+      ).length,
+  );
   await ui.getByRole("button", { name: "Refresh", exact: true }).click();
   await expect(ui.getByRole("button", { name: "Refresh", exact: true })).toBeEnabled();
   await expect(ui.getByRole("region", { name: "Selected meals" })).toContainText(
@@ -362,8 +387,7 @@ test("historical status launches and refreshes its original range without upcomi
       window as unknown as { calls: { name: string; arguments: Record<string, unknown> }[] }
     ).calls.filter((call) => call.name === "list_deliveries"),
   );
-  // Development Strict Mode replays the initial read; refresh adds one more.
-  expect(reads).toHaveLength(3);
+  expect(reads).toHaveLength(beforeRefresh + 1);
   expect(
     await page.evaluate(() =>
       (window as unknown as { calls: { name: string }[] }).calls.some(
@@ -381,7 +405,12 @@ for (const empty of [false, true])
   test(`initial server search membership survives local menu loading (empty=${empty})`, async ({
     page,
   }) => {
-    await page.goto(`/?initial-search${empty ? "&no-matches" : ""}`);
+    await page.goto(
+      fixtureUrl({
+        launch: { name: "search_items", arguments: { deliveryId: 1, query: "tofu" } },
+        searchResults: empty ? "empty" : "default",
+      }),
+    );
     const ui = page.frameLocator("iframe");
     const meals = ui.getByRole("region", { name: "Available meals" });
     await expect(ui.getByRole("button", { name: "Refresh", exact: true })).toBeEnabled();
@@ -392,7 +421,7 @@ for (const empty of [false, true])
     await expect(meals.getByRole("button")).toHaveAccessibleName(/Spicy tofu/);
   });
 test("restaurant filtering includes every menu in a merged restaurant", async ({ page }) => {
-  await page.goto("/?layout");
+  await page.goto(fixtureUrl({ menus: "restaurants" }));
   const ui = page.frameLocator("iframe");
   await ui.getByRole("button", { name: /^Filters/ }).click();
   const filter = ui.getByLabel("Restaurant", { exact: true });
@@ -403,9 +432,9 @@ test("restaurant filtering includes every menu in a merged restaurant", async ({
   await expect(meals.getByRole("region", { name: "Garden Table" })).toHaveCount(0);
 });
 
-for (const launch of ["cancelled", "no-result", "late-empty", "late-cancelled"])
+for (const launch of ["cancelled", "missing", "late-result", "late-cancelled"] as const)
   test(`${launch} launch offers recovery without duplicate loads`, async ({ page }) => {
-    await page.goto(`/?${launch}`);
+    await page.goto(fixtureUrl({ launchResponse: launch }));
     const ui = page.frameLocator("iframe");
     await expect(ui.getByRole("alert")).toContainText(
       launch === "cancelled" ? "cancelled" : "Still waiting",
@@ -416,7 +445,7 @@ for (const launch of ["cancelled", "no-result", "late-empty", "late-cancelled"])
     );
     if (launch === "late-cancelled")
       await ui.getByRole("button", { name: /View Spicy tofu/ }).click();
-    if (launch === "late-empty" || launch === "late-cancelled")
+    if (launch === "late-result" || launch === "late-cancelled")
       await expect
         .poll(() =>
           page.evaluate(
@@ -439,7 +468,7 @@ for (const launch of ["cancelled", "no-result", "late-empty", "late-cancelled"])
 test("a native dialog close during confirmation cannot hide an uncertain outcome", async ({
   page,
 }) => {
-  await page.goto("/?slow-confirm&unknown");
+  await page.goto(fixtureUrl({ write: { outcome: "unknown", delayMs: 800 } }));
   const ui = page.frameLocator("iframe");
   await ui.getByRole("button", { name: /View Spicy tofu/ }).click();
   const dialog = ui.getByRole("dialog", { name: "Spicy tofu bowl" });
@@ -456,7 +485,7 @@ test("a native dialog close during confirmation cannot hide an uncertain outcome
   await expect(dialog.getByRole("button", { name: "Replace meal" })).toBeDisabled();
 });
 test("text-only context hosts receive no unsupported structured payload", async ({ page }) => {
-  await page.goto("/?context&text-context");
+  await page.goto(fixtureUrl({ context: { modality: "text" } }));
   const ui = page.frameLocator("iframe");
   await expect(ui.getByRole("button", { name: "Refresh", exact: true })).toBeEnabled();
   const updates = () =>
@@ -491,7 +520,7 @@ test("text-only context hosts receive no unsupported structured payload", async 
 });
 
 test("menus remain usable while optional reads are pending", async ({ page }) => {
-  await page.goto("/?slow-aux");
+  await page.goto(fixtureUrl({ auxiliaryReads: "held" }));
   const ui = page.frameLocator("iframe");
   await expect(ui.getByText("Loading recommendations…")).toBeVisible();
   await expect(ui.getByText("Loading delivery updates…")).toBeVisible();
@@ -504,7 +533,7 @@ test("menus remain usable while optional reads are pending", async ({ page }) =>
 });
 
 test("late auxiliary responses cannot overwrite the next delivery", async ({ page }) => {
-  await page.goto("/?slow-aux&dates");
+  await page.goto(fixtureUrl({ auxiliaryReads: "held", deliveryScenario: "dates" }));
   const ui = page.frameLocator("iframe");
   await expect(ui.getByText("Loading recommendations…")).toBeVisible();
   await ui.getByRole("button", { name: "Tue, Oct 6, Lunch, Office" }).click();
@@ -521,7 +550,7 @@ test("late auxiliary responses cannot overwrite the next delivery", async ({ pag
 });
 
 test("optional read failures leave menus available", async ({ page }) => {
-  await page.goto("/?aux-error");
+  await page.goto(fixtureUrl({ auxiliaryReads: "error" }));
   const ui = page.frameLocator("iframe");
   await expect(
     ui.getByText("Recommendations are unavailable. You can still browse all meals."),
@@ -534,7 +563,12 @@ test("optional read failures leave menus available", async ({ page }) => {
 for (const width of [375, 1000]) {
   test(`inline search puts meal cards first at width ${width}`, async ({ page }, testInfo) => {
     await page.setViewportSize({ width, height: 812 });
-    await page.goto("/?initial-search&context");
+    await page.goto(
+      fixtureUrl({
+        launch: { name: "search_items", arguments: { deliveryId: 1, query: "tofu" } },
+        context: {},
+      }),
+    );
     const ui = page.frameLocator("iframe");
     const meal = ui.getByRole("button", { name: /View Another bowl/ });
     await expect(meal).toBeVisible();
@@ -566,7 +600,9 @@ for (const width of [375, 1000]) {
 }
 
 test("host expansion preserves the search without refetching meals", async ({ page }) => {
-  await page.goto("/?initial-search");
+  await page.goto(
+    fixtureUrl({ launch: { name: "search_items", arguments: { deliveryId: 1, query: "tofu" } } }),
+  );
   const ui = page.frameLocator("iframe");
   await expect(ui.getByRole("button", { name: /View Another bowl/ })).toBeEnabled();
   const countCalls = () =>
@@ -589,12 +625,20 @@ test("host expansion preserves the search without refetching meals", async ({ pa
   expect(await countCalls()).toBe(before);
 });
 
-for (const failure of ["list", "search"]) {
+for (const failure of ["list", "search"] as const) {
   test(`server search retry preserves membership after ${failure} failure`, async ({ page }) => {
-    await page.goto(`/?initial-search&refresh-failure=${failure}`);
+    await page.goto(
+      fixtureUrl({
+        launch: { name: "search_items", arguments: { deliveryId: 1, query: "tofu" } },
+        refreshFailure: failure,
+      }),
+    );
     const ui = page.frameLocator("iframe");
     const refresh = ui.getByRole("button", { name: "Refresh", exact: true });
     await expect(ui.getByRole("button", { name: /View Another bowl/ })).toBeVisible();
+    await page.evaluate(() =>
+      (window as unknown as { armRefreshFailure: () => void }).armRefreshFailure(),
+    );
     await refresh.click();
     await expect(ui.getByRole("alert")).toContainText("Temporary search refresh failure");
     await refresh.click();
@@ -607,12 +651,14 @@ for (const failure of ["list", "search"]) {
           (call) => call.name === "search_items",
         ).length,
     );
-    expect(searches).toBe(failure === "search" ? 2 : 1);
+    expect(searches).toBe(failure === "search" ? 3 : 2);
   });
 }
 
 test("compact search stays focused after confirming a meal", async ({ page }) => {
-  await page.goto("/?initial-search");
+  await page.goto(
+    fixtureUrl({ launch: { name: "search_items", arguments: { deliveryId: 1, query: "tofu" } } }),
+  );
   const ui = page.frameLocator("iframe");
   await ui.getByRole("button", { name: /View Another bowl/ }).click();
   await ui.getByLabel("Meal to replace").selectOption("b");
@@ -630,7 +676,16 @@ test("compact search stays focused after confirming a meal", async ({ page }) =>
 for (const many of [false, true]) {
   test(`inline frame fits content despite host minimums (many=${many})`, async ({ page }) => {
     await page.setViewportSize({ width: 1000, height: 900 });
-    await page.goto(`/?initial-search&auto-size${many ? "&many-matches" : ""}`);
+    await page.goto(
+      fixtureUrl({
+        launch: {
+          name: "search_items",
+          arguments: { deliveryId: 1, query: many ? "curry" : "tofu" },
+        },
+        sizing: "auto",
+        searchResults: many ? "many" : "default",
+      }),
+    );
     const ui = page.frameLocator("iframe");
     const cards = ui.getByRole("region", { name: "Available meals" }).getByRole("button");
     await expect(cards).toHaveCount(many ? 17 : 1);
@@ -669,7 +724,12 @@ for (const many of [false, true]) {
 }
 
 test("size reporting does not loop when the host clamps its frame", async ({ page }) => {
-  await page.goto("/?initial-search&auto-size&clamp-size");
+  await page.goto(
+    fixtureUrl({
+      launch: { name: "search_items", arguments: { deliveryId: 1, query: "tofu" } },
+      sizing: "clamped",
+    }),
+  );
   const ui = page.frameLocator("iframe");
   await expect(ui.getByRole("button", { name: /View Another bowl/ })).toBeVisible();
   // Several animation frames expose a host-notification/resize feedback loop.
@@ -681,7 +741,7 @@ test("size reporting does not loop when the host clamps its frame", async ({ pag
 });
 
 test("automatic context stays in the background across tab remounts", async ({ page }) => {
-  await page.goto("/?context&restore-context");
+  await page.goto(fixtureUrl({ context: { restore: true } }));
   const ui = page.frameLocator("iframe");
   const updates = () =>
     page.evaluate(
@@ -716,7 +776,7 @@ test("automatic context stays in the background across tab remounts", async ({ p
 });
 
 test("restored legacy text attachments are replaced with background state", async ({ page }) => {
-  await page.goto("/?context&restore-context");
+  await page.goto(fixtureUrl({ context: { restore: true } }));
   await expect
     .poll(() => page.evaluate(() => sessionStorage.getItem("forkable-fixture-context")))
     .not.toBeNull();
@@ -775,7 +835,7 @@ for (const scenario of ["replace", "add", "narrow"]) {
   test(`meal modal screenshot for ${scenario}`, async ({ page }, testInfo) => {
     await page.setViewportSize({ width: scenario === "narrow" ? 390 : 1080, height: 900 });
     await page.route("https://cdn.filestackcontent.com/**", (route) => route.abort());
-    await page.goto(scenario === "add" ? "/?no-meals" : "/");
+    await page.goto(scenario === "add" ? fixtureUrl({ deliveryScenario: "no-meals" }) : "/");
     await page.getByRole("button", { name: "Dark theme" }).click();
     const ui = page.frameLocator("iframe");
     await ui.getByRole("button", { name: /View Spicy tofu/ }).click();
@@ -800,3 +860,381 @@ for (const scenario of ["replace", "add", "narrow"]) {
     }
   });
 }
+
+for (const platform of ["desktop", "web"] as const) {
+  test(`editable draft preserves composer text and exact meal selection on ${platform}`, async ({
+    page,
+  }) => {
+    await page.goto(fixtureUrl({ drafts: { platform } }));
+    const ui = page.frameLocator("iframe");
+    await ui.getByRole("button", { name: /View Spicy tofu/ }).click();
+    const dialog = ui.getByRole("dialog", { name: "Spicy tofu bowl" });
+    await dialog.getByLabel("Meal to replace").selectOption("b");
+    await dialog.getByLabel("Kimchi").check();
+    await dialog.getByRole("button", { name: "Ask about this meal" }).click();
+    await expect(dialog.getByRole("status")).toContainText("Added to your draft");
+    await expect(dialog).toBeVisible();
+    const result = await page.evaluate(() => {
+      const host = window as unknown as {
+        composer: { text: string; sent: boolean };
+        draftMessages: { _meta: unknown }[];
+        calls: { name: string }[];
+      };
+      return {
+        composer: host.composer,
+        messages: host.draftMessages,
+        writes: host.calls.filter((call) => call.name === "set_meal"),
+      };
+    });
+    expect(result.composer.text.startsWith("My existing question")).toBe(true);
+    expect(result.composer.text).toContain("Kimchi");
+    expect(result.composer.text).toContain("$16.00");
+    expect(result.composer.text).toContain('"menuId":10');
+    expect(result.composer.text).toContain('"itemId":7');
+    expect(result.composer.text).toContain('"sourcePieceId":"b"');
+    expect(result.composer.sent).toBe(false);
+    expect(result.messages).toHaveLength(1);
+    expect(result.messages[0]!["_meta"]).toMatchObject({
+      "openai/message": { target: "active", send: false },
+    });
+    expect(result.writes).toHaveLength(0);
+  });
+}
+
+for (const scenario of [
+  { name: "no capability", config: {} },
+  { name: "mobile", config: { drafts: { platform: "mobile" } } },
+  { name: "missing extension", config: { drafts: { extension: false } } },
+] satisfies { name: string; config: FixtureConfig }[]) {
+  test(`editable draft action is hidden without support (${scenario.name})`, async ({ page }) => {
+    await page.goto(fixtureUrl(scenario.config));
+    const ui = page.frameLocator("iframe");
+    await ui.getByRole("button", { name: /View Spicy tofu/ }).click();
+    await expect(ui.getByRole("dialog")).toBeVisible();
+    await expect(ui.getByRole("button", { name: "Ask about this meal" })).toHaveCount(0);
+  });
+}
+
+test("pending draft clicks coalesce and do not require an order selection", async ({ page }) => {
+  await page.goto(fixtureUrl({ drafts: { delayMs: 600 } }));
+  const ui = page.frameLocator("iframe");
+  await ui.getByRole("button", { name: /View Spicy tofu/ }).click();
+  await ui.getByRole("button", { name: "Ask about this meal" }).evaluate((button) => {
+    (button as HTMLButtonElement).click();
+    (button as HTMLButtonElement).click();
+  });
+  await expect(ui.getByRole("button", { name: "Adding to draft…" })).toBeDisabled();
+  await expect(ui.getByRole("status")).toContainText("Added to your draft");
+  expect(
+    await page.evaluate(
+      () => (window as unknown as { draftMessages: unknown[] }).draftMessages.length,
+    ),
+  ).toBe(1);
+});
+
+for (const failure of ["rejected", "error"] as const) {
+  test(`draft ${failure} preserves the modal selection without retrying`, async ({ page }) => {
+    await page.goto(fixtureUrl({ drafts: { response: failure } }));
+    const ui = page.frameLocator("iframe");
+    await ui.getByRole("button", { name: /View Spicy tofu/ }).click();
+    await ui.getByLabel("Kimchi").check();
+    await ui.getByRole("button", { name: "Ask about this meal" }).click();
+    await expect(ui.getByRole("alert")).toContainText("Check the chat composer");
+    await expect(ui.getByLabel("Kimchi")).toBeChecked();
+    expect(
+      await page.evaluate(
+        () => (window as unknown as { draftMessages: unknown[] }).draftMessages.length,
+      ),
+    ).toBe(1);
+  });
+}
+
+test("draft support updates without resetting the selected meal", async ({ page }) => {
+  await page.goto(fixtureUrl({ drafts: {} }));
+  const ui = page.frameLocator("iframe");
+  await ui.getByRole("button", { name: /View Spicy tofu/ }).click();
+  await ui.getByLabel("Kimchi").check();
+  await expect(ui.getByRole("button", { name: "Ask about this meal" })).toBeVisible();
+  await page.evaluate(() =>
+    (window as unknown as { setDraftPlatform: (platform: string) => void }).setDraftPlatform(
+      "mobile",
+    ),
+  );
+  await expect(ui.getByRole("button", { name: "Ask about this meal" })).toHaveCount(0);
+  await expect(ui.getByLabel("Kimchi")).toBeChecked();
+  await page.evaluate(() =>
+    (window as unknown as { setDraftPlatform: (platform: string) => void }).setDraftPlatform(
+      "desktop",
+    ),
+  );
+  await expect(ui.getByRole("button", { name: "Ask about this meal" })).toBeVisible();
+  await expect(ui.getByLabel("Kimchi")).toBeChecked();
+});
+
+const filterLaunches = [
+  {
+    name: "restaurant",
+    filters: { restaurantId: 10 },
+    meals: ["Spicy tofu bowl", "Bulgogi bowl", "Mushroom bowl", "Kimchi fried rice"],
+  },
+  { name: "diet", filters: { diet: "Omnivore" }, meals: ["Roast chicken bowl"] },
+  {
+    name: "price ceiling",
+    filters: { maxPrice: 14 },
+    meals: ["Citrus harvest salad", "Kimchi fried rice"],
+  },
+  { name: "recommended only", filters: { recommendedOnly: true }, meals: ["Spicy tofu bowl"] },
+  {
+    name: "ascending price",
+    filters: { sort: "price-low" },
+    meals: [
+      "Kimchi fried rice",
+      "Citrus harvest salad",
+      "Spicy tofu bowl",
+      "Mushroom bowl",
+      "Bulgogi bowl",
+      "Roast chicken bowl",
+    ],
+  },
+  {
+    name: "descending price",
+    filters: { sort: "price-high" },
+    meals: [
+      "Roast chicken bowl",
+      "Bulgogi bowl",
+      "Mushroom bowl",
+      "Spicy tofu bowl",
+      "Citrus harvest salad",
+      "Kimchi fried rice",
+    ],
+  },
+  { name: "zero ceiling", filters: { maxPrice: 0 }, meals: [] },
+  { name: "unavailable restaurant", filters: { restaurantId: 999 }, meals: [] },
+] satisfies { name: string; filters: Partial<MenuFilters>; meals: string[] }[];
+for (const scenario of filterLaunches) {
+  test(`model-driven inline filters: ${scenario.name}`, async ({ page }) => {
+    await page.goto(
+      fixtureUrl({
+        launch: { name: "open_forkable", arguments: { deliveryId: 1, filters: scenario.filters } },
+        menus: "restaurants",
+      }),
+    );
+    const ui = page.frameLocator("iframe");
+    await expect(
+      ui.getByRole("heading", {
+        name: scenario.name === "recommended only" ? "Recommended meals" : "Filtered meals",
+      }),
+    ).toBeVisible();
+    await expect(ui.getByRole("button", { name: "Refresh", exact: true })).toBeEnabled();
+    const cards = ui.getByRole("region", { name: "Available meals" }).locator(".meal-card h3");
+    if (scenario.filters.sort) await expect(cards).toHaveText(scenario.meals);
+    else
+      await expect
+        .poll(async () => (await cards.allTextContents()).toSorted())
+        .toEqual(scenario.meals.toSorted());
+    await expect(ui.getByRole("group", { name: "Delivery dates" })).toHaveCount(0);
+    await expect(ui.getByRole("region", { name: "Selected meals" })).toHaveCount(0);
+    await expect(ui.locator(".restaurant-group")).toHaveCount(0);
+    if (!scenario.meals.length)
+      await expect(
+        ui.getByText("No meals match these filters. Try clearing your search and filters."),
+      ).toBeVisible();
+  });
+}
+
+test("model filters match manual controls and survive refresh without a search query", async ({
+  page,
+}) => {
+  const filters = {
+    restaurantId: 10,
+    diet: "Vegetarian",
+    maxPrice: 15,
+    recommendedOnly: true,
+    sort: "price-high",
+  } satisfies Partial<MenuFilters>;
+  await page.goto(
+    fixtureUrl({
+      launch: { name: "open_forkable", arguments: { deliveryId: 1, filters } },
+      menus: "restaurants",
+      context: {},
+    }),
+  );
+  const ui = page.frameLocator("iframe");
+  const cards = ui.getByRole("region", { name: "Available meals" }).locator(".meal-card h3");
+  await expect(cards).toHaveText(["Spicy tofu bowl"]);
+  await ui.getByRole("button", { name: /^Filters/ }).click();
+  await expect(ui.getByLabel("Restaurant", { exact: true })).toHaveValue("10");
+  await expect(ui.getByLabel("Dietary label")).toHaveValue("Vegetarian");
+  await expect(ui.getByLabel("Maximum price ($)")).toHaveValue("15");
+  await expect(ui.getByLabel("Recommended only")).toBeChecked();
+  await expect(ui.getByLabel("Sort by")).toHaveValue("price-high");
+  await ui.getByRole("button", { name: "Refresh", exact: true }).click();
+  await expect(cards).toHaveText(["Spicy tofu bowl"]);
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () =>
+          (
+            window as unknown as { contextUpdates: { structuredContent: { filters: unknown } }[] }
+          ).contextUpdates.at(-1)?.structuredContent.filters,
+      ),
+    )
+    .toEqual(filters);
+  await page.goto(fixtureUrl({ menus: "restaurants" }));
+  await ui.getByRole("button", { name: /^Filters/ }).click();
+  await ui.getByLabel("Restaurant", { exact: true }).selectOption("10");
+  await ui.getByLabel("Dietary label").selectOption("Vegetarian");
+  await ui.getByLabel("Maximum price ($)").fill("15");
+  await ui.getByLabel("Recommended only").check();
+  await ui.getByLabel("Sort by").selectOption("price-high");
+  await expect(cards).toHaveText(["Spicy tofu bowl"]);
+});
+
+test("model search and all filters can be combined and cleared", async ({ page }) => {
+  const filters = {
+    restaurantId: 10,
+    diet: "Vegetarian",
+    maxPrice: 15,
+    recommendedOnly: true,
+    sort: "price-low",
+  } satisfies Partial<MenuFilters>;
+  await page.goto(
+    fixtureUrl({
+      launch: { name: "open_forkable", arguments: { deliveryId: 1, query: "tofu", filters } },
+      menus: "restaurants",
+    }),
+  );
+  const ui = page.frameLocator("iframe");
+  await expect(ui.getByRole("heading", { name: "Search meals" })).toBeVisible();
+  await expect(
+    ui.getByRole("region", { name: "Available meals" }).locator(".meal-card h3"),
+  ).toHaveText(["Spicy tofu bowl"]);
+  await ui.getByRole("button", { name: /^Filters/ }).click();
+  await ui.getByRole("button", { name: "Clear search and filters" }).click();
+  await expect(ui.getByLabel("Find a meal")).toHaveValue("");
+  await expect(ui.getByRole("region", { name: "Available meals" }).getByRole("button")).toHaveCount(
+    6,
+  );
+  await expect(ui.locator(".restaurant-group")).toHaveCount(0);
+  await ui.getByRole("button", { name: "Browse all meals" }).click();
+  await expect(ui.locator(".restaurant-group")).toHaveCount(2);
+});
+
+for (const width of [375, 1000]) {
+  test(`inline delivery is focused and reuses meals without refetching at ${width}`, async ({
+    page,
+  }, testInfo) => {
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto(
+      fixtureUrl({
+        launch: { name: "get_delivery_status", arguments: { deliveryId: 2 } },
+        deliveryScenario: "dates",
+        tracking: true,
+        context: {},
+      }),
+    );
+    const ui = page.frameLocator("iframe");
+    await expect(ui.getByRole("heading", { name: "Your delivery" })).toBeVisible();
+    await expect(ui.getByRole("region", { name: "Selected meals" })).toBeVisible();
+    await expect(ui.getByRole("region", { name: "Delivery updates" })).toBeVisible();
+    await expect(ui.getByRole("link", { name: "Track Order" })).toBeVisible();
+    await expect(ui.getByRole("group", { name: "Delivery dates" })).toHaveCount(0);
+    await expect(ui.getByRole("region", { name: "Available meals" })).toHaveCount(0);
+    await expect(ui.getByRole("button", { name: "Browse meals", exact: true })).toBeEnabled();
+    await expect
+      .poll(() =>
+        page.evaluate(
+          () =>
+            (
+              window as unknown as {
+                contextUpdates: { structuredContent: { view: string; visibleMeals: unknown[] } }[];
+              }
+            ).contextUpdates.at(-1)?.structuredContent,
+        ),
+      )
+      .toMatchObject({ view: "delivery", visibleMeals: [] });
+    await page.screenshot({ path: testInfo.outputPath(`inline-delivery-${width}.png`) });
+    const before = await page.evaluate(
+      () => (window as unknown as { calls: unknown[] }).calls.length,
+    );
+    await ui.getByRole("button", { name: "Browse meals", exact: true }).click();
+    await expect(ui.getByRole("region", { name: "Available meals" })).toBeVisible();
+    await expect(ui.getByRole("region", { name: "Selected meals" })).toHaveCount(0);
+    await ui.getByRole("button", { name: "Back to delivery" }).click();
+    await expect(ui.getByRole("region", { name: "Selected meals" })).toBeVisible();
+    expect(
+      await page.evaluate(() => (window as unknown as { calls: unknown[] }).calls.length),
+    ).toBe(before);
+  });
+}
+
+for (const launch of ["get_menus", "recommend_meals"] as const) {
+  test(`${launch} opens compact meals and retains recommendation limit on refresh`, async ({
+    page,
+  }) => {
+    await page.goto(
+      fixtureUrl({ launch: { name: launch, arguments: { deliveryId: 1, limit: 1 } } }),
+    );
+    const ui = page.frameLocator("iframe");
+    const recommended = launch === "recommend_meals";
+    await expect(
+      ui.getByRole("heading", { name: recommended ? "Recommended meals" : "Meals", exact: true }),
+    ).toBeVisible();
+    const cards = ui.getByRole("region", { name: "Available meals" }).getByRole("button");
+    await expect(cards).toHaveCount(recommended ? 1 : 2);
+    await expect(ui.getByRole("region", { name: "Selected meals" })).toHaveCount(0);
+    await expect(ui.getByRole("group", { name: "Delivery dates" })).toHaveCount(0);
+    await ui.getByRole("button", { name: "Refresh", exact: true }).click();
+    await expect(cards).toHaveCount(recommended ? 1 : 2);
+    if (recommended) {
+      const calls = await page.evaluate(() =>
+        (
+          window as unknown as { calls: { name: string; arguments: { limit?: number } }[] }
+        ).calls.filter((call) => call.name === "recommend_meals"),
+      );
+      expect(calls.every((call) => call.arguments.limit === 1)).toBe(true);
+    }
+  });
+}
+
+for (const view of ["browse", "delivery", "meals"] as const) {
+  test(`model can explicitly choose the ${view} presentation`, async ({ page }) => {
+    await page.goto(fixtureUrl({ launch: { name: "open_forkable", arguments: { view } } }));
+    const ui = page.frameLocator("iframe");
+    await expect(ui.getByRole("button", { name: "Refresh", exact: true })).toBeEnabled();
+    await expect(ui.getByRole("region", { name: "Selected meals" })).toHaveCount(
+      view === "meals" ? 0 : 1,
+    );
+    await expect(ui.getByRole("region", { name: "Available meals" })).toHaveCount(
+      view === "delivery" ? 0 : 1,
+    );
+    await expect(ui.getByRole("group", { name: "Delivery dates" })).toHaveCount(
+      view === "browse" ? 1 : 0,
+    );
+  });
+}
+
+test("sidebar fullscreen keeps the full browser and inline return preserves delivery intent", async ({
+  page,
+}) => {
+  await page.goto(
+    fixtureUrl({
+      launch: { name: "get_delivery_status", arguments: { deliveryId: 2 } },
+      deliveryScenario: "dates",
+      displayMode: "fullscreen",
+    }),
+  );
+  const ui = page.frameLocator("iframe");
+  await expect(ui.getByRole("group", { name: "Delivery dates" })).toBeVisible();
+  await expect(ui.getByRole("region", { name: "Selected meals" })).toBeVisible();
+  await expect(ui.getByRole("region", { name: "Available meals" })).toBeVisible();
+  await expect(ui.getByRole("button", { name: "Open full view" })).toHaveCount(0);
+  await page.evaluate(() =>
+    (window as unknown as { changeDisplayMode: (mode: string) => void }).changeDisplayMode(
+      "inline",
+    ),
+  );
+  await expect(ui.getByRole("heading", { name: "Your delivery" })).toBeVisible();
+  await expect(ui.getByRole("region", { name: "Available meals" })).toHaveCount(0);
+  await expect(ui.getByRole("group", { name: "Delivery dates" })).toHaveCount(0);
+});

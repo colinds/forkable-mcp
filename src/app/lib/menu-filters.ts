@@ -1,19 +1,20 @@
 import { itemKey } from "./tools.ts";
 import type { Menu, Recommendation, SearchMatch } from "@/shared/contracts/meals.ts";
-export interface MenuFilters {
-  restaurantId: number | null;
-  diet: string;
-  maxPrice: number | null;
-  recommendedOnly: boolean;
-  sort: "recommended" | "price-low" | "price-high";
+import { menuFiltersSchema, type MenuFilters } from "@/shared/contracts/menu-filters.ts";
+export type { MenuFilters } from "@/shared/contracts/menu-filters.ts";
+
+export const defaultFilters: MenuFilters = menuFiltersSchema.parse({});
+
+export function activeFilterCount(filters: MenuFilters): number {
+  return (
+    Number(filters.restaurantId != null) +
+    Number(!!filters.diet) +
+    Number(filters.maxPrice != null) +
+    Number(filters.recommendedOnly) +
+    Number(filters.sort !== defaultFilters.sort)
+  );
 }
-export const defaultFilters: MenuFilters = {
-  restaurantId: null,
-  diet: "",
-  maxPrice: null,
-  recommendedOnly: false,
-  sort: "recommended",
-};
+
 const normalize = (value: string) =>
   value
     .normalize("NFD")
@@ -91,21 +92,28 @@ export function restaurantGroups(menus: Menu[], items: ReturnType<typeof visible
   return [...groups.values()].filter((group) => group.items.length);
 }
 
-export function menuView(
-  menus: Menu[],
-  recommendations: Recommendation[],
-  query: string,
-  filters: MenuFilters,
-  searchMatches?: SearchMatch[],
-) {
+export function menuView({
+  menus,
+  recommendations,
+  query,
+  filters,
+  searchMatches,
+  layout = query.trim() ? "results" : "restaurants",
+}: {
+  menus: Menu[];
+  recommendations: Recommendation[];
+  query: string;
+  filters: MenuFilters;
+  searchMatches?: SearchMatch[];
+  layout?: "results" | "restaurants";
+}) {
   const items = visibleMeals(menus, recommendations, query, filters, searchMatches);
   const restaurants = restaurantGroups(menus, items);
-  const searching = query.trim().length > 0;
   return {
     items,
     restaurants,
-    searching,
-    ordered: searching ? items : restaurants.flatMap((group) => group.items),
+    layout,
+    ordered: layout === "results" ? items : restaurants.flatMap((group) => group.items),
   };
 }
 

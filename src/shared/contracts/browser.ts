@@ -1,6 +1,10 @@
+import { menuFiltersSchema } from "./menu-filters.ts";
 import { z } from "zod";
 import { todayLocal } from "../dates.ts";
-import { calendarDateSchema } from "./inputs.ts";
+import { calendarDateSchema, recommendMealsInputSchema } from "./inputs.ts";
+
+export const browserViewSchema = z.enum(["browse", "delivery", "meals"]);
+export type BrowserView = z.infer<typeof browserViewSchema>;
 
 export const browserInputSchema = z.object({
   deliveryId: z.number().int().positive().optional(),
@@ -9,6 +13,17 @@ export const browserInputSchema = z.object({
   from: z.string().optional(),
   to: z.string().optional(),
   query: z.string().optional(),
+  view: browserViewSchema
+    .optional()
+    .describe(
+      "Choose full browsing, a focused delivery, or meal results. Fullscreen always uses the full browser.",
+    ),
+  limit: recommendMealsInputSchema.shape.limit,
+  filters: menuFiltersSchema
+    .optional()
+    .describe(
+      "Combine any meal filters and sort order. Omitted fields use the same defaults as the app.",
+    ),
 });
 
 export const openBrowserInputSchema = browserInputSchema

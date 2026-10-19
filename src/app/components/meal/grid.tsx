@@ -16,11 +16,11 @@ export function MealCards({
   busy: boolean;
   choose: (menuId: number, itemId: number) => void;
 }) {
-  const { items, restaurants, searching } = view;
+  const { items, restaurants, layout } = view;
   let empty = menus.length
     ? "No meals match these filters. Try clearing your search and filters."
     : "No menus available for this delivery.";
-  if (searching) empty = "No meals match your search.";
+  if (query.trim()) empty = "No meals match your search.";
   if (busy) empty = "Loading meals…";
   function cards(results: typeof items) {
     return (
@@ -45,12 +45,12 @@ export function MealCards({
     <section className="meal-results" aria-label="Available meals">
       <p className="result-count muted" aria-live="polite">
         {items.length} {items.length === 1 ? "meal" : "meals"}
-        {searching
+        {query.trim()
           ? ` matching “${query.trim()}”`
           : ` across ${restaurants.length} ${restaurants.length === 1 ? "restaurant" : "restaurants"}`}
       </p>
       {!items.length && <p className="empty">{empty}</p>}
-      {searching
+      {layout === "results"
         ? cards(items)
         : restaurants.map((group) => (
             <section key={group.name} className="restaurant-group" aria-label={group.name}>
