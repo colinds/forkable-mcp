@@ -1,4 +1,8 @@
-import { initialRange } from "@/app/lib/initial-view.ts";
+import { menuFiltersSchema } from "@/shared/contracts/menu-filters.ts";
+import { selectedMealTotal } from "@/shared/meal-options.ts";
+import { createMealReference } from "@/shared/meal-reference.ts";
+import { createDraftWriter, mealDraft, supportsEditableDrafts } from "@/app/lib/chat-draft.ts";
+import { initialRange, initialLaunch } from "@/app/lib/initial-view.ts";
 import { openBrowserInputSchema } from "@/shared/contracts/browser.ts";
 import { browserContext, createContextUpdater } from "@/app/lib/model-context.ts";
 import {
@@ -12,13 +16,7 @@ import { describe, expect, test } from "bun:test";
 import { Client } from "@modelcontextprotocol/client";
 import { McpServer, InMemoryTransport } from "@modelcontextprotocol/server";
 import { registerMealBrowser, APP_URI } from "@/server/ui-server.ts";
-import {
-  Confirmation,
-  data,
-  selectionArgs,
-  selectedMealTotal,
-  type CallTool,
-} from "@/app/lib/tools.ts";
+import { Confirmation, data, selectionArgs, type CallTool } from "@/app/lib/tools.ts";
 import { imageUrl } from "@/shared/images.ts";
 import { menusSchema, type Delivery, type Detail } from "@/shared/contracts/meals.ts";
 
@@ -70,6 +68,27 @@ describe("meal browser", () => {
       expect((await client.callTool({ name: "open_forkable", arguments: {} })).isError).not.toBe(
         true,
       );
+      expect(
+        (
+          await client.callTool({
+            name: "open_forkable",
+            arguments: {
+              deliveryId: 1,
+              filters: {
+                restaurantId: 10,
+                diet: "Vegetarian",
+                maxPrice: 18,
+                recommendedOnly: true,
+                sort: "price-low",
+              },
+            },
+          })
+        ).isError,
+      ).not.toBe(true);
+      expect(
+        (await client.callTool({ name: "open_forkable", arguments: { filters: { maxPrice: -1 } } }))
+          .isError,
+      ).toBe(true);
       expect(
         (await client.callTool({ name: "open_forkable", arguments: { menuId: 10, itemId: 7 } }))
           .isError,
@@ -225,10 +244,7 @@ test("model context contains view identity and filters, never confirmation crede
     preview: { confirmToken: "do-not-share" },
     cookie: "do-not-share",
   };
-  const context = browserContext(
-    state,
-    menuView(state.menus, state.recommendations, state.query, state.filters),
-  );
+  const context = browserContext(state, menuView(state));
   expect(context.structuredContent).toMatchObject({
     delivery: { deliveryId: 1 },
     focusedMeal: { menuId: 2, itemId: 3 },
@@ -236,10 +252,7 @@ test("model context contains view identity and filters, never confirmation crede
   });
   expect(JSON.stringify(context)).not.toContain("do-not-share");
   expect(
-    browserContext(
-      { ...state, detail: undefined },
-      menuView(state.menus, state.recommendations, state.query, state.filters),
-    ).structuredContent?.focusedMeal,
+    browserContext({ ...state, detail: undefined }, menuView(state)).structuredContent?.focusedMeal,
   ).toBeNull();
 });
 
@@ -325,7 +338,7 @@ test("chat context uses the same ordered menu view and caps its meal projection"
     })),
   }));
   const filters = { ...defaultFilters, sort: "price-high" as const };
-  const view = menuView(menus, [], "", filters);
+  const view = menuView({ menus, recommendations: [], query: "", filters });
   const context = browserContext(
     {
       query: "",
@@ -389,5 +402,226 @@ test("selected meal total includes chosen options and preserves an unknown base 
   expect(selectedMealTotal(meal, {})).toBe(15);
   expect(selectedMealTotal(meal, { 3: [4, 5] })).toBe(16.5);
   expect(selectedMealTotal(meal, { 3: [5] })).toBe(15.5);
-  expect(selectedMealTotal({ ...meal, price: null }, { 3: [4] })).toBeNull();
+  expect(selectedMealTotal({ ...meal, price: null }, { 3: [4] })).toBeUndefined();
+});
+
+describe("editable meal drafts", () => {
+  test("includes exact meal identity and selected options without copying private state", () => {
+    const selection = {
+      delivery,
+      detail,
+      restaurant: "Fixture restaurant",
+      choices: { 4: [5] },
+      source: "b",
+      confirmToken: "private-confirmation-token",
+    };
+    const draft = mealDraft(createMealReference(selection));
+    expect(draft["_meta"]?.["openai/message"]).toEqual({ target: "active", send: false });
+    expect(draft.content).toHaveLength(2);
+    const attachment = draft.content[1]!;
+    expect(attachment["_meta"]?.["openai/title"]).toBe("Bowl · Fixture restaurant · Mon, Oct 5");
+    const text = JSON.stringify(draft);
+    expect(text).toContain("Fixture restaurant");
+    expect(text).toContain("Protein: Tofu");
+    expect(text).toContain("$15.00");
+    expect(text).not.toContain("private-confirmation-token");
+    expect(attachment.type).toBe("text");
+    if (attachment.type === "text") {
+      const reference = JSON.parse(attachment.text.split("Forkable reference: ")[1]!);
+      expect(reference).toEqual({
+        uri: "forkable://delivery/1/menu/2/item/3",
+        deliveryId: 1,
+        menuId: 2,
+        itemId: 3,
+        modifiers: [{ modifier: 4, options: [5] }],
+        sourcePieceId: "b",
+      });
+    }
+  });
+
+  test("questions can be drafted before choosing required options or a replacement", () => {
+    const draft = mealDraft(
+      createMealReference({
+        delivery,
+        detail: { ...detail, price: null },
+        choices: {},
+        source: "",
+      }),
+    );
+    const text = JSON.stringify(draft);
+    expect(text).toContain("None selected");
+    expect(text).toContain("Price unavailable");
+    expect(text).not.toContain("sourcePieceId");
+  });
+
+  test("checks host support again at the time of the action", async () => {
+    let platform: "desktop" | "web" | "mobile" = "desktop";
+    const messages: unknown[] = [];
+    const host = {
+      getHostContext: () => ({ platform }),
+      getHostCapabilities: () => ({
+        experimental: { "openai/message": {} },
+        message: { text: {} },
+      }),
+      sendMessage: async (message: unknown) => {
+        messages.push(message);
+        return {};
+      },
+    };
+    expect(supportsEditableDrafts(host)).toBe(true);
+    const write = createDraftWriter(host);
+    platform = "mobile";
+    expect(supportsEditableDrafts(host)).toBe(false);
+    await expect(
+      write(createMealReference({ delivery, detail, choices: {}, source: "" })),
+    ).rejects.toThrow("unavailable");
+    expect(messages).toHaveLength(0);
+    platform = "web";
+    await write(createMealReference({ delivery, detail, choices: {}, source: "" }));
+    expect(messages).toHaveLength(1);
+  });
+
+  test("host failures are not retried or converted to sent messages", async () => {
+    let calls = 0;
+    const write = createDraftWriter({
+      getHostContext: () => ({ platform: "desktop" }),
+      getHostCapabilities: () => ({
+        experimental: { "openai/message": {} },
+        message: { text: {} },
+      }),
+      sendMessage: async () => {
+        calls++;
+        return { isError: true };
+      },
+    });
+    await expect(
+      write(createMealReference({ delivery, detail, choices: {}, source: "" })),
+    ).rejects.toThrow("Check the chat composer");
+    expect(calls).toBe(1);
+  });
+});
+
+test("drafts and background context share the same meal reference", () => {
+  const state = {
+    delivery,
+    detail,
+    choices: { 4: [5] },
+    source: "b",
+    query: "tofu",
+    filters: defaultFilters,
+    needsRefresh: false,
+  };
+  const meal = createMealReference(state);
+  const context = browserContext(
+    state,
+    menuView({ menus: [], recommendations: [], query: state.query, filters: state.filters }),
+  );
+  expect(context.structuredContent?.focusedMeal).toEqual(meal);
+  expect(meal.uri).toBe("forkable://delivery/1/menu/2/item/3");
+  const attachment = mealDraft(meal).content[1]!;
+  if (attachment.type !== "text") throw new Error("Expected a meal attachment");
+  expect(attachment.text).toContain(meal.uri);
+  expect(attachment.text).toContain(JSON.stringify(meal.modifiers));
+});
+
+test("all browser filters share the UI defaults and validate model inputs", () => {
+  expect(menuFiltersSchema.parse({})).toEqual(defaultFilters);
+  const filters = {
+    restaurantId: 10,
+    diet: "Vegetarian",
+    maxPrice: 0,
+    recommendedOnly: true,
+    sort: "price-high" as const,
+  };
+  expect(openBrowserInputSchema.parse({ filters }).filters).toEqual(filters);
+  expect(openBrowserInputSchema.parse({ filters: { maxPrice: 18 } }).filters).toEqual({
+    ...defaultFilters,
+    maxPrice: 18,
+  });
+  for (const invalid of [
+    { maxPrice: -1 },
+    { maxPrice: Infinity },
+    { restaurantId: 1.5 },
+    { sort: "unknown" },
+  ]) {
+    expect(openBrowserInputSchema.safeParse({ filters: invalid }).success).toBe(false);
+  }
+});
+
+test("inline results sort globally while the full browser keeps restaurant grouping", () => {
+  const menus = [
+    {
+      menuId: 10,
+      name: "First kitchen",
+      items: [
+        { itemId: 1, name: "Expensive", price: 30, imageUrl: null },
+        { itemId: 2, name: "Cheap", price: 10, imageUrl: null },
+      ],
+    },
+    {
+      menuId: 20,
+      name: "Second kitchen",
+      items: [{ itemId: 3, name: "Middle", price: 20, imageUrl: null }],
+    },
+  ];
+  const browse = menuView({ menus, recommendations: [], query: "", filters: defaultFilters });
+  expect(browse.layout).toBe("restaurants");
+  const results = menuView({
+    menus,
+    recommendations: [],
+    query: "",
+    filters: menuFiltersSchema.parse({ sort: "price-low" }),
+    layout: "results",
+  });
+  expect(results.layout).toBe("results");
+  expect(results.ordered.map((row) => row.item.price)).toEqual([10, 20, 30]);
+});
+
+test("launch intent selects a presentation independently of host display mode", () => {
+  const result = (structuredContent: Record<string, unknown>, input = {}) => ({
+    input,
+    result: { structuredContent },
+  });
+  expect(initialLaunch(result({})).view).toBe("browse");
+  expect(initialLaunch(result({}, { deliveryId: 1 })).view).toBe("delivery");
+  expect(
+    initialLaunch(result({ deliveries: [delivery, { ...delivery, deliveryId: 2 }] })),
+  ).toMatchObject({ view: "delivery", showDates: true });
+  expect(initialLaunch(statusLaunchSeed("2026-10-19"))).toMatchObject({
+    view: "delivery",
+    showDates: false,
+  });
+  expect(initialLaunch(result({ menus: [] })).view).toBe("meals");
+  expect(initialLaunch(result({ items: [] })).view).toBe("meals");
+  expect(initialLaunch(result({ item: detail })).view).toBe("meals");
+  expect(initialLaunch(result({}, { query: "curry" })).view).toBe("meals");
+  expect(initialLaunch(result({}, { view: "meals" })).view).toBe("meals");
+  expect(initialLaunch(result({ menus: [] }, { view: "browse" })).view).toBe("browse");
+  expect(initialLaunch(result({ recommendations: [] }, { limit: 3 }))).toMatchObject({
+    view: "meals",
+    limit: 3,
+    filters: { ...defaultFilters, recommendedOnly: true },
+  });
+});
+
+test("delivery context does not claim that hidden menus are visible", () => {
+  const view = menuView({
+    menus: [{ menuId: 2, name: "Kitchen", items: [{ ...detail }] }],
+    recommendations: [],
+    query: "",
+    filters: defaultFilters,
+  });
+  const context = browserContext(
+    {
+      presentation: "delivery",
+      delivery,
+      query: "",
+      choices: {},
+      source: "",
+      filters: defaultFilters,
+      needsRefresh: false,
+    },
+    view,
+  ).structuredContent;
+  expect(context).toMatchObject({ view: "delivery", visibleMeals: [], totalMatchingMeals: 0 });
 });

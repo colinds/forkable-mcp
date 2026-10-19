@@ -1,3 +1,4 @@
+import { modifierMinimum } from "@/shared/meal-options.ts";
 import type { CallToolResult } from "@modelcontextprotocol/client";
 import type { SetMealInput, BrowserToolInputs } from "../../shared/contracts/inputs.ts";
 import { z } from "zod";
@@ -34,25 +35,6 @@ export function data<T>(result: ToolResult, schema: z.ZodType<T>): T {
   if (!parsed.success)
     throw new Error("Forkable returned an unexpected response. Refresh to try again.");
   return parsed.data;
-}
-
-export function modifierMinimum(modifier: Detail["modifiers"][number]) {
-  return Math.max(modifier.required ? 1 : 0, modifier.min ?? 0);
-}
-
-export function selectedMealTotal(
-  detail: Detail,
-  choices: Record<string, number[]>,
-): number | null {
-  if (detail.price == null || !Number.isFinite(detail.price)) return null;
-  let total = detail.price;
-  for (const modifier of detail.modifiers) {
-    const selected = choices[modifier.id] ?? [];
-    for (const option of modifier.options) {
-      if (selected.includes(option.id)) total += option.price;
-    }
-  }
-  return Number.isFinite(total) ? Math.round(total * 100) / 100 : null;
 }
 
 export function selectionArgs(

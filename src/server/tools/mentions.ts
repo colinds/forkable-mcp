@@ -1,4 +1,12 @@
-import { registerMentions, mentionUri, mentionDate } from "@/server/mentions.ts";
+import {
+  createMealReference,
+  formatMealReference,
+  mealReferenceTitle,
+  referenceUri,
+  referenceDate,
+} from "@/shared/meal-reference.ts";
+import { compactDelivery } from "../order/delivery.ts";
+import { registerMentions } from "@/server/mentions.ts";
 import type { Menu } from "@/server/order/types.ts";
 import { type McpServer } from "@modelcontextprotocol/server";
 import { formatDate, formatDay } from "@/server/order/format.ts";
@@ -6,7 +14,13 @@ import { formatDate, formatDay } from "@/server/order/format.ts";
 import { ok } from "@/server/results.ts";
 import { guard } from "@/server/tools/shared.ts";
 import { inProgressIds, loadDeliveries, findDelivery, loadMenus } from "@/server/order/data.ts";
-import { flattenItems, resolveOneItem, itemDetail, fmtItemDetail } from "@/server/order/menu.ts";
+import {
+  flattenItems,
+  resolveOneItem,
+  itemDetail,
+  compactItemDetail,
+  fmtItemModifiers,
+} from "@/server/order/menu.ts";
 import { windowName, fmtDelivery } from "@/server/order/delivery.ts";
 
 const reference = (uri: string, title: string) => ({
@@ -28,12 +42,12 @@ export function registerMentionTools(server: McpServer): void {
         const results = deliveries
           .filter((d) =>
             matches(
-              `${formatDate(d.forDeliveryAt)} ${formatDay(d.forDeliveryAt)} ${mentionDate(d.forDeliveryAt)} ${mentionDate(d.forDeliveryAt, "long")} ${windowName(d)} ${d.club?.name ?? ""}`,
+              `${formatDate(d.forDeliveryAt)} ${formatDay(d.forDeliveryAt)} ${referenceDate(d.forDeliveryAt)} ${referenceDate(d.forDeliveryAt, "long")} ${windowName(d)} ${d.club?.name ?? ""}`,
             ),
           )
           .map((d) => {
             const service = windowName(d) || "Delivery";
-            const title = `${mentionDate(d.forDeliveryAt)} · ${service[0]!.toUpperCase()}${service.slice(1)}`;
+            const title = `${referenceDate(d.forDeliveryAt)} · ${service[0]!.toUpperCase()}${service.slice(1)}`;
             const needsLocation = deliveries.some(
               (other) =>
                 other.id !== d.id &&
@@ -41,7 +55,7 @@ export function registerMentionTools(server: McpServer): void {
                 windowName(other) === windowName(d),
             );
             return reference(
-              mentionUri({ deliveryId: d.id }),
+              referenceUri({ deliveryId: d.id }),
               needsLocation && d.club?.name ? `${title} · ${d.club.name}` : title,
             );
           });
@@ -67,13 +81,13 @@ export function registerMentionTools(server: McpServer): void {
                 const date = formatDate(delivery.forDeliveryAt);
                 if (
                   matches(
-                    `${item.name} ${item.description ?? ""} ${restaurant} ${date} ${mentionDate(delivery.forDeliveryAt)}`,
+                    `${item.name} ${item.description ?? ""} ${restaurant} ${date} ${referenceDate(delivery.forDeliveryAt)}`,
                   )
                 )
                   results.push(
                     reference(
-                      mentionUri({ deliveryId: delivery.id, menuId: menu.id, itemId: item.id }),
-                      `${item.name} · ${restaurant} · ${date}`,
+                      referenceUri({ deliveryId: delivery.id, menuId: menu.id, itemId: item.id }),
+                      mealReferenceTitle({ name: item.name, restaurant, date }),
                     ),
                   );
               }
@@ -97,9 +111,13 @@ export function registerMentionTools(server: McpServer): void {
           ref.menuId,
           ref.deliveryId,
         );
-        return ok(
-          `Forkable meal for ${formatDate(delivery.forDeliveryAt)} (${windowName(delivery)}), deliveryId=${delivery.id}, menuId=${menu.id}, itemId=${item.id}.\n${menu.displayName || menu.name || "Restaurant"}\n${fmtItemDetail(itemDetail(item, menu))}`,
-        );
+        const detail = itemDetail(item, menu);
+        const meal = createMealReference({
+          delivery: compactDelivery(delivery, new Set(), userId),
+          detail: compactItemDetail(detail),
+          restaurant: menu.displayName || menu.name || "Restaurant",
+        });
+        return ok([formatMealReference(meal), ...fmtItemModifiers(detail)].join("\n"));
       }),
   });
 }

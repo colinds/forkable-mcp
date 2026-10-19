@@ -1,14 +1,18 @@
+import type { BrowserView } from "@/shared/contracts/browser.ts";
+import { createMealReference, referenceUri } from "@/shared/meal-reference.ts";
 import type { OpenAIModelContextHostState } from "@openai/mcp-extensions/app";
 import { type MenuView, type MenuFilters } from "./menu-filters.ts";
 import type { App, McpUiSupportedContentBlockModalities } from "@modelcontextprotocol/ext-apps";
-import type { Delivery, Detail } from "@/shared/contracts/meals.ts";
+import type { Delivery, Detail, Menu } from "@/shared/contracts/meals.ts";
 export type ModelContext = Parameters<App["updateModelContext"]>[0];
 export type UpdateContext = (context: ModelContext) => Promise<unknown>;
 
 /** Explicit allowlist: never include auth state, raw tool results, or confirmation credentials. */
 export function browserContext(
   view: {
+    presentation?: BrowserView;
     delivery?: Delivery;
+    menus?: Menu[];
     detail?: Detail;
     query: string;
     filters: MenuFilters;
@@ -19,18 +23,27 @@ export function browserContext(
   results: MenuView,
 ): ModelContext {
   const delivery = view.delivery;
-  const visible = results.ordered.slice(0, 30).map(({ menu, item }) => ({
-    menuId: menu.menuId,
-    itemId: item.itemId,
-    name: item.name,
-    restaurant: menu.name,
-    price: item.price,
-  }));
+  const visible = (view.presentation === "delivery" ? [] : results.ordered)
+    .slice(0, 30)
+    .map(({ menu, item }) => ({
+      menuId: menu.menuId,
+      itemId: item.itemId,
+      name: item.name,
+      restaurant: menu.name,
+      price: item.price,
+      uri: delivery
+        ? referenceUri({
+            deliveryId: delivery.deliveryId,
+            menuId: menu.menuId,
+            itemId: item.itemId,
+          })
+        : undefined,
+    }));
   const context = {
     app: "Forkable",
     guidance:
       "Food requests refer to the available Forkable menu. Browsing is not authorization to place or change an order.",
-    view: view.detail ? "meal-details" : "menu",
+    view: view.detail ? "meal-details" : (view.presentation ?? "menu"),
     delivery: delivery
       ? {
           deliveryId: delivery.deliveryId,
@@ -46,21 +59,20 @@ export function browserContext(
         }
       : null,
     search: view.query,
-    browseLayout: results.searching ? "search-results" : "restaurants",
+    browseLayout: results.layout === "results" ? "search-results" : "restaurants",
     filters: view.filters,
-    focusedMeal: view.detail
-      ? {
-          menuId: view.detail.menuId,
-          itemId: view.detail.itemId,
-          name: view.detail.name,
-          description: view.detail.description,
-          price: view.detail.price,
-          options: view.choices,
-          replacementPieceId: view.source || null,
-        }
-      : null,
+    focusedMeal:
+      view.detail && delivery
+        ? createMealReference({
+            delivery,
+            detail: view.detail,
+            restaurant: view.menus?.find((menu) => menu.menuId === view.detail?.menuId)?.name,
+            choices: view.choices,
+            source: view.source,
+          })
+        : null,
     visibleMeals: visible,
-    totalMatchingMeals: results.items.length,
+    totalMatchingMeals: view.presentation === "delivery" ? 0 : results.items.length,
     requiresDeliveryRefresh: view.needsRefresh,
   };
   return { content: [], structuredContent: context };

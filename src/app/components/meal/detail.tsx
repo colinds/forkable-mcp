@@ -1,12 +1,12 @@
-import { X } from "lucide-react";
+import { X, MessageSquare } from "lucide-react";
 import { IconButton } from "../icon-button.tsx";
-import { modifierMinimum } from "../../lib/tools.ts";
+import { modifierMinimum } from "@/shared/meal-options.ts";
 import { Button } from "../button.tsx";
 import { MealPhoto } from "./photo.tsx";
 
-import { money } from "@/app/lib/format.ts";
-import type { MealBrowserController } from "../../hooks/use-meal-browser.ts";
-export function MealDetail({ browser }: { browser: MealBrowserController }) {
+import { money } from "@/shared/currency.ts";
+import type { MealEditorController } from "../../hooks/use-meal-browser.ts";
+export function MealDetail({ browser }: { browser: MealEditorController }) {
   const { state } = browser;
   const { busy, delivery, detail } = state;
   if (!delivery || !detail) return null;
@@ -43,6 +43,9 @@ export function MealDetail({ browser }: { browser: MealBrowserController }) {
             browser.submit();
           }}
         >
+          {delivery.meals.length === 1 && (
+            <p className="muted">Replacing {delivery.meals[0]!.name ?? "your selected meal"}</p>
+          )}
           {delivery.meals.length > 1 && (
             <>
               <label htmlFor="source" className="form-label">
@@ -99,8 +102,16 @@ export function MealDetail({ browser }: { browser: MealBrowserController }) {
           })}
           <footer className="detail-actions">
             <Button type="submit" primary disabled={busy || state.needsRefresh}>
-              {busy ? "Saving…" : `${submitLabel} · ${money(browser.mealTotal)}`}
+              {state.pendingAction === "saving"
+                ? "Saving…"
+                : `${submitLabel} · ${money(browser.mealTotal)}`}
             </Button>
+            {browser.askAboutMeal && (
+              <Button disabled={busy} onClick={browser.askAboutMeal}>
+                <MessageSquare aria-hidden="true" />
+                {state.pendingAction === "drafting" ? "Adding to draft…" : "Ask about this meal"}
+              </Button>
+            )}
           </footer>
         </form>
       </div>

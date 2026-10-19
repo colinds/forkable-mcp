@@ -10,7 +10,7 @@ export function MealDialog({
   children: ReactNode;
   busy: boolean;
   onClose: () => void;
-  returnFocus: HTMLElement | null;
+  returnFocus?: HTMLElement;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
   const restoreAfterClose = useRef(false);

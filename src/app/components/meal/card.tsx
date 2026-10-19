@@ -1,6 +1,6 @@
 import { MealPhoto } from "./photo.tsx";
 
-import { money } from "@/app/lib/format.ts";
+import { money } from "@/shared/currency.ts";
 
 interface MealCardProps {
   name: string;

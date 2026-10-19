@@ -14,6 +14,7 @@ src/
   app/            React components, hooks, UI state, and host styling
   server/         Authentication, API access, and write gate
     tools/        Tool registration by domain; index.ts only composes registrations
+    forms/        Native meal-option forms and validated answer translation
     order/        API loading, wire types, ownership, selections, and presentation
   shared/
     contracts/    Public MCP input/output schemas and inferred types
@@ -310,7 +311,8 @@ and accept an optional `confirmToken`.
 
 ## MCP App
 
-`open_forkable` is a read-only UI entrypoint and an exception to the usual read-tool naming.
+`open_forkable` is a read-only UI entrypoint; `prepare_meal` collects choices without ordering.
+Both are exceptions to the usual read-tool naming.
 Exact-meal launches require a delivery plus its menu/item pair. `bun run start` builds the UI
 before starting stdio; `bun run dev` rebuilds UI changes while watching the server. Reopen the
 MCP view after rebuilding. Keep build output off protocol stdout.

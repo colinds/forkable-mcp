@@ -1,4 +1,5 @@
-import { browserInputSchema } from "../../shared/contracts/browser.ts";
+import { activeFilterCount, defaultFilters } from "./menu-filters.ts";
+import { browserInputSchema, type BrowserView } from "../../shared/contracts/browser.ts";
 import type { z } from "zod";
 import { todayLocal } from "../../shared/dates.ts";
 import { type ToolResult } from "./tools.ts";
@@ -26,6 +27,29 @@ export function initialData(view?: InitialView) {
     status: deliveryStatusSchema.safeParse(result).data?.status,
     searchItems: searchResultsSchema.safeParse(result).data?.items,
   };
+}
+
+export function initialLaunch(initial?: InitialView) {
+  const seed = initialData(initial);
+  const input = initial?.input;
+  const filters = input?.filters ?? {
+    ...defaultFilters,
+    recommendedOnly: seed.recommendations !== undefined,
+  };
+  let view: BrowserView = "browse";
+  if (input?.view) view = input.view;
+  else if (
+    input?.query?.trim() ||
+    activeFilterCount(filters) ||
+    seed.searchItems !== undefined ||
+    seed.menus !== undefined ||
+    seed.item ||
+    input?.itemId != null
+  )
+    view = "meals";
+  else if (seed.status || seed.deliveries !== undefined || input?.deliveryId != null)
+    view = "delivery";
+  return { view, filters, showDates: (seed.deliveries?.length ?? 0) > 1, limit: input?.limit };
 }
 
 export const isPastDelivery = (date: string, today = todayLocal()) => date < today;

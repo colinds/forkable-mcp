@@ -1,3 +1,4 @@
+import { type ForkableReference } from "@/shared/meal-reference.ts";
 import {
   ResourceTemplate,
   type McpServer,
@@ -5,32 +6,11 @@ import {
 } from "@modelcontextprotocol/server";
 import { z } from "zod";
 
-export interface MentionReference {
-  deliveryId: number;
-  menuId?: number;
-  itemId?: number;
-}
-export function mentionDate(iso?: string, weekday: "short" | "long" = "short"): string {
-  const date = new Date(`${iso?.slice(0, 10)}T12:00:00Z`);
-  if (Number.isNaN(date.getTime())) return "Upcoming";
-  return new Intl.DateTimeFormat("en-US", {
-    weekday,
-    month: "short",
-    day: "numeric",
-    timeZone: "UTC",
-  }).format(date);
-}
-export function mentionUri(ref: MentionReference): string {
-  const delivery = `forkable://delivery/${ref.deliveryId}`;
-  return ref.menuId == null || ref.itemId == null
-    ? delivery
-    : `${delivery}/menu/${ref.menuId}/item/${ref.itemId}`;
-}
 export function registerMentions(
   server: McpServer,
   handlers: {
     search: (query: string) => Promise<CallToolResult>;
-    read: (ref: MentionReference) => Promise<CallToolResult>;
+    read: (ref: ForkableReference) => Promise<CallToolResult>;
   },
 ) {
   const capability = { "openai/mentions": { searchTool: "search_mentions" } };
@@ -57,7 +37,7 @@ export function registerMentions(
       new ResourceTemplate(template, { list: undefined }),
       { mimeType: "text/markdown" },
       async (uri, variables) => {
-        const ref: MentionReference = { deliveryId: id.parse(variables.deliveryId) };
+        const ref: ForkableReference = { deliveryId: id.parse(variables.deliveryId) };
         if (meal) {
           ref.menuId = id.parse(variables.menuId);
           ref.itemId = id.parse(variables.itemId);

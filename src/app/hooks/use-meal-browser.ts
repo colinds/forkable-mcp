@@ -1,5 +1,9 @@
+import { selectedMealTotal } from "@/shared/meal-options.ts";
+import { createMealReference } from "@/shared/meal-reference.ts";
+import type { WriteDraft } from "../lib/chat-draft.ts";
 import {
   initialData,
+  initialLaunch,
   initialRange,
   isPastDelivery,
   type InitialView,
@@ -12,7 +16,6 @@ import {
   data,
   resultText,
   selectionArgs,
-  selectedMealTotal,
   type CallTool,
 } from "../lib/tools.ts";
 import {
@@ -29,6 +32,8 @@ import {
   type Recommendation,
   type SearchMatch,
 } from "@/shared/contracts/meals.ts";
+type PendingAction = "loading" | "saving" | "drafting";
+
 interface BrowserState {
   deliveries: Delivery[];
   deliveriesLoaded: boolean;
@@ -47,30 +52,54 @@ interface BrowserState {
   filters: MenuFilters;
   searchMatches?: SearchMatch[];
   searchFromServer: boolean;
-  busy: boolean;
+  pendingAction?: PendingAction;
   notice: string;
   problem: boolean;
   needsRefresh: boolean;
 }
+export interface MealBrowserHost {
+  callTool: CallTool;
+  createDraft?: WriteDraft;
+}
+
 export interface MealBrowserController {
-  state: BrowserState;
-  mealTotal: number | null;
+  launch: ReturnType<typeof initialLaunch>;
+  state: BrowserState & { busy: boolean };
+  mealTotal: number | undefined;
   refresh: () => void;
-  refreshSearch: () => void;
   choose: (menuId: number, itemId: number, sourcePieceId?: string | number) => void;
   chooseOption: (
     modifierId: number,
     optionId: number,
     checked: boolean,
-    max: number | null,
+    max: Detail["modifiers"][number]["max"],
   ) => void;
   submit: () => void;
+  askAboutMeal?: () => void;
   back: () => void;
   setFilters: (filters: MenuFilters) => void;
   setQuery: (query: string) => void;
   setSource: (source: string) => void;
   setDelivery: (id: number) => void;
 }
+
+export type MealEditorController = Pick<
+  MealBrowserController,
+  "mealTotal" | "chooseOption" | "setSource" | "submit" | "back" | "askAboutMeal"
+> & {
+  state: Pick<
+    MealBrowserController["state"],
+    | "delivery"
+    | "detail"
+    | "busy"
+    | "pendingAction"
+    | "notice"
+    | "problem"
+    | "source"
+    | "choices"
+    | "needsRefresh"
+  >;
+};
 
 const emptyDeliveryData = {
   menus: [],
@@ -110,7 +139,7 @@ const initialState: BrowserState = {
   query: "",
   filters: defaultFilters,
   searchFromServer: false,
-  busy: true,
+  pendingAction: "loading",
   statusUnavailable: false,
   statusLoading: false,
   recommendationsLoading: false,
@@ -119,11 +148,15 @@ const initialState: BrowserState = {
   needsRefresh: false,
 };
 
-export function useMealBrowser(call: CallTool, initial?: InitialView): MealBrowserController {
+export function useMealBrowser(
+  { callTool: call, createDraft: writeDraft }: MealBrowserHost,
+  initial?: InitialView,
+): MealBrowserController {
   const [state, setState] = useState(initialState);
   const running = useRef(false);
   const loadGeneration = useRef(0);
   const [range] = useState(() => initialRange(initial));
+  const [launch] = useState(() => initialLaunch(initial));
   const confirmation = useRef(new Confirmation());
   const { delivery, detail } = state;
   const patch = useCallback(
@@ -139,10 +172,10 @@ export function useMealBrowser(call: CallTool, initial?: InitialView): MealBrows
   };
 
   const run = useCallback(
-    async (task: () => Promise<void>) => {
+    async (task: () => Promise<void>, pendingAction: PendingAction = "loading") => {
       if (running.current) return;
       running.current = true;
-      patch({ busy: true });
+      patch({ pendingAction });
       try {
         await task();
       } catch (error) {
@@ -152,7 +185,7 @@ export function useMealBrowser(call: CallTool, initial?: InitialView): MealBrows
         });
       } finally {
         running.current = false;
-        patch({ busy: false });
+        patch({ pendingAction: undefined });
       }
     },
     [patch],
@@ -181,7 +214,13 @@ export function useMealBrowser(call: CallTool, initial?: InitialView): MealBrows
         try {
           const recommendations =
             recommendationsSeed ??
-            data(await call("recommend_meals", args), recommendationsSchema).recommendations;
+            data(
+              await call("recommend_meals", {
+                ...args,
+                ...(launch.limit != null ? { limit: launch.limit } : {}),
+              }),
+              recommendationsSchema,
+            ).recommendations;
           patchCurrent({ recommendations });
         } catch {
           patchCurrent({ recommendationsUnavailable: true });
@@ -212,9 +251,9 @@ export function useMealBrowser(call: CallTool, initial?: InitialView): MealBrows
       const menus = menusSeed ?? data(await call("get_menus", args), menusSchema).menus;
       patchCurrent({ menus });
     },
-    [call, patch],
+    [call, patch, launch.limit],
   );
-  async function refresh(preserveSearch = false) {
+  async function refresh() {
     ++loadGeneration.current;
     invalidate({
       ...emptySelection,
@@ -222,17 +261,14 @@ export function useMealBrowser(call: CallTool, initial?: InitialView): MealBrows
       deliveriesLoaded: false,
       delivery: undefined,
       ...emptyDeliveryData,
-      query: preserveSearch ? state.query : "",
       searchMatches: undefined,
-      searchFromServer: preserveSearch && state.searchFromServer,
-      filters: preserveSearch ? state.filters : defaultFilters,
     });
     const deliveries = sortDeliveries(
       data(await call("list_deliveries", range), deliveriesSchema).deliveries,
     );
     const selected = deliveries.find((d) => d.deliveryId === delivery?.deliveryId) ?? deliveries[0];
     patch({ deliveries, deliveriesLoaded: true, delivery: selected, needsRefresh: false });
-    if (preserveSearch && selected && state.query.trim() && state.searchFromServer) {
+    if (selected && state.query.trim() && state.searchFromServer) {
       const { items } = data(
         await call("search_items", { deliveryId: selected.deliveryId, query: state.query }),
         searchResultsSchema,
@@ -268,6 +304,7 @@ export function useMealBrowser(call: CallTool, initial?: InitialView): MealBrows
           deliveriesLoaded: true,
           delivery: selected,
           query: input.query ?? "",
+          filters: launch.filters,
           searchMatches: seed.searchItems,
           searchFromServer: seed.searchItems !== undefined,
         });
@@ -299,7 +336,7 @@ export function useMealBrowser(call: CallTool, initial?: InitialView): MealBrows
       } finally {
         if (!cancelled) {
           running.current = false;
-          patch({ busy: false });
+          patch({ pendingAction: undefined });
         }
       }
     })();
@@ -307,7 +344,7 @@ export function useMealBrowser(call: CallTool, initial?: InitialView): MealBrows
       cancelled = true;
       discardPendingDeliveryReads();
     };
-  }, [call, initial, range, loadMenus, patch, discardPendingDeliveryReads]);
+  }, [call, initial, range, loadMenus, patch, discardPendingDeliveryReads, launch.filters]);
 
   function choose(menuId: number, itemId: number, sourcePieceId?: string | number) {
     if (!delivery || isPastDelivery(delivery.date)) return;
@@ -324,13 +361,31 @@ export function useMealBrowser(call: CallTool, initial?: InitialView): MealBrows
     modifierId: number,
     optionId: number,
     checked: boolean,
-    max: number | null,
+    max: Detail["modifiers"][number]["max"],
   ) {
     const picked = state.choices[modifierId] ?? [];
     let options = picked.filter((id) => id !== optionId);
     if (checked) options = max === 1 ? [optionId] : [...picked, optionId];
     invalidate({ choices: { ...state.choices, [modifierId]: options } });
   }
+  async function askAboutMeal() {
+    if (!writeDraft || !delivery || !detail) return;
+    patch({ notice: "", problem: false });
+    await writeDraft(
+      createMealReference({
+        delivery,
+        detail,
+        restaurant: state.menus.find((menu) => menu.menuId === detail.menuId)?.name,
+        choices: state.choices,
+        source: state.source,
+      }),
+    );
+    patch({
+      notice: "Added to your draft. Edit it in chat, then send when ready.",
+      problem: false,
+    });
+  }
+
   async function submit() {
     invalidate();
     if (!delivery || !detail) throw new Error("Choose a delivery and meal first.");
@@ -358,7 +413,7 @@ export function useMealBrowser(call: CallTool, initial?: InitialView): MealBrows
       const outcome = writeResult(result);
       if (outcome?.mode === "executed") {
         try {
-          await refresh(true);
+          await refresh();
           patch({ notice: "Change sent. Delivery refreshed.", problem: false });
         } catch {
           patch({
@@ -387,14 +442,15 @@ export function useMealBrowser(call: CallTool, initial?: InitialView): MealBrows
     }
   }
   return {
-    state,
-    mealTotal: detail ? selectedMealTotal(detail, state.choices) : null,
+    launch,
+    state: { ...state, busy: state.pendingAction !== undefined },
+    mealTotal: detail ? selectedMealTotal(detail, state.choices) : undefined,
     refresh: () => void run(refresh),
-    refreshSearch: () => void run(() => refresh(true)),
     choose,
     chooseOption,
+    askAboutMeal: writeDraft ? () => void run(askAboutMeal, "drafting") : undefined,
     submit: () => {
-      if (!state.needsRefresh) void run(submit);
+      if (!state.needsRefresh) void run(submit, "saving");
     },
     back: () => invalidate(emptySelection),
     setFilters: (filters: MenuFilters) => patch({ filters }),

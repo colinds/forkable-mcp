@@ -77,7 +77,7 @@ export function resolveItemModifiers(
 }
 
 /** Added price (dollars) of an option: its own price, else the modifier's option-set price, else 0. */
-function optionPrice(opt: MenuOption, mod: MenuModifier, menu?: Menu): number {
+export function optionPrice(opt: MenuOption, mod: MenuModifier, menu?: Menu): number {
   if (typeof opt.price === "number") return opt.price;
   if (mod.optionSetId != null && menu?.optionSets) {
     const os = menu.optionSets.find((s) => s.id === mod.optionSetId);

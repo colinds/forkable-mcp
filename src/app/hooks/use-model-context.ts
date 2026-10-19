@@ -1,5 +1,5 @@
 import type { MenuView } from "../lib/menu-filters.ts";
-import { useEffect, useRef, useState, useMemo } from "react";
+import { useEffect, useRef, useState } from "react";
 import { browserContext, type UpdateContext } from "../lib/model-context.ts";
 
 export function useModelContext(
@@ -9,10 +9,7 @@ export function useModelContext(
 ) {
   const [failed, setFailed] = useState(false);
   const pending = useRef(Promise.resolve());
-  const snapshot = useMemo(
-    () => (update ? JSON.stringify(browserContext(view, menu)) : undefined),
-    [view, menu, update],
-  );
+  const snapshot = update ? JSON.stringify(browserContext(view, menu)) : undefined;
   useEffect(() => {
     if (!update || !snapshot) return;
     const payload: ReturnType<typeof browserContext> = JSON.parse(snapshot);
