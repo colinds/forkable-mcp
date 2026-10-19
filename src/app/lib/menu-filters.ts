@@ -1,3 +1,4 @@
+import { itemKey } from "./tools.ts";
 import type { Menu, Recommendation, SearchMatch } from "@/shared/contracts/meals.ts";
 export interface MenuFilters {
   restaurantId: number | null;
@@ -36,12 +37,16 @@ export function visibleMeals(
   const sourceOrder =
     searchMatches == null
       ? undefined
-      : new Map(searchMatches.map((item, index) => [`${item.menuId}:${item.itemId}`, index]));
-  const ranks = new Map(recommendations.map((r) => [`${r.menuId}:${r.itemId}`, r.rank]));
+      : new Map(searchMatches.map((item, index) => [itemKey(item.menuId, item.itemId), index]));
+  const ranks = new Map(recommendations.map((r) => [itemKey(r.menuId, r.itemId), r.rank]));
   const terms = normalize(query).trim().split(/\s+/).filter(Boolean);
   return menus
     .flatMap((menu) =>
-      menu.items.map((item) => ({ menu, item, rank: ranks.get(`${menu.menuId}:${item.itemId}`) })),
+      menu.items.map((item) => ({
+        menu,
+        item,
+        rank: ranks.get(itemKey(menu.menuId, item.itemId)),
+      })),
     )
     .filter(({ menu, item, rank }) => {
       const text = normalize(
@@ -49,7 +54,7 @@ export function visibleMeals(
       );
       return (
         (sourceOrder
-          ? sourceOrder.has(`${menu.menuId}:${item.itemId}`)
+          ? sourceOrder.has(itemKey(menu.menuId, item.itemId))
           : terms.every((term) => text.includes(term))) &&
         (filters.restaurantId == null ||
           (restaurant != null && restaurantKey(menu.name) === restaurantKey(restaurant.name))) &&
@@ -68,8 +73,8 @@ export function visibleMeals(
       }
       if (sourceOrder)
         return (
-          sourceOrder.get(`${a.menu.menuId}:${a.item.itemId}`)! -
-          sourceOrder.get(`${b.menu.menuId}:${b.item.itemId}`)!
+          sourceOrder.get(itemKey(a.menu.menuId, a.item.itemId))! -
+          sourceOrder.get(itemKey(b.menu.menuId, b.item.itemId))!
         );
       return (a.rank ?? Infinity) - (b.rank ?? Infinity) || a.item.name.localeCompare(b.item.name);
     });

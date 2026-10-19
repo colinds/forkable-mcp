@@ -8,7 +8,8 @@
   "rules": {
     "no-nested-ternary": "error",
     "no-unused-vars": "warn",
-    "eqeqeq": ["error", "smart"]
+    "eqeqeq": ["error", "smart"],
+    "react/react-in-jsx-scope": "off"
   },
   "ignorePatterns": ["node_modules", "exploration", "dist"],
   "overrides": [
@@ -20,7 +21,9 @@
           {
             "patterns": ["node:*", "bun", "@/server/**", "**/server/**"]
           }
-        ]
+        ],
+        "react/rules-of-hooks": "error",
+        "react/exhaustive-deps": "error"
       }
     },
     {
@@ -45,5 +48,6 @@
         ]
       }
     }
-  ]
+  ],
+  "plugins": ["unicorn", "typescript", "oxc", "react"]
 }

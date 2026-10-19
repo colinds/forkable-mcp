@@ -1,3 +1,4 @@
+import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { App } from "@modelcontextprotocol/ext-apps";
 import "@openai/mcp-extensions/app/styles.css";
@@ -41,29 +42,31 @@ function renderView() {
   if (!connected || !initial) return;
   renderedDisplayMode = app.getHostContext()?.displayMode;
   root.render(
-    <MealBrowser
-      key={revision}
-      call={call}
-      initial={initial}
-      displayMode={app.getHostContext()?.displayMode}
-      expand={
-        app.getHostContext()?.availableDisplayModes?.includes("fullscreen")
-          ? async () => {
-              const result = await app.requestDisplayMode({ mode: "fullscreen" });
-              if (result.mode !== "fullscreen")
-                throw new Error("Full view is unavailable in this host.");
-            }
-          : undefined
-      }
-      updateContext={
-        app.getHostCapabilities()?.updateModelContext?.text ||
-        app.getHostCapabilities()?.updateModelContext?.structuredContent ||
-        app.getHostCapabilities()?.experimental?.["openai/modelContext"]
-          ? updateContext
-          : undefined
-      }
-      openLink={app.getHostCapabilities()?.openLinks ? (url) => app.openLink({ url }) : undefined}
-    />,
+    <StrictMode>
+      <MealBrowser
+        key={revision}
+        call={call}
+        initial={initial}
+        displayMode={app.getHostContext()?.displayMode}
+        expand={
+          app.getHostContext()?.availableDisplayModes?.includes("fullscreen")
+            ? async () => {
+                const result = await app.requestDisplayMode({ mode: "fullscreen" });
+                if (result.mode !== "fullscreen")
+                  throw new Error("Full view is unavailable in this host.");
+              }
+            : undefined
+        }
+        updateContext={
+          app.getHostCapabilities()?.updateModelContext?.text ||
+          app.getHostCapabilities()?.updateModelContext?.structuredContent ||
+          app.getHostCapabilities()?.experimental?.["openai/modelContext"]
+            ? updateContext
+            : undefined
+        }
+        openLink={app.getHostCapabilities()?.openLinks ? (url) => app.openLink({ url }) : undefined}
+      />
+    </StrictMode>,
   );
 }
 app.addEventListener("hostcontextchanged", () => {

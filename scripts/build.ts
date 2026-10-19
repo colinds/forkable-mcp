@@ -3,12 +3,14 @@ import { mkdir, copyFile } from "node:fs/promises";
 await mkdir("dist", { recursive: true });
 await copyFile("node_modules/@openai/mcp-extensions/LICENSE", "dist/mcp-extensions-LICENSE");
 
+const development = process.env.NODE_ENV === "development";
+
 const app = await Bun.build({
   entrypoints: ["src/app/index.html"],
   compile: true,
   target: "browser",
-  minify: true,
-  define: { "process.env.NODE_ENV": JSON.stringify("production") },
+  minify: !development,
+  define: { "process.env.NODE_ENV": JSON.stringify(development ? "development" : "production") },
 });
 
 if (!app.success) throw new AggregateError(app.logs, "Meal browser build failed");

@@ -36,6 +36,25 @@ export function data<T>(result: ToolResult, schema: z.ZodType<T>): T {
   return parsed.data;
 }
 
+export function modifierMinimum(modifier: Detail["modifiers"][number]) {
+  return Math.max(modifier.required ? 1 : 0, modifier.min ?? 0);
+}
+
+export function selectedMealTotal(
+  detail: Detail,
+  choices: Record<string, number[]>,
+): number | null {
+  if (detail.price == null || !Number.isFinite(detail.price)) return null;
+  let total = detail.price;
+  for (const modifier of detail.modifiers) {
+    const selected = choices[modifier.id] ?? [];
+    for (const option of modifier.options) {
+      if (selected.includes(option.id)) total += option.price;
+    }
+  }
+  return Number.isFinite(total) ? Math.round(total * 100) / 100 : null;
+}
+
 export function selectionArgs(
   delivery: Delivery,
   detail: Detail,
@@ -46,7 +65,7 @@ export function selectionArgs(
   if (delivery.meals.length && !target) throw new Error("Choose the meal to replace.");
   for (const mod of detail.modifiers) {
     const count = choices[mod.id]?.length ?? 0;
-    const min = Math.max(mod.required ? 1 : 0, mod.min ?? 0);
+    const min = modifierMinimum(mod);
     if (count < min || (mod.max != null && count > mod.max))
       throw new Error(
         `Choose ${min}${mod.max == null ? " or more" : `–${mod.max}`} options for ${mod.name}.`,

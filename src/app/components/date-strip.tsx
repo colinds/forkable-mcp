@@ -22,6 +22,7 @@ export function DateStrip({
     return counts;
   }, [deliveries]);
   useEffect(() => {
+    if (selectedId == null) return;
     strip.current
       ?.querySelector('[aria-pressed="true"]')
       ?.scrollIntoView({ block: "nearest", inline: "nearest" });
