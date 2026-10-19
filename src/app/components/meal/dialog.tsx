@@ -25,7 +25,11 @@ export function MealDialog({
       dialog.close();
       document.documentElement.style.overflow = overflow;
       requestAnimationFrame(() => {
-        if (returnFocus?.isConnected) returnFocus.focus({ preventScroll: true });
+        if (dialog.open) return;
+        const target = returnFocus?.isConnected
+          ? returnFocus
+          : document.querySelector<HTMLElement>("[data-dialog-return-focus]");
+        target?.focus({ preventScroll: true });
       });
     };
   }, [returnFocus]);

@@ -105,7 +105,8 @@ export function createContextUpdater(
       content: restored.content ?? [],
       structuredContent: restored.structuredContent,
     };
-    if (!previous || JSON.stringify(previous) !== snapshot) await app.updateModelContext(payload);
+    if (lastSent !== undefined || !previous || JSON.stringify(previous) !== snapshot)
+      await app.updateModelContext(payload);
     lastSent = snapshot;
   };
 }

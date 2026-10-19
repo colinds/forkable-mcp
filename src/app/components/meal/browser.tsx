@@ -1,9 +1,11 @@
+import { RefreshCw } from "lucide-react";
+import { IconButton } from "../icon-button.tsx";
 import { dateLabels } from "../../lib/delivery-labels.ts";
 import { searchResultsSchema } from "@/shared/contracts/meals.ts";
 import type { McpUiDisplayMode } from "@modelcontextprotocol/ext-apps";
 import { defaultFilters, menuView } from "../../lib/menu-filters.ts";
 import { isPastDelivery, type InitialView } from "../../lib/initial-view.ts";
-import { useRef, useState, useMemo } from "react";
+import { useState, useMemo } from "react";
 import { Button } from "../button.tsx";
 import { DateStrip } from "../date-strip.tsx";
 import { MealFilters } from "./filters.tsx";
@@ -51,24 +53,27 @@ export function MealBrowser({
   const contextFailed = useModelContext(
     state,
     view,
-    updateContext,
-    state.deliveriesLoaded && !state.busy,
+    state.deliveriesLoaded && !state.busy ? updateContext : undefined,
   );
   const { delivery, detail, busy, notice, problem } = state;
-  const opener = useRef<HTMLElement | null>(null);
+  const [opener, setOpener] = useState<HTMLElement | null>(null);
   const date = delivery ? dateLabels(delivery.date) : undefined;
+  function openFullView() {
+    setDisplayError(undefined);
+    if (expand)
+      void expand().catch(() => setDisplayError("Full view is unavailable in this host."));
+  }
   function browseAll() {
     browser.setQuery("");
     browser.setFilters(defaultFilters);
     setShowBrowser(true);
-    if (expand)
-      void expand().catch(() => setDisplayError("Full view is unavailable in this host."));
+    openFullView();
   }
   let emptyMessage = "Unable to load deliveries. Refresh to try again.";
   if (state.deliveriesLoaded) emptyMessage = "No upcoming deliveries.";
   if (busy) emptyMessage = "Loading deliveries…";
   function choose(menuId: number, itemId: number, sourcePieceId?: string | number) {
-    opener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    setOpener(document.activeElement instanceof HTMLElement ? document.activeElement : null);
     browser.choose(menuId, itemId, sourcePieceId);
   }
   return (
@@ -76,7 +81,9 @@ export function MealBrowser({
       {compactSearch ? (
         <div className="compact-search-header">
           <div>
-            <h2>Search meals</h2>
+            <h2 tabIndex={-1} data-dialog-return-focus>
+              Search meals
+            </h2>
             {delivery && date && (
               <p className="muted">
                 <time dateTime={delivery.date}>
@@ -87,9 +94,12 @@ export function MealBrowser({
             )}
           </div>
           <div className="app-toolbar">
-            <Button disabled={busy} onClick={browser.refreshSearch}>
-              Refresh
-            </Button>
+            <IconButton
+              icon={RefreshCw}
+              label="Refresh"
+              disabled={busy}
+              onClick={browser.refreshSearch}
+            />
             <Button disabled={busy} onClick={browseAll}>
               Browse all meals
             </Button>
@@ -98,22 +108,20 @@ export function MealBrowser({
       ) : (
         <div className="delivery-toolbar">
           <div className="delivery-heading">
-            <h2>Deliveries</h2>
-            <Button disabled={busy} onClick={browser.refresh}>
-              {busy ? "Loading…" : "Refresh"}
-            </Button>
+            <h2 tabIndex={-1} data-dialog-return-focus>
+              Deliveries
+            </h2>
+            <IconButton
+              icon={RefreshCw}
+              label="Refresh"
+              disabled={busy}
+              onClick={browser.refresh}
+            />
           </div>
           <div className="app-toolbar" role="group" aria-label="Meal browser actions">
             {expand && (
               <div className="expand-control">
-                <Button
-                  disabled={busy}
-                  onClick={() => {
-                    void expand().catch(() =>
-                      setDisplayError("Full view is unavailable in this host."),
-                    );
-                  }}
-                >
+                <Button disabled={busy} onClick={openFullView}>
                   Open full view
                 </Button>
               </div>
@@ -206,8 +214,8 @@ export function MealBrowser({
         </>
       )}
       {detail && delivery && (
-        <MealDialog busy={busy} onClose={browser.back} returnFocus={opener.current}>
-          <MealDetail browser={browser} delivery={delivery} detail={detail} onBack={browser.back} />
+        <MealDialog busy={busy} onClose={browser.back} returnFocus={opener}>
+          <MealDetail browser={browser} />
         </MealDialog>
       )}
     </div>

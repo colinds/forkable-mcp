@@ -1,6 +1,6 @@
 import { initialRange } from "@/app/lib/initial-view.ts";
 import { openBrowserInputSchema } from "@/shared/contracts/browser.ts";
-import { browserContext } from "@/app/lib/model-context.ts";
+import { browserContext, createContextUpdater } from "@/app/lib/model-context.ts";
 import {
   defaultFilters,
   visibleMeals,
@@ -12,7 +12,13 @@ import { describe, expect, test } from "bun:test";
 import { Client } from "@modelcontextprotocol/client";
 import { McpServer, InMemoryTransport } from "@modelcontextprotocol/server";
 import { registerMealBrowser, APP_URI } from "@/server/ui-server.ts";
-import { Confirmation, data, selectionArgs, type CallTool } from "@/app/lib/tools.ts";
+import {
+  Confirmation,
+  data,
+  selectionArgs,
+  selectedMealTotal,
+  type CallTool,
+} from "@/app/lib/tools.ts";
 import { imageUrl } from "@/shared/images.ts";
 import { menusSchema, type Delivery, type Detail } from "@/shared/contracts/meals.ts";
 
@@ -341,4 +347,47 @@ test("chat context uses the same ordered menu view and caps its meal projection"
     })),
   );
   expect(view.restaurants.map((group) => group.name)).toEqual(menus.map((menu) => menu.name));
+});
+
+test("restored context does not suppress returning to an earlier view", async () => {
+  const sent: unknown[] = [];
+  const a = { content: [], structuredContent: { search: "curry" } };
+  const b = { content: [], structuredContent: { search: "tofu" } };
+  const update = createContextUpdater({
+    getHostCapabilities: () => ({ updateModelContext: { structuredContent: {} } }),
+    getHostContext: () => ({ "openai/modelContext": a }),
+    updateModelContext: async (value) => {
+      sent.push(value);
+      return {};
+    },
+  });
+  await update(a);
+  await update(b);
+  await update(a);
+  await update(a);
+  expect(sent).toEqual([b, a]);
+});
+
+test("selected meal total includes chosen options and preserves an unknown base price", () => {
+  const meal: Detail = {
+    ...detail,
+    price: 15,
+    modifiers: [
+      {
+        id: 3,
+        name: "Sides",
+        required: false,
+        min: 0,
+        max: 2,
+        options: [
+          { id: 4, name: "Kimchi", price: 1 },
+          { id: 5, name: "Rice", price: 0.5 },
+        ],
+      },
+    ],
+  };
+  expect(selectedMealTotal(meal, {})).toBe(15);
+  expect(selectedMealTotal(meal, { 3: [4, 5] })).toBe(16.5);
+  expect(selectedMealTotal(meal, { 3: [5] })).toBe(15.5);
+  expect(selectedMealTotal({ ...meal, price: null }, { 3: [4] })).toBeNull();
 });

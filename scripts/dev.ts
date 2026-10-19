@@ -16,7 +16,11 @@ async function rebuild() {
       if (stopping) break;
 
       queued = false;
-      build = Bun.spawn(["bun", "scripts/build.ts"], { stdout: "ignore", stderr: "inherit" });
+      build = Bun.spawn(["bun", "scripts/build.ts"], {
+        env: { ...process.env, NODE_ENV: "development" },
+        stdout: "ignore",
+        stderr: "inherit",
+      });
       // eslint-disable-next-line no-await-in-loop -- Rebuilds write the same output and must be serialized.
       const exitCode = await build.exited;
       if (exitCode && !stopping) console.error("Build failed; fix the error to rebuild the UI.");

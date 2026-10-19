@@ -13,7 +13,7 @@ test.beforeEach(async ({ page }) => {
     }),
   );
 });
-test("photos, theme, search, options, exact target and explicit confirmation", async ({
+test("photos, theme, search, options, exact target and one-click submission", async ({
   page,
 }, testInfo) => {
   await page.goto("/");
@@ -33,19 +33,19 @@ test("photos, theme, search, options, exact target and explicit confirmation", a
   await ui.getByLabel("Find a meal").fill("");
   await ui.getByRole("button", { name: /View Spicy tofu/ }).click();
   await ui.getByLabel("Meal to replace").selectOption("b");
-  await ui.getByRole("button", { name: "Review change" }).click();
+  await ui.getByRole("button", { name: "Replace meal" }).click();
   await expect(ui.getByRole("alert")).toContainText("Side");
   await ui.getByLabel("Kimchi").focus();
   await page.keyboard.press("Space");
   await expect(ui.getByLabel("Kimchi")).toBeFocused();
-  await ui.getByRole("button", { name: "Review change" }).click();
-  await expect(ui.getByText("Nothing has been sent yet.")).toBeVisible();
+  await ui.getByRole("button", { name: "Replace meal" }).click();
+  await expect(ui.getByText("Change sent. Delivery refreshed.")).toBeVisible();
   const calls = await page.evaluate(() =>
     (
       window as unknown as { calls: { name: string; arguments: Record<string, unknown> }[] }
     ).calls.filter((c) => c.name === "set_meal"),
   );
-  expect(calls).toHaveLength(1);
+  expect(calls).toHaveLength(2);
   expect(calls[0]!.arguments).toMatchObject({
     menuId: 10,
     itemId: 7,
@@ -53,22 +53,21 @@ test("photos, theme, search, options, exact target and explicit confirmation", a
     modifiers: [{ modifier: 3, options: [4] }],
   });
   expect(calls[0]!.arguments).not.toHaveProperty("confirmToken");
-  await ui.getByRole("button", { name: "Confirm change", exact: true }).click();
+  expect(calls[1]!.arguments).toEqual({ ...calls[0]!.arguments, confirmToken: "fixture-token" });
   await expect(ui.getByRole("status")).toContainText("Delivery refreshed");
 });
-for (const scenario of ["unknown", "rejected", "expired"])
+for (const scenario of ["unknown", "rejected", "expired", "blocked"])
   test(`${scenario} never automatically retries`, async ({ page }) => {
     await page.goto(`/?${scenario}`);
     const ui = page.frameLocator("iframe");
     await ui.getByRole("button", { name: /View Spicy tofu/ }).click();
     await ui.getByLabel("Meal to replace").selectOption("a");
     await ui.getByLabel("Kimchi").check();
-    await ui.getByRole("button", { name: "Review change" }).click();
-    await ui.getByRole("button", { name: "Confirm change", exact: true }).click();
+    await ui.getByRole("button", { name: "Replace meal" }).click();
     await expect(ui.getByRole("alert")).toBeVisible();
     await expect(ui.getByRole("button", { name: "Confirm change", exact: true })).toHaveCount(0);
     if (scenario === "unknown")
-      await expect(ui.getByRole("button", { name: "Review change" })).toBeDisabled();
+      await expect(ui.getByRole("button", { name: "Replace meal" })).toBeDisabled();
     expect(
       await page.evaluate(
         () =>
@@ -76,7 +75,7 @@ for (const scenario of ["unknown", "rejected", "expired"])
             (c) => c.name === "set_meal",
           ).length,
       ),
-    ).toBe(scenario === "expired" ? 1 : 2);
+    ).toBe(scenario === "expired" || scenario === "blocked" ? 1 : 2);
   });
 test("narrow layout, missing photos, empty and auth error states", async ({ page }) => {
   await page.setViewportSize({ width: 360, height: 800 });
@@ -92,20 +91,15 @@ test("narrow layout, missing photos, empty and auth error states", async ({ page
   await expect(ui.getByRole("alert")).toContainText("session expired");
 });
 
-test("changing the replacement target clears its confirmation and preserves menu identity", async ({
-  page,
-}) => {
+test("submission uses the latest replacement target and exact menu identity", async ({ page }) => {
   await page.goto("/");
   const ui = page.frameLocator("iframe");
   await ui.getByRole("button", { name: /View Another bowl/ }).click();
   await ui.getByLabel("Meal to replace").selectOption("a");
   await ui.getByLabel("Kimchi").check();
-  await ui.getByRole("button", { name: "Review change" }).click();
-  await expect(ui.getByRole("button", { name: "Confirm change", exact: true })).toBeVisible();
   await ui.getByLabel("Meal to replace").selectOption("b");
-  await expect(ui.getByRole("button", { name: "Confirm change", exact: true })).toHaveCount(0);
-  await ui.getByRole("button", { name: "Review change" }).click();
-  await expect(ui.getByRole("button", { name: "Confirm change", exact: true })).toBeVisible();
+  await ui.getByRole("button", { name: "Replace meal" }).click();
+  await expect(ui.getByText("Change sent. Delivery refreshed.")).toBeVisible();
   const calls = await page.evaluate(() =>
     (
       window as unknown as { calls: { name: string; arguments: Record<string, unknown> }[] }
@@ -114,7 +108,7 @@ test("changing the replacement target clears its confirmation and preserves menu
   expect(
     calls.map((c) => [c.arguments.menuId, c.arguments.itemId, c.arguments.sourcePieceId]),
   ).toEqual([
-    [20, 7, "a"],
+    [20, 7, "b"],
     [20, 7, "b"],
   ]);
 });
@@ -153,7 +147,7 @@ test("dates scroll horizontally, keep same-day services distinct, and support ke
   await expect(ui.getByRole("button", { name: "Refresh", exact: true })).toBeEnabled();
   await page.screenshot({ path: testInfo.outputPath("narrow-dates.png") });
 });
-test("meal modal keeps the grid and search, contains focus, and clears previews on dismissal", async ({
+test("meal modal keeps the grid and search, contains focus, and dismisses without saving", async ({
   page,
 }, testInfo) => {
   await page.goto("/");
@@ -166,8 +160,6 @@ test("meal modal keeps the grid and search, contains focus, and clears previews 
   await expect(ui.locator(".meal-results")).toBeVisible();
   await dialog.getByLabel("Meal to replace").selectOption("b");
   await dialog.getByLabel("Kimchi").check();
-  await dialog.getByRole("button", { name: "Review change" }).click();
-  await expect(dialog.getByRole("button", { name: "Confirm change", exact: true })).toBeVisible();
   // Keyboard steps must be sequential to verify focus after each actual Tab press.
   /* eslint-disable no-await-in-loop */
   for (let i = 0; i < 8; i++) {
@@ -247,8 +239,6 @@ test("chat receives delivery, search and modal context without confirmation toke
   await expect.poll(current).toMatchObject({ focusedMeal: { menuId: 10, itemId: 7 } });
   await ui.getByLabel("Meal to replace").selectOption("b");
   await ui.getByLabel("Kimchi").check();
-  await ui.getByRole("button", { name: "Review change" }).click();
-  await expect(ui.getByRole("button", { name: "Confirm change", exact: true })).toBeVisible();
   expect(JSON.stringify(await current())).not.toContain("fixture-token");
   await page.keyboard.press("Escape");
   await expect.poll(current).toMatchObject({ focusedMeal: null, search: "mango" });
@@ -372,7 +362,8 @@ test("historical status launches and refreshes its original range without upcomi
       window as unknown as { calls: { name: string; arguments: Record<string, unknown> }[] }
     ).calls.filter((call) => call.name === "list_deliveries"),
   );
-  expect(reads).toHaveLength(2);
+  // Development Strict Mode replays the initial read; refresh adds one more.
+  expect(reads).toHaveLength(3);
   expect(
     await page.evaluate(() =>
       (window as unknown as { calls: { name: string }[] }).calls.some(
@@ -455,18 +446,14 @@ test("a native dialog close during confirmation cannot hide an uncertain outcome
   await expect(dialog).toContainText("2026-10-05 · Lunch · Office");
   await ui.getByLabel("Meal to replace").selectOption("b");
   await ui.getByLabel("Kimchi").check();
-  await ui.getByRole("button", { name: "Review change" }).click();
-  await expect(dialog.getByRole("region", { name: "Confirm meal change" })).toContainText(
-    "2026-10-05 · Lunch · Office",
-  );
-  await ui.getByRole("button", { name: "Confirm change", exact: true }).click();
+  await ui.getByRole("button", { name: "Replace meal" }).click();
   await page.keyboard.press("Escape");
   await page.keyboard.press("Escape");
   // Exercise native/host close recovery even on browsers where repeated Escape is cancelable.
   await dialog.evaluate((node) => (node as HTMLDialogElement).close());
   await expect(dialog).toBeVisible();
   await expect(dialog.getByRole("alert")).toContainText("Outcome unknown");
-  await expect(dialog.getByRole("button", { name: "Review change" })).toBeDisabled();
+  await expect(dialog.getByRole("button", { name: "Replace meal" })).toBeDisabled();
 });
 test("text-only context hosts receive no unsupported structured payload", async ({ page }) => {
   await page.goto("/?context&text-context");
@@ -567,8 +554,6 @@ for (const width of [375, 1000]) {
     await expect(ui.getByRole("dialog")).toBeVisible();
     await ui.getByLabel("Meal to replace").selectOption("b");
     await ui.getByLabel("Kimchi").check();
-    await ui.getByRole("button", { name: "Review change" }).click();
-    await expect(ui.getByText("Nothing has been sent yet.")).toBeVisible();
     await page.keyboard.press("Escape");
     await ui.getByRole("button", { name: "Browse all meals" }).click();
     await expect(ui.locator("html")).toHaveAttribute("data-display-mode", "fullscreen");
@@ -632,9 +617,9 @@ test("compact search stays focused after confirming a meal", async ({ page }) =>
   await ui.getByRole("button", { name: /View Another bowl/ }).click();
   await ui.getByLabel("Meal to replace").selectOption("b");
   await ui.getByLabel("Kimchi").check();
-  await ui.getByRole("button", { name: "Review change" }).click();
-  await ui.getByRole("button", { name: "Confirm change" }).click();
+  await ui.getByRole("button", { name: "Replace meal" }).click();
   await expect(ui.getByText("Change sent. Delivery refreshed.")).toBeVisible();
+  await expect(ui.getByRole("heading", { name: "Search meals" })).toBeFocused();
   await expect(ui.getByLabel("Find a meal")).toHaveValue("tofu");
   await expect(ui.getByRole("region", { name: "Available meals" }).getByRole("button")).toHaveCount(
     1,
@@ -750,3 +735,68 @@ test("restored legacy text attachments are replaced with background state", asyn
     )
     .toEqual([]);
 });
+
+for (const width of [375, 1000]) {
+  test(`meal modal adapts its photo and details at width ${width}`, async ({ page }, testInfo) => {
+    await page.setViewportSize({ width, height: 850 });
+    await page.goto("/");
+    const ui = page.frameLocator("iframe");
+    await ui.getByRole("button", { name: /View Spicy tofu/ }).click();
+    const dialog = ui.getByRole("dialog", { name: "Spicy tofu bowl" });
+    const photo = await dialog.locator(".photo").boundingBox();
+    const summary = await dialog.locator(".detail-summary").boundingBox();
+    const content = await dialog.locator(".detail-content").boundingBox();
+    expect(photo).not.toBeNull();
+    expect(content).not.toBeNull();
+    if (width >= 720) expect(content!.x).toBeGreaterThanOrEqual(photo!.x + photo!.width);
+    else expect(content!.y).toBeGreaterThanOrEqual(summary!.y + summary!.height);
+    const description = await dialog
+      .getByText("Chili tofu, warm rice, and crisp vegetables.")
+      .boundingBox();
+    expect(description!.y).toBeGreaterThanOrEqual(photo!.y + photo!.height);
+    await expect(
+      dialog.getByRole("button", { name: "Replace meal · $15.00", exact: true }),
+    ).toBeVisible();
+    await dialog.getByLabel("Kimchi").check();
+    await expect(
+      dialog.getByRole("button", { name: "Replace meal · $16.00", exact: true }),
+    ).toBeVisible();
+    await dialog.getByLabel("Kimchi").uncheck();
+    await expect(
+      dialog.getByRole("button", { name: "Replace meal · $15.00", exact: true }),
+    ).toBeVisible();
+    expect(await dialog.evaluate((node) => node.scrollWidth <= node.clientWidth)).toBe(true);
+    await expect(dialog.getByRole("button", { name: "Replace meal" })).toBeVisible();
+    await page.screenshot({ path: testInfo.outputPath(`meal-modal-${width}.png`) });
+  });
+}
+
+for (const scenario of ["replace", "add", "narrow"]) {
+  test(`meal modal screenshot for ${scenario}`, async ({ page }, testInfo) => {
+    await page.setViewportSize({ width: scenario === "narrow" ? 390 : 1080, height: 900 });
+    await page.route("https://cdn.filestackcontent.com/**", (route) => route.abort());
+    await page.goto(scenario === "add" ? "/?no-meals" : "/");
+    await page.getByRole("button", { name: "Dark theme" }).click();
+    const ui = page.frameLocator("iframe");
+    await ui.getByRole("button", { name: /View Spicy tofu/ }).click();
+    const dialog = ui.getByRole("dialog", { name: "Spicy tofu bowl" });
+    if (scenario !== "add") await dialog.getByLabel("Meal to replace").selectOption("b");
+    else await expect(dialog.getByLabel("Meal to replace")).toHaveCount(0);
+    await dialog.getByLabel("Kimchi").check();
+    const label = scenario === "add" ? "Add meal · $16.00" : "Replace meal · $16.00";
+    await expect(dialog.getByRole("button", { name: label, exact: true })).toBeVisible();
+    await expect(dialog.getByText("Photo unavailable", { exact: true })).toBeVisible();
+    await dialog.screenshot({ path: testInfo.outputPath(`modal-${scenario}.png`) });
+    if (scenario === "add") {
+      await dialog.getByRole("button", { name: label, exact: true }).click();
+      await expect(ui.getByText("Change sent. Delivery refreshed.")).toBeVisible();
+      const writes = await page.evaluate(() =>
+        (
+          window as unknown as { calls: { name: string; arguments: Record<string, unknown> }[] }
+        ).calls.filter((call) => call.name === "set_meal"),
+      );
+      expect(writes).toHaveLength(2);
+      expect(writes[0]!.arguments).not.toHaveProperty("sourcePieceId");
+    }
+  });
+}

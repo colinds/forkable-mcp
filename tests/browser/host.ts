@@ -57,14 +57,17 @@ const bridge = new AppBridge(
     },
   },
 );
+let displayMode = "inline";
 Object.assign(window, {
-  changeDisplayMode: (displayMode: "inline" | "fullscreen") =>
-    bridge.setHostContext({ displayMode }),
+  changeDisplayMode: (mode: "inline" | "fullscreen") => {
+    displayMode = mode;
+    bridge.setHostContext({ displayMode: mode });
+  },
 });
 const sizes: number[] = [];
 Object.assign(window, { sizes });
 bridge.addEventListener("sizechange", ({ height }) => {
-  if (height == null) return;
+  if (height == null || displayMode === "fullscreen") return;
   sizes.push(height);
   if (params.has("auto-size") && !params.has("clamp-size")) frame.style.height = `${height}px`;
   if (params.has("clamp-size"))
@@ -88,7 +91,7 @@ const respond = async (
   const refreshFailure = params.get("refresh-failure");
   const count = calls.filter((call) => call.name === args.name).length;
   if (
-    (refreshFailure === "list" && args.name === "list_deliveries" && count === 2) ||
+    (refreshFailure === "list" && args.name === "list_deliveries" && count === 3) ||
     (refreshFailure === "search" && args.name === "search_items" && count === 1)
   ) {
     return { isError: true, content: [{ type: "text", text: "Temporary search refresh failure" }] };
@@ -134,6 +137,9 @@ const respond = async (
             },
           ],
     };
+  if (args.name === "list_deliveries" && params.has("no-meals") && !changed) {
+    for (const delivery of result.deliveries as { meals: unknown[] }[]) delivery.meals = [];
+  }
   if (args.name === "list_deliveries" && params.has("dates")) {
     const first = (result.deliveries as Record<string, unknown>[])[0]!;
     result.deliveries = ["05", "06", "07", "08", "09", "12", "13", "13"].map((day, index) =>
@@ -301,6 +307,12 @@ const respond = async (
       ],
     };
   if (args.name === "set_meal") {
+    if (params.has("blocked"))
+      return {
+        isError: true,
+        content: [{ type: "text", text: "The selected meal is blocked." }],
+        structuredContent: { mode: "blocked" },
+      };
     if (args.arguments?.confirmToken) {
       if (params.has("slow-confirm")) await new Promise((resolve) => setTimeout(resolve, 800));
       if (params.has("unknown"))
@@ -330,6 +342,7 @@ const respond = async (
 };
 bridge.oncalltool = respond;
 bridge.onrequestdisplaymode = async ({ mode }) => {
+  displayMode = mode;
   bridge.setHostContext({ displayMode: mode, availableDisplayModes: ["inline", "fullscreen"] });
   return { mode };
 };
