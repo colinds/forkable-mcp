@@ -452,6 +452,10 @@ describe("editable meal drafts", () => {
     expect(text).toContain("None selected");
     expect(text).toContain("Price unavailable");
     expect(text).not.toContain("sourcePieceId");
+    expect(createMealReference({ delivery, detail }).modifiers).toEqual([]);
+    expect(createMealReference({ delivery, detail, choices: { 4: [] } }).modifiers).toEqual([
+      { modifier: 4, options: [] },
+    ]);
   });
 
   test("checks host support again at the time of the action", async () => {

@@ -57,6 +57,7 @@ test("photos, theme, search, options, exact target and one-click submission", as
   expect(calls[0]!.arguments).not.toHaveProperty("confirmToken");
   expect(calls[1]!.arguments).toEqual({ ...calls[0]!.arguments, confirmToken: "fixture-token" });
   await expect(ui.getByRole("status")).toContainText("Delivery refreshed");
+  await expect(ui.getByRole("status")).toContainText("Warning: Fixture preview");
 });
 for (const scenario of ["unknown", "rejected", "expired", "blocked"] as const)
   test(`${scenario} never automatically retries`, async ({ page }) => {
@@ -67,6 +68,8 @@ for (const scenario of ["unknown", "rejected", "expired", "blocked"] as const)
     await ui.getByLabel("Kimchi").check();
     await ui.getByRole("button", { name: "Replace meal" }).click();
     await expect(ui.getByRole("alert")).toBeVisible();
+    if (scenario !== "blocked")
+      await expect(ui.getByRole("alert")).toContainText("Warning: Fixture preview");
     await expect(ui.getByRole("button", { name: "Confirm change", exact: true })).toHaveCount(0);
     if (scenario === "unknown")
       await expect(ui.getByRole("button", { name: "Replace meal" })).toBeDisabled();
