@@ -96,13 +96,21 @@ export function registerPrepareMealTool(server: McpServer): void {
               { mode: "needs_input", item: detail, replacementTargets: replacements },
             );
           }
-          const answer = requestFormInput(context, {
-            key: "meal",
-            requestState,
-            mode: "form",
-            message: `Choose options for ${detail.name}. This prepares a selection; it does not place an order.`,
-            requestedSchema: form,
-          });
+          let answer: ReturnType<typeof requestFormInput>;
+          try {
+            answer = requestFormInput(context, {
+              key: "meal",
+              requestState,
+              mode: "form",
+              message: `Choose options for ${detail.name}. This prepares a selection; it does not place an order.`,
+              requestedSchema: form,
+            });
+          } catch (error) {
+            if (!(error instanceof z.ZodError)) throw error;
+            return errResult(
+              "The form answer is invalid. Prepare the meal again and choose from the available options. Nothing was ordered.",
+            );
+          }
           if ("resultType" in answer) return answer;
           if (answer.action !== "accept")
             return appResult(
@@ -125,7 +133,7 @@ export function registerPrepareMealTool(server: McpServer): void {
         });
         if (built.violations.length)
           return errResult(
-            "The selected options are no longer valid. Prepare the meal again. Nothing was ordered.",
+            "The selected options are invalid or no longer available. Prepare the meal again. Nothing was ordered.",
           );
         return appResult(
           prepareMealResultSchema,

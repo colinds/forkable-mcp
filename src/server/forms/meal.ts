@@ -39,7 +39,6 @@ export function mealForm(detail: Detail, replacements: ReplacementTarget[]): Ope
         items: { anyOf: options },
         minItems: min,
         ...(modifier.max != null ? { maxItems: modifier.max } : {}),
-        uniqueItems: true,
       };
     }
     if (min) required.push(key);

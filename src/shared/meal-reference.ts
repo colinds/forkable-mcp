@@ -66,10 +66,12 @@ export function createMealReference({
     description: detail.description ?? undefined,
     price: detail.price ?? undefined,
     totalPrice: selectedMealTotal(detail, choices),
-    modifiers: modifiers.map(({ modifier, options }) => ({
-      modifier,
-      options: options.map((option) => option.id),
-    })),
+    modifiers: modifiers
+      .filter(({ modifier }) => Object.hasOwn(choices, modifier))
+      .map(({ modifier, options }) => ({
+        modifier,
+        options: options.map((option) => option.id),
+      })),
     selectedOptions: modifiers
       .filter(({ options }) => options.length)
       .map(({ name, options }) => ({ name, options: options.map((option) => option.name) })),

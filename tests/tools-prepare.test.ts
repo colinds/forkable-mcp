@@ -224,6 +224,8 @@ describe("chat meal preparation", () => {
       const { client } = await modern(() => ({ action: "accept", content }));
       const result = await client.callTool({ name: "prepare_meal", arguments: args });
       expect(result.isError).toBe(true);
+      expect(JSON.stringify(result.content)).toContain("Nothing was ordered.");
+      expect(JSON.stringify(result.content)).not.toContain("invalid_value");
       expect(mutations).toHaveLength(0);
     });
   }

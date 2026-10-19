@@ -120,7 +120,7 @@ function detailSelection(detail: Detail, delivery: Delivery, sourcePieceId?: str
   return {
     detail,
     source: String(source),
-    choices: Object.fromEntries(detail.modifiers.map((modifier) => [modifier.id, []])),
+    choices: {},
   };
 }
 
@@ -399,9 +399,14 @@ export function useMealBrowser(
       });
       return;
     }
-    await confirm();
+    const preview = writeResult(result);
+    await confirm(
+      preview?.mode === "preview" ? (preview.warnings ?? []).map((warning) => warning.message) : [],
+    );
   }
-  async function confirm() {
+  async function confirm(warnings: string[]) {
+    const withWarnings = (message: string) =>
+      [message, ...warnings.map((warning) => `Warning: ${warning}`)].join("\n");
     let sent = false;
     try {
       const result = await confirmation.current.confirm((name, args) => {
@@ -414,29 +419,37 @@ export function useMealBrowser(
       if (outcome?.mode === "executed") {
         try {
           await refresh();
-          patch({ notice: "Change sent. Delivery refreshed.", problem: false });
+          patch({ notice: withWarnings("Change sent. Delivery refreshed."), problem: false });
         } catch {
           patch({
             ...emptySelection,
             menus: [],
             needsRefresh: true,
-            notice:
+            notice: withWarnings(
               "Change sent, but delivery refresh failed. Refresh to check its current state; do not submit again.",
+            ),
             problem: true,
           });
         }
       } else
         patch({
           needsRefresh: !outcome || outcome.mode === "outcome_unknown",
-          notice:
+          notice: withWarnings(
             resultText(result) || "The change was not confirmed. Refresh before trying again.",
+          ),
           problem: true,
         });
     } catch (error) {
       patch({ needsRefresh: sent || state.needsRefresh });
-      if (!sent) throw error;
+      if (!sent)
+        throw new Error(
+          withWarnings(error instanceof Error ? error.message : "Unable to save this meal."),
+          { cause: error },
+        );
       throw new Error(
-        "Confirmation could not be verified. Its outcome may be unknown. Refresh the delivery before trying again.",
+        withWarnings(
+          "Confirmation could not be verified. Its outcome may be unknown. Refresh the delivery before trying again.",
+        ),
         { cause: error },
       );
     }
