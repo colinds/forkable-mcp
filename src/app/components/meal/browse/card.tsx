@@ -1,4 +1,4 @@
-import { MealPhoto } from "../photo.tsx";
+import { MealPhoto } from "@/app/components/meal/photo.tsx";
 
 import { money } from "@/shared/currency.ts";
 

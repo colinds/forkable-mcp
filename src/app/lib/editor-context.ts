@@ -1,5 +1,5 @@
 import { createContext, useContext } from "react";
-import type { MealBrowserController } from "../hooks/use-meal-browser.ts";
+import type { MealBrowserController } from "@/app/hooks/use-meal-browser.ts";
 import type { MenuView } from "./menu-filters.ts";
 import type { BrowserView } from "@/shared/contracts/browser.ts";
 

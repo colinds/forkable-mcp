@@ -1,38 +1,46 @@
-import { useEditorContext } from "../../lib/editor-context.ts";
-import { useMealEditor } from "../../hooks/use-meal-editor.ts";
-import { useModelContext } from "../../hooks/use-model-context.ts";
-import { MealFrame } from "../../components/meal/editor/frame.tsx";
-import { MealDetail } from "../../components/meal/editor/detail.tsx";
-import { useMealApp } from "../../lib/app-context.ts";
-import { useSuspenseQuery } from "@tanstack/react-query";
-import { useParams } from "@tanstack/react-router";
-import { MEAL_PATH } from "../../lib/navigation.ts";
+import { Suspense, useState } from "react";
+import { MealDraftContext } from "@/app/lib/meal-draft-context.ts";
+import type { MealDraftValues } from "@/app/lib/editor-types.ts";
+import { useEditorContext } from "@/app/lib/editor-context.ts";
+import { MealFrame } from "@/app/components/meal/editor/frame.tsx";
+import { MealDetailLayout } from "@/app/components/meal/editor/layout.tsx";
+import { MealNavigation } from "@/app/components/meal/editor/navigation.tsx";
+import { MealSummary } from "@/app/components/meal/editor/summary.tsx";
+import { MealSummaryLoading } from "@/app/components/meal/editor/summary-loading.tsx";
+import { MealOptionsLoading } from "@/app/components/meal/editor/options-loading.tsx";
+import { MealEditorOptions } from "./options.tsx";
 
 export function MealEditorPage() {
-  const { browser, inline, backLabel, view, presentation } = useEditorContext();
-  const { queries, updateContext } = useMealApp();
-  const params = useParams({ from: MEAL_PATH });
-  const { data: meal } = useSuspenseQuery(queries.detail(params));
-  const editor = useMealEditor(browser, meal);
-  const { busy, pendingAction } = editor.state;
-  const contextFailed = useModelContext(
-    { ...editor.state, presentation },
-    inline ? { ...view, ordered: [] } : view,
-    browser.state.deliveriesLoaded && !busy ? updateContext : undefined,
-  );
-  const content = (
-    <>
-      {contextFailed && (
-        <p className="muted" role="status">
-          Chat context could not be updated. Try reopening the app.
-        </p>
-      )}
-      <MealDetail browser={editor} backLabel={inline ? backLabel : undefined} />
-    </>
-  );
+  const [draft, setDraft] = useState<MealDraftValues>();
+  const { browser, inline, backLabel } = useEditorContext();
+  const { selectedMeal, delivery, busy, pendingAction, needsRefresh } = browser.state;
+  const locked = (busy && pendingAction !== "loading") || needsRefresh;
   return (
-    <MealFrame locked={(busy && pendingAction !== "loading") || editor.state.needsRefresh}>
-      {content}
-    </MealFrame>
+    <MealDraftContext value={{ draft, setDraft }}>
+      <MealFrame locked={locked}>
+        <MealDetailLayout
+          inline={inline}
+          title={
+            selectedMeal?.name ?? <span className="skeleton skeleton-title" aria-hidden="true" />
+          }
+          navigation={
+            <MealNavigation
+              backLabel={inline ? backLabel : undefined}
+              disabled={busy && pendingAction !== "loading"}
+              onBack={browser.back}
+            />
+          }
+        >
+          {selectedMeal ? (
+            <MealSummary meal={selectedMeal} delivery={delivery} />
+          ) : (
+            <MealSummaryLoading />
+          )}
+          <Suspense fallback={<MealOptionsLoading />}>
+            <MealEditorOptions />
+          </Suspense>
+        </MealDetailLayout>
+      </MealFrame>
+    </MealDraftContext>
   );
 }

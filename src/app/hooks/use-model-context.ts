@@ -1,6 +1,6 @@
-import type { MenuView } from "../lib/menu-filters.ts";
+import type { MenuView } from "@/app/lib/menu-filters.ts";
 import { useEffect, useRef, useState } from "react";
-import { browserContext, type UpdateContext } from "../lib/model-context.ts";
+import { browserContext, type UpdateContext } from "@/app/lib/model-context.ts";
 
 export function useModelContext(
   view: Parameters<typeof browserContext>[0],

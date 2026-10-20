@@ -1,20 +1,20 @@
-import { BrowserToolbar } from "../components/browser-toolbar.tsx";
+import { BrowserToolbar } from "@/app/components/browser-toolbar.tsx";
 import { ArrowLeft } from "lucide-react";
-import { IconButton } from "../components/icon-button.tsx";
+import { IconButton } from "@/app/components/icon-button.tsx";
 import { Outlet } from "@tanstack/react-router";
-import { useMealApp } from "../lib/app-context.ts";
-import { MealEditorContext } from "../lib/editor-context.ts";
-import { activeFilterCount, menuView } from "../lib/menu-filters.ts";
-import { isPastDelivery } from "../lib/initial-view.ts";
+import { useMealApp } from "@/app/lib/app-context.ts";
+import { MealEditorContext } from "@/app/lib/editor-context.ts";
+import { activeFilterCount, menuView } from "@/app/lib/menu-filters.ts";
+import { isPastDelivery } from "@/app/lib/initial-view.ts";
 import { useState, useMemo } from "react";
-import { Button } from "../components/button.tsx";
-import { DateStrip } from "../components/date-strip.tsx";
-import { MealFilters } from "../components/meal/browse/filters.tsx";
-import { MealCards } from "../components/meal/browse/grid.tsx";
-import { DeliveryProgress } from "../components/delivery-progress.tsx";
-import { SelectedMeals } from "../components/meal/browse/selected.tsx";
-import { useModelContext } from "../hooks/use-model-context.ts";
-import { useMealBrowser } from "../hooks/use-meal-browser.ts";
+import { Button } from "@/app/components/button.tsx";
+import { DateStrip } from "@/app/components/date-strip.tsx";
+import { MealFilters } from "@/app/components/meal/browse/filters.tsx";
+import { MealCards } from "@/app/components/meal/browse/grid.tsx";
+import { DeliveryProgress } from "@/app/components/delivery-progress.tsx";
+import { SelectedMeals } from "@/app/components/meal/browse/selected.tsx";
+import { useModelContext } from "@/app/hooks/use-model-context.ts";
+import { useMealBrowser } from "@/app/hooks/use-meal-browser.ts";
 
 export function MealBrowserPage() {
   const { openLink, updateContext, expand, displayMode = "inline" } = useMealApp();

@@ -1,6 +1,6 @@
 import { Search, SlidersHorizontal, RotateCcw, X } from "lucide-react";
-import { IconButton } from "../../icon-button.tsx";
-import { Button } from "../../button.tsx";
+import { IconButton } from "@/app/components/icon-button.tsx";
+import { Button } from "@/app/components/button.tsx";
 import { useRef, useState, useMemo } from "react";
 import type { Menu } from "@/shared/contracts/meals.ts";
 import {
@@ -8,7 +8,7 @@ import {
   defaultFilters,
   restaurantMenus,
   type MenuFilters,
-} from "../../../lib/menu-filters.ts";
+} from "@/app/lib/menu-filters.ts";
 
 export function MealFilters({
   menus,

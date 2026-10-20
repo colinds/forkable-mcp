@@ -17,15 +17,15 @@ import {
   resultText,
   selectionArgs,
   type CallTool,
-} from "../lib/tools.ts";
-import { initialLaunch, isPastDelivery } from "../lib/initial-view.ts";
-import { defaultFilters, type MenuFilters } from "../lib/menu-filters.ts";
-import type { WriteDraft } from "../lib/chat-draft.ts";
-import { useMealApp } from "../lib/app-context.ts";
-import { MEAL_PATH } from "../lib/navigation.ts";
+} from "@/app/lib/tools.ts";
+import { initialLaunch, isPastDelivery } from "@/app/lib/initial-view.ts";
+import { defaultFilters, type MenuFilters } from "@/app/lib/menu-filters.ts";
+import type { WriteDraft } from "@/app/lib/chat-draft.ts";
+import { useMealApp } from "@/app/lib/app-context.ts";
+import { MEAL_PATH } from "@/app/lib/navigation.ts";
 import { useOnReturn } from "./use-on-return.ts";
 
-import type { MealDraftValues, MealPreview } from "../lib/editor-types.ts";
+import type { MealDraftValues, MealPreview } from "@/app/lib/editor-types.ts";
 
 type PendingAction = "loading" | "saving" | "drafting";
 interface BrowserState {

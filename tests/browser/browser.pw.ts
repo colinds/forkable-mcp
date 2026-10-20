@@ -890,7 +890,7 @@ test("meal page and fullscreen modal share entered options without refetching", 
 });
 
 for (const displayMode of ["inline", "fullscreen"] as const) {
-  test(`direct meal launch shows only a detail skeleton before loading in ${displayMode}`, async ({
+  test(`direct meal launch shows the summary with suspended options in ${displayMode}`, async ({
     page,
   }) => {
     await page.goto(
@@ -901,12 +901,13 @@ for (const displayMode of ["inline", "fullscreen"] as const) {
       }),
     );
     const ui = page.frameLocator("iframe");
-    const loading = ui.getByRole("status", { name: "Loading meal details", exact: true });
+    const loading = ui.getByRole("status", { name: "Loading meal options", exact: true });
     await expect(loading).toBeVisible();
-    await expect(loading).toHaveText("");
-    await expect(loading.locator(".photo.skeleton")).toBeVisible();
-    await expect(ui.locator(".browser-toolbar")).toHaveCount(0);
-    await expect(ui.getByRole("region", { name: "Available meals" })).toHaveCount(0);
+    await expect(ui.getByRole("heading", { name: "Spicy tofu bowl", level: 2 })).toBeVisible();
+    if (displayMode === "inline") {
+      await expect(ui.locator(".browser-toolbar")).toBeHidden();
+      await expect(ui.getByRole("region", { name: "Available meals" })).toBeHidden();
+    }
     await expect
       .poll(() =>
         page.evaluate(() =>
@@ -1804,13 +1805,14 @@ for (const displayMode of ["inline", "fullscreen"] as const) {
     );
     const ui = page.frameLocator("iframe");
     await ui.getByRole("button", { name: "View Spicy tofu bowl from Seoul Kitchen" }).click();
-    const loading = ui.getByRole("status", { name: "Loading meal details", exact: true });
+    const loading = ui.getByRole("region", { name: "Meal details", exact: true });
     await expect(loading).toBeVisible();
     await expect(loading.locator(".photo.skeleton")).toHaveCount(0);
     await expect(loading.getByRole("heading", { name: "Spicy tofu bowl" })).toBeVisible();
     await expect(loading.locator(".detail-summary img")).toBeVisible();
     await expect(loading.locator(".detail-summary .price")).toBeVisible();
     await expect(loading.locator(".option-skeleton")).toBeVisible();
+    const summary = await loading.locator(".detail-summary").elementHandle();
     await expect(
       ui.getByRole("button", {
         name: displayMode === "inline" ? "Back to meals" : "Close",
@@ -1833,6 +1835,7 @@ for (const displayMode of ["inline", "fullscreen"] as const) {
     );
     const dialog = ui.getByRole("region", { name: "Meal details" });
     await expect(dialog.getByLabel("Kimchi")).toBeVisible();
+    expect(await summary!.evaluate((element) => element.isConnected)).toBe(true);
     await expect(dialog.getByRole("status")).toHaveCount(0);
     expect(
       await page.evaluate(() =>
@@ -1874,7 +1877,7 @@ test("closing a loading meal ignores its late reply and does not replace a newer
       window as unknown as { releaseDetail: (index: number, failed?: boolean) => void }
     ).releaseDetail(0, true),
   );
-  await expect(second.getByRole("status")).toHaveAccessibleName("Loading meal details");
+  await expect(second.getByRole("status")).toHaveAccessibleName("Loading meal options");
   await expect(second.getByRole("alert")).toHaveCount(0);
   await page.evaluate(() =>
     (window as unknown as { releaseDetail: (index: number) => void }).releaseDetail(1),

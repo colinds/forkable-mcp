@@ -1,7 +1,7 @@
 import { activeFilterCount, defaultFilters } from "./menu-filters.ts";
-import { browserInputSchema, type BrowserView } from "../../shared/contracts/browser.ts";
+import { browserInputSchema, type BrowserView } from "@/shared/contracts/browser.ts";
 import type { z } from "zod";
-import { todayLocal } from "../../shared/dates.ts";
+import { todayLocal } from "@/shared/dates.ts";
 import { type ToolResult } from "./tools.ts";
 import {
   deliveriesSchema,

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useMemo } from "react";
 import type { Delivery } from "@/shared/contracts/meals.ts";
 
-import { dateLabels } from "../lib/delivery-labels.ts";
+import { dateLabels } from "@/app/lib/delivery-labels.ts";
 
 export function DateStrip({
   deliveries,
