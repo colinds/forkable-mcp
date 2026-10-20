@@ -27,14 +27,19 @@ export function DeliveryProgress({
   const [linkError, setLinkError] = useState(false);
   let statusLabel = fulfillmentLabel(status?.fulfillment ?? delivery.fulfillment);
   if (unavailable) statusLabel = "Delivery updates unavailable";
-  if (loading) statusLabel = "Loading delivery updates…";
   return (
     <section className="delivery-progress" aria-label="Delivery updates">
       <div className="delivery-summary">
         <span className="status-badge" data-status={delivery.status}>
           {delivery.status === "confirmed" ? "Confirmed" : "Meal selection"}
         </span>
-        <span>{statusLabel}</span>
+        {loading ? (
+          <span role="status" aria-label="Loading delivery updates">
+            <span className="skeleton skeleton-status" aria-hidden="true" />
+          </span>
+        ) : (
+          <span>{statusLabel}</span>
+        )}
       </div>
       <div className="delivery-meta">
         {!!status?.deliveryWindow?.length && (

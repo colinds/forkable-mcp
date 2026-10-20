@@ -8,7 +8,16 @@
   </head>
   <body>
     <main id="app">
-      <p role="status">Connecting to Forkable…</p>
+      <div
+        class="browser-loading"
+        role="status"
+        aria-label="Connecting to Forkable"
+        aria-busy="true"
+      >
+        <div class="skeleton skeleton-title" aria-hidden="true"></div>
+        <div class="skeleton skeleton-control" aria-hidden="true"></div>
+        <div class="skeleton skeleton-control" aria-hidden="true"></div>
+      </div>
     </main>
     <script type="module" src="./index.tsx"></script>
   </body>

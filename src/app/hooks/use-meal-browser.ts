@@ -38,6 +38,7 @@ interface BrowserState {
   deliveriesLoaded: boolean;
   delivery?: Delivery;
   menus: Menu[];
+  mealsLoading: boolean;
   recommendations: Recommendation[];
   detail?: Detail;
   selectedMeal?: MealPreview;
@@ -324,13 +325,17 @@ export function useMealBrowser(): MealBrowserController {
       deliveriesLoaded: true,
       delivery,
       menus,
+      mealsLoading:
+        menusQuery.isLoading ||
+        (serverSearch && searchQuery.isLoading) ||
+        ((navigation.filters ?? defaultFilters).recommendedOnly && recommendationsQuery.isLoading),
       recommendations: recommendationsQuery.data ?? noRecommendations,
       detail,
       selectedMeal,
       deliveryStatus: statusQuery.data,
       statusUnavailable: statusQuery.isError,
-      statusLoading: !!delivery && statusQuery.isPending,
-      recommendationsLoading: !!delivery && recommendationsQuery.isPending,
+      statusLoading: statusQuery.isLoading,
+      recommendationsLoading: recommendationsQuery.isLoading,
       recommendationsUnavailable: recommendationsQuery.isError,
       query: navigation.query ?? "",
       filters: navigation.filters ?? defaultFilters,

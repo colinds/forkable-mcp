@@ -2,26 +2,29 @@ import { type MenuView } from "../../../lib/menu-filters.ts";
 import { itemKey } from "../../../lib/tools.ts";
 import { type Menu } from "@/shared/contracts/meals.ts";
 import { MealCard } from "./card.tsx";
+import { MealCardsLoading } from "./loading.tsx";
 
 export function MealCards({
   menus,
   view,
   query,
   busy,
+  loading,
   choose,
 }: {
   menus: Menu[];
   view: MenuView;
   query: string;
   busy: boolean;
+  loading: boolean;
   choose: (menuId: number, itemId: number) => void;
 }) {
   const { items, restaurants, layout } = view;
+  if (loading && !items.length) return <MealCardsLoading />;
   let empty = menus.length
     ? "No meals match these filters. Try clearing your search and filters."
     : "No menus available for this delivery.";
   if (query.trim()) empty = "No meals match your search.";
-  if (busy) empty = "Loading meals…";
   function cards(results: typeof items) {
     return (
       <div className="meals">
