@@ -201,6 +201,22 @@ button:disabled {
   width: 65%;
   height: 28px;
 }
+.browser-loading {
+  display: grid;
+  gap: 20px;
+  margin-bottom: 20px;
+}
+.skeleton-status {
+  display: inline-block;
+  width: 180px;
+  height: 16px;
+  vertical-align: middle;
+}
+.skeleton-checkbox {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+}
 @keyframes options-pulse {
   50% {
     opacity: 0.45;

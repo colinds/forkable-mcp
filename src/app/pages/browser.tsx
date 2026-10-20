@@ -68,7 +68,6 @@ export function MealBrowserPage() {
   else if (activeFilterCount(state.filters)) title = "Filtered meals";
   let emptyMessage = "Unable to load deliveries. Refresh to try again.";
   if (state.deliveriesLoaded) emptyMessage = "No upcoming deliveries.";
-  if (busy) emptyMessage = "Loading deliveries…";
   function choose(menuId: number, itemId: number, sourcePieceId?: string | number) {
     setOpener(document.activeElement instanceof HTMLElement ? document.activeElement : undefined);
     browser.choose(menuId, itemId, sourcePieceId);
@@ -169,11 +168,6 @@ export function MealBrowserPage() {
                     onChange={browser.setFilters}
                     onClear={() => browser.setQuery("")}
                   />
-                  {(!compact || state.filters.recommendedOnly) && state.recommendationsLoading && (
-                    <p className="muted" role="status">
-                      Loading recommendations…
-                    </p>
-                  )}
                   {(!compact || state.filters.recommendedOnly) &&
                     state.recommendationsUnavailable && (
                       <p className="muted" role="status">
@@ -187,6 +181,7 @@ export function MealBrowserPage() {
                     view={view}
                     query={state.query}
                     busy={busy || (state.filters.recommendedOnly && state.recommendationsLoading)}
+                    loading={state.mealsLoading}
                     choose={choose}
                   />
                 </section>

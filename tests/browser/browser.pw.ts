@@ -38,6 +38,37 @@ test("returning to the app refreshes delivery data without reloading menus", asy
   expect(calls.filter((call) => call.name === "set_meal")).toHaveLength(0);
 });
 
+test("initial delivery loading uses skeletons instead of text", async ({ page }) => {
+  await page.goto(fixtureUrl({ menuRead: { deliveryId: 1, response: "held" } }));
+  const ui = page.frameLocator("iframe");
+  const loading = ui.getByRole("status", { name: "Loading deliveries", exact: true });
+  await expect(loading).toBeVisible();
+  await expect(loading.locator(".skeleton").first()).toBeVisible();
+  await expect(ui.getByText(/Loading (deliveries|meals)\u2026/)).toHaveCount(0);
+  await page.evaluate(() => (window as unknown as { releaseMenus: () => void }).releaseMenus());
+  await expect(loading).toHaveCount(0);
+  await expect(ui.getByRole("button", { name: /View Spicy tofu/ })).toBeVisible();
+});
+
+for (const view of ["delivery", "meals"] as const) {
+  test(`${view} startup skeleton matches its compact content`, async ({ page }) => {
+    await page.goto(
+      fixtureUrl({
+        launch: { name: "open_forkable", arguments: { view } },
+        menuRead: { deliveryId: 1, response: "held" },
+      }),
+    );
+    const ui = page.frameLocator("iframe");
+    const loading = ui.getByRole("status", { name: "Loading deliveries", exact: true });
+    await expect(loading).toBeVisible();
+    await expect(loading.locator(".date-strip")).toHaveCount(0);
+    await expect(loading.locator(".meal-card-horizontal")).toHaveCount(view === "delivery" ? 1 : 0);
+    await expect(loading.locator(".meals")).toHaveCount(view === "meals" ? 1 : 0);
+    await page.evaluate(() => (window as unknown as { releaseMenus: () => void }).releaseMenus());
+    await expect(loading).toHaveCount(0);
+  });
+}
+
 test("slow date menus leave the browser and selected delivery visible", async ({ page }) => {
   await page.goto(
     fixtureUrl({ deliveryScenario: "dates", menuRead: { deliveryId: 2, response: "held" } }),
@@ -46,6 +77,7 @@ test("slow date menus leave the browser and selected delivery visible", async ({
   const next = ui.getByRole("button", { name: "Tue, Oct 6, Lunch, Office", exact: true });
   await next.click();
   await expect(next).toHaveAttribute("aria-pressed", "true");
+  await expect(ui.getByRole("status", { name: "Loading meals", exact: true })).toBeVisible();
   await expect(ui.getByRole("group", { name: "Delivery dates" })).toBeVisible();
   await expect(ui.getByRole("region", { name: "Selected meals" })).toBeVisible();
   await expect(ui.getByRole("heading", { name: "Deliveries", exact: true })).toBeVisible();
@@ -704,20 +736,32 @@ test("text-only context hosts receive no unsupported structured payload", async 
 test("menus remain usable while optional reads are pending", async ({ page }) => {
   await page.goto(fixtureUrl({ auxiliaryReads: "held" }));
   const ui = page.frameLocator("iframe");
-  await expect(ui.getByText("Loading recommendations…")).toBeVisible();
-  await expect(ui.getByText("Loading delivery updates…")).toBeVisible();
+  await expect(
+    ui.getByRole("status", { name: "Loading recommendations", exact: true }),
+  ).toHaveCount(0);
+  await expect(
+    ui.getByRole("status", { name: "Loading delivery updates", exact: true }),
+  ).toBeVisible();
+  await ui.getByRole("searchbox").fill("no matching dish");
+  await expect(ui.getByText("No meals match your search.")).toBeVisible();
+  await expect(ui.getByRole("status", { name: "Loading meals", exact: true })).toHaveCount(0);
+  await ui.getByRole("searchbox").fill("");
   await ui.getByRole("button", { name: /View Spicy tofu/ }).click();
   await expect(ui.getByRole("region", { name: "Meal details" })).toBeVisible();
   await expect(ui.getByLabel("Kimchi")).toBeEnabled();
   await page.evaluate(() => (window as unknown as { releaseAux: () => void }).releaseAux());
-  await expect(ui.getByText("Loading recommendations…")).toHaveCount(0);
+  await expect(
+    ui.getByRole("status", { name: "Loading recommendations", exact: true }),
+  ).toHaveCount(0);
   await expect(ui.getByRole("region", { name: "Meal details" })).toBeVisible();
 });
 
 test("late auxiliary responses cannot overwrite the next delivery", async ({ page }) => {
   await page.goto(fixtureUrl({ auxiliaryReads: "held", deliveryScenario: "dates" }));
   const ui = page.frameLocator("iframe");
-  await expect(ui.getByText("Loading recommendations…")).toBeVisible();
+  await expect(
+    ui.getByRole("status", { name: "Loading recommendations", exact: true }),
+  ).toHaveCount(0);
   await ui.getByRole("button", { name: "Tue, Oct 6, Lunch, Office" }).click();
   await expect(ui.getByRole("region", { name: "Selected meals" })).toContainText("Group NEW");
   await ui.getByRole("button", { name: /^Filters/ }).click();
