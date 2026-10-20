@@ -33,6 +33,9 @@ export function useMealEditor(browser: MealBrowserController, detail: Detail) {
     state: { ...browser.state, detail, ...draft },
     mealTotal: selectedMealTotal(detail, draft.choices),
     back: browser.back,
+    skipMeal: browser.skipMeal,
+    refresh: browser.refresh,
+    clearFeedback: browser.clearFeedback,
     submit: () => browser.submit(draft),
     chooseOption: (modifierId: number, optionId: number, checked: boolean, max: number | null) => {
       const picked = draft.choices[modifierId] ?? [];

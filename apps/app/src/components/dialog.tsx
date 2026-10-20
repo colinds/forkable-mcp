@@ -1,29 +1,32 @@
 import { useEffect, useRef, type ReactNode } from "react";
 
 /** Native dialog provides focus containment and an inert background inside any MCP Apps host. */
-export function MealDialog({
+export function Dialog({
   children,
   busy,
   onClose,
   returnFocus,
+  label,
+  labelledBy,
+  className,
 }: {
   children: ReactNode;
   busy: boolean;
   onClose: () => void | boolean;
   returnFocus?: HTMLElement;
+  label: string;
+  labelledBy: string;
+  className: string;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
   const restoreAfterClose = useRef(false);
   useEffect(() => {
     const dialog = ref.current;
     if (!dialog) return;
-    const overflow = document.documentElement.style.overflow;
-    document.documentElement.style.overflow = "hidden";
     dialog.showModal();
     dialog.querySelector<HTMLElement>("h2")?.focus({ preventScroll: true });
     return () => {
       dialog.close();
-      document.documentElement.style.overflow = overflow;
       requestAnimationFrame(() => {
         if (dialog.open) return;
         const target = returnFocus?.isConnected
@@ -36,9 +39,9 @@ export function MealDialog({
   return (
     <dialog
       ref={ref}
-      className="meal-dialog"
-      aria-label="Meal details"
-      aria-labelledby="meal-title"
+      className={`app-dialog ${className}`}
+      aria-label={label}
+      aria-labelledby={labelledBy}
       onKeyDown={(event) => {
         if (event.key !== "Tab") return;
         const controls = Array.from(

@@ -56,6 +56,155 @@ test("card intent prefetches options and reuses them when opened", async ({ page
   expect(await requests()).toBe(1);
 });
 
+for (const displayMode of ["inline", "fullscreen"] as const) {
+  test(`${displayMode} skip requires confirmation and removes only the selected owned meal`, async ({
+    page,
+  }, testInfo) => {
+    await page.setViewportSize({ width: 375, height: 900 });
+    await page.goto(fixtureUrl({ displayMode }));
+    const ui = page.frameLocator("iframe");
+    await expect(ui.getByRole("button", { name: "Skip meal", exact: true })).toHaveCount(0);
+    await ui
+      .getByRole("region", { name: "Selected meals" })
+      .getByRole("button", { name: /^View Pasta/ })
+      .click();
+    const skip = ui.getByRole("button", { name: "Skip meal", exact: true });
+    const removals = () =>
+      page.evaluate(() =>
+        (
+          window as unknown as { calls: { name: string; arguments?: Record<string, unknown> }[] }
+        ).calls.filter((call) => call.name === "remove_meal"),
+      );
+    await skip.click();
+    const dialog = ui.getByRole("dialog", { name: "Skip Pasta?" });
+    await expect(dialog).toBeVisible();
+    expect(await removals()).toHaveLength(0);
+    await dialog.getByRole("button", { name: "Cancel" }).click();
+    await expect(dialog).toHaveCount(0);
+    if (displayMode === "fullscreen")
+      await expect(ui.locator("html")).toHaveCSS("overflow", "hidden");
+    await expect(skip).toBeFocused();
+    expect(await removals()).toHaveLength(0);
+    await skip.click();
+    expect(
+      await dialog.evaluate((element) => {
+        const bounds = element.getBoundingClientRect();
+        return bounds.left >= 0 && bounds.right <= window.innerWidth;
+      }),
+    ).toBe(true);
+    await dialog.screenshot({ path: testInfo.outputPath("skip-confirmation.png") });
+    await dialog.getByRole("button", { name: "Skip meal", exact: true }).click();
+    await expect(dialog).toHaveCount(0);
+    await expect(ui.getByText("Skip requested. Delivery refreshed.")).toBeVisible();
+    await expect(ui.locator("dialog[open]")).toHaveCount(0);
+    await expect(ui.locator("html")).not.toHaveCSS("overflow", "hidden");
+    const calls = await removals();
+    expect(calls).toHaveLength(2);
+    expect(calls[0]?.arguments).toEqual({ deliveryId: 1, pieceId: "b" });
+    expect(calls[1]?.arguments).toEqual({
+      deliveryId: 1,
+      pieceId: "b",
+      confirmToken: "fixture-token",
+    });
+    const selected = ui.getByRole("region", { name: "Selected meals" });
+    await expect(selected).toContainText("Chicken rice bowl");
+    await expect(selected.getByRole("heading", { name: "Pasta", exact: true })).toHaveCount(0);
+  });
+}
+
+for (const outcome of ["blocked", "expired", "rejected"] as const) {
+  test(`skip ${outcome} leaves meals unchanged without retrying`, async ({ page }) => {
+    await page.goto(fixtureUrl({ write: { outcome } }));
+    const ui = page.frameLocator("iframe");
+    await ui
+      .getByRole("region", { name: "Selected meals" })
+      .getByRole("button", { name: /^View Pasta/ })
+      .click();
+    await ui.getByRole("button", { name: "Skip meal", exact: true }).click();
+    const dialog = ui.getByRole("dialog", { name: "Skip Pasta?" });
+    await dialog.getByRole("button", { name: "Skip meal", exact: true }).click();
+    await expect(dialog.getByRole("alert")).toBeVisible();
+    await dialog.getByRole("button", { name: "Cancel" }).click();
+    await ui.getByRole("button", { name: "Back to meals", exact: true }).click();
+    await expect(ui.getByRole("region", { name: "Selected meals" })).toContainText("Pasta");
+    const calls = await page.evaluate(() =>
+      (window as unknown as { calls: { name: string }[] }).calls.filter(
+        (call) => call.name === "remove_meal",
+      ),
+    );
+    expect(calls).toHaveLength(outcome === "rejected" ? 2 : 1);
+  });
+}
+
+test("an uncertain skip locks further writes until explicit refresh", async ({ page }) => {
+  await page.goto(fixtureUrl({ write: { outcome: "unknown" } }));
+  const ui = page.frameLocator("iframe");
+  await ui
+    .getByRole("region", { name: "Selected meals" })
+    .getByRole("button", { name: /^View Pasta/ })
+    .click();
+  await ui.getByRole("button", { name: "Skip meal", exact: true }).click();
+  const dialog = ui.getByRole("dialog", { name: "Skip Pasta?" });
+  await dialog.getByRole("button", { name: "Skip meal", exact: true }).click();
+  await expect(dialog.getByRole("alert")).toContainText("Outcome unknown");
+  await expect(dialog.getByRole("button", { name: "Skip meal", exact: true })).toHaveCount(0);
+  await dialog.getByRole("button", { name: "Cancel" }).click();
+  await expect(
+    ui
+      .getByRole("region", { name: "Meal details" })
+      .getByRole("button", { name: "Skip meal", exact: true }),
+  ).toBeDisabled();
+  await ui.getByRole("button", { name: "Back to meals", exact: true }).click();
+  await ui.getByRole("button", { name: "Refresh", exact: true }).click();
+  await ui
+    .getByRole("region", { name: "Selected meals" })
+    .getByRole("button", { name: /^View Pasta/ })
+    .click();
+  await expect(ui.getByRole("button", { name: "Skip meal", exact: true })).toBeEnabled();
+  const calls = await page.evaluate(() =>
+    (window as unknown as { calls: { name: string }[] }).calls.filter(
+      (call) => call.name === "remove_meal",
+    ),
+  );
+  expect(calls).toHaveLength(2);
+});
+
+test("duplicate skip confirmations send one removal and cannot close while pending", async ({
+  page,
+}) => {
+  await page.goto(fixtureUrl({ write: { delayMs: 500 } }));
+  const ui = page.frameLocator("iframe");
+  await ui
+    .getByRole("region", { name: "Selected meals" })
+    .getByRole("button", { name: /^View Pasta/ })
+    .click();
+  await ui.getByRole("button", { name: "Skip meal", exact: true }).click();
+  const dialog = ui.getByRole("dialog", { name: "Skip Pasta?" });
+  await dialog.getByRole("button", { name: "Skip meal", exact: true }).evaluate((button) => {
+    (button as HTMLButtonElement).click();
+    (button as HTMLButtonElement).click();
+  });
+  await expect(dialog.getByRole("button", { name: "Cancel" })).toBeDisabled();
+  await page.keyboard.press("Escape");
+  await expect(dialog).toBeVisible();
+  await expect(dialog).toHaveCount(0);
+  const calls = await page.evaluate(() =>
+    (window as unknown as { calls: { name: string }[] }).calls.filter(
+      (call) => call.name === "remove_meal",
+    ),
+  );
+  expect(calls).toHaveLength(2);
+});
+
+for (const deliveryScenario of ["historical", "no-meals"] as const) {
+  test(`skip is absent for ${deliveryScenario} deliveries`, async ({ page }) => {
+    await page.goto(fixtureUrl({ deliveryScenario }));
+    const ui = page.frameLocator("iframe");
+    await expect(ui.getByRole("region", { name: "Selected meals" })).toBeVisible();
+    await expect(ui.getByRole("button", { name: /^Skip / })).toHaveCount(0);
+  });
+}
+
 test("returning to the app refreshes delivery data without reloading menus", async ({ page }) => {
   await page.goto("/");
   const ui = page.frameLocator("iframe");

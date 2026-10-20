@@ -1,3 +1,6 @@
+html:has(.app-dialog[open]) {
+  overflow: hidden;
+}
 html,
 body {
   background: transparent;
@@ -343,6 +346,24 @@ legend {
 .selected-action {
   margin-top: 12px;
 }
+.confirmation-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.app-dialog.confirmation-dialog {
+  max-width: 440px;
+  padding: 24px;
+}
+.confirmation-dialog[open] {
+  display: grid;
+  gap: 12px;
+}
+.confirmation-dialog h2 {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
 .meal-card-horizontal {
   flex-direction: row;
   width: 100%;
@@ -359,7 +380,8 @@ legend {
   flex: 1;
   gap: 5px;
 }
-.meal-dialog {
+.app-dialog {
+  box-sizing: border-box;
   inset: var(--host-safe-area-top, 0px) var(--host-safe-area-right, 0px)
     var(--host-safe-area-bottom, 0px) var(--host-safe-area-left, 0px);
   width: min(
@@ -379,7 +401,7 @@ legend {
   color: var(--foreground);
   box-shadow: var(--shadow-md, 0 8px 32px rgb(0 0 0 / 20%));
 }
-.meal-dialog::backdrop {
+.app-dialog::backdrop {
   background: color-mix(in srgb, var(--foreground) 30%, transparent);
   backdrop-filter: blur(4px);
 }

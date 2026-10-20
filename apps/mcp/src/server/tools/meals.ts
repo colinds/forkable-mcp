@@ -1,4 +1,7 @@
-import { setMealInputSchema } from "@forkable-mcp/shared/contracts/inputs.ts";
+import {
+  setMealInputSchema,
+  removeMealInputSchema,
+} from "@forkable-mcp/shared/contracts/inputs.ts";
 import { z } from "zod";
 import { type McpServer } from "@modelcontextprotocol/server";
 import type { ForkableClient } from "@/server/net/client.ts";
@@ -325,14 +328,10 @@ export function registerRemoveMealTool(server: McpServer, writeGate: WriteGate):
   server.registerTool(
     "remove_meal",
     {
-      _meta: { ui: { visibility: ["model"] } },
+      _meta: APP_TOOL_META,
       title: "Remove the meal from a delivery",
       description: "Remove one of your meals using its pieceId. " + WRITE_NOTE,
-      inputSchema: z.object({
-        deliveryId: z.number().int(),
-        pieceId: z.union([z.string(), z.number()]).describe("Piece id from list_deliveries"),
-        confirmToken: z.string().optional(),
-      }),
+      inputSchema: removeMealInputSchema,
       annotations: { destructiveHint: true, idempotentHint: false, openWorldHint: true },
     },
     async (a) =>
