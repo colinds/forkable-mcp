@@ -25,14 +25,9 @@ import { useMealApp } from "../lib/app-context.ts";
 import { MEAL_PATH } from "../lib/navigation.ts";
 import { useOnReturn } from "./use-on-return.ts";
 
-import type { MealDraftValues } from "../lib/editor-types.ts";
+import type { MealDraftValues, MealPreview } from "../lib/editor-types.ts";
 
 type PendingAction = "loading" | "saving" | "drafting";
-type MealPreview = Pick<
-  Detail,
-  "menuId" | "itemId" | "name" | "imageUrl" | "price" | "description"
->;
-
 interface BrowserState {
   deliveries: Delivery[];
   deliveriesLoaded: boolean;
