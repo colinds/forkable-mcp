@@ -1,21 +1,20 @@
 import { Button } from "@/app/components/button.tsx";
 import { Dialog } from "@/app/components/dialog.tsx";
 import { dateLabels } from "@/app/lib/delivery-labels.ts";
-import type { MealBrowserController } from "@/app/hooks/use-meal-browser.ts";
+import { useEditorContext } from "@/app/lib/editor-context.ts";
 import type { Delivery } from "@forkable-mcp/shared/contracts/meals.ts";
 import { SkipForward } from "lucide-react";
 
 export function SkipMealDialog({
-  browser,
   meal,
   onClose,
   returnFocus,
 }: {
-  browser: Pick<MealBrowserController, "state" | "skipMeal" | "refresh">;
   meal: Delivery["meals"][number];
   onClose: () => void;
   returnFocus?: HTMLElement;
 }) {
+  const { browser } = useEditorContext();
   const { delivery, busy, notice, problem, needsRefresh } = browser.state;
   if (!delivery) return null;
   const date = dateLabels(delivery.date);

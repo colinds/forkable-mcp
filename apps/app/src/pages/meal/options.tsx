@@ -2,7 +2,6 @@ import { useEditorContext } from "@/app/lib/editor-context.ts";
 import { useMealEditor } from "@/app/hooks/use-meal-editor.ts";
 import { useModelContext } from "@/app/hooks/use-model-context.ts";
 import { MealOptions } from "@/app/components/meal/editor/options.tsx";
-import { MealSkipAction } from "@/app/components/meal/editor/skip-action.tsx";
 import { useMealApp } from "@/app/lib/app-context.ts";
 import { useSuspenseQuery } from "@tanstack/react-query";
 import { useParams } from "@tanstack/react-router";
@@ -21,10 +20,7 @@ export function MealEditorOptions() {
     browser.state.deliveriesLoaded && !busy ? updateContext : undefined,
   );
   return (
-    <MealOptions
-      browser={editor}
-      actions={editor.mealToSkip && <MealSkipAction browser={browser} meal={editor.mealToSkip} />}
-    >
+    <MealOptions browser={editor}>
       {contextFailed && (
         <p className="muted" role="status">
           Chat context could not be updated. Try reopening the app.
