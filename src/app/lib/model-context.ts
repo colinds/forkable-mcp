@@ -106,7 +106,8 @@ export function createContextUpdater(
   app: Pick<App, "getHostContext" | "getHostCapabilities" | "updateModelContext">,
 ): UpdateContext {
   let lastSent: string | undefined;
-  return async (context) => {
+  let pending: Promise<unknown> = Promise.resolve();
+  async function send(context: ModelContext) {
     const modalities = app.getHostCapabilities()?.updateModelContext ?? { text: {} };
     const payload = supportedContext(context, modalities);
     const snapshot = JSON.stringify(payload);
@@ -122,5 +123,10 @@ export function createContextUpdater(
     if (lastSent !== undefined || !previous || JSON.stringify(previous) !== snapshot)
       await app.updateModelContext(payload);
     lastSent = snapshot;
+  }
+  return (context) => {
+    const next = pending.then(() => send(context));
+    pending = next.catch(() => {});
+    return next;
   };
 }
