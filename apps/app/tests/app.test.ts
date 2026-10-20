@@ -91,8 +91,9 @@ describe("meal browser", () => {
       };
     };
     const args = { deliveryId: 3, menuId: 1, itemId: 2 };
-    await gate.preview(call, args);
+    const preview = gate.preview(call, { tool: "set_meal", args });
     args.menuId = 99;
+    await preview;
     await gate.confirm(call);
     expect(calls[1]).toEqual({ deliveryId: 3, menuId: 1, itemId: 2, confirmToken: "token" });
     await expect(gate.confirm(call)).rejects.toThrow("expired");
@@ -108,15 +109,14 @@ describe("meal browser", () => {
         expiresAt: new Date(gate.pending?.expiresAt ?? 0).toISOString(),
       },
     });
-    await gate.preview(call, { deliveryId: 3, menuId: 1, itemId: 2 });
+    await gate.preview(call, { tool: "set_meal", args: { deliveryId: 3, menuId: 1, itemId: 2 } });
     await expect(gate.confirm(call)).rejects.toThrow("expired");
     await gate.preview(async () => ({ isError: true, structuredContent: { mode: "rejected" } }), {
-      deliveryId: 3,
-      menuId: 1,
-      itemId: 2,
+      tool: "set_meal",
+      args: { deliveryId: 3, menuId: 1, itemId: 2 },
     });
     expect(gate.pending).toBeUndefined();
-    await gate.preview(call, { deliveryId: 3, menuId: 1, itemId: 2 });
+    await gate.preview(call, { tool: "set_meal", args: { deliveryId: 3, menuId: 1, itemId: 2 } });
     gate.clear();
     await expect(gate.confirm(call)).rejects.toThrow("expired");
   });

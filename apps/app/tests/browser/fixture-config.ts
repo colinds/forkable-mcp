@@ -26,6 +26,7 @@ const fixtureConfigSchema = z.object({
   tracking: z.boolean().default(false),
   notesAllowed: z.boolean().default(true),
   currentNotes: z.string().optional(),
+  currentOptions: z.array(z.string()).optional(),
   displayMode: z.enum(["inline", "fullscreen"]).default("inline"),
   appearance: z.enum(["minimal", "claude", "cursor", "chatgpt"]).default("minimal"),
   theme: z.enum(["light", "dark"]).default("light"),

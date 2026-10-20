@@ -17,6 +17,7 @@ import {
   resultText,
   selectionArgs,
   type CallTool,
+  type MealWrite,
 } from "@/app/lib/tools.ts";
 import { initialLaunch, isPastDelivery } from "@/app/lib/initial-view.ts";
 import { defaultFilters, type MenuFilters } from "@/app/lib/menu-filters.ts";
@@ -26,6 +27,10 @@ import { MEAL_PATH } from "@/app/lib/navigation.ts";
 import { useOnReturn } from "./use-on-return.ts";
 
 import type { MealDraftValues, MealPreview } from "@/app/lib/editor-types.ts";
+
+type MealSubmission =
+  | { kind: "set"; delivery: Delivery; detail: Detail; draft: MealDraftValues }
+  | { kind: "remove"; deliveryId: number; pieceId: string | number };
 
 type PendingAction = "loading" | "saving" | "drafting";
 interface BrowserState {
@@ -67,6 +72,7 @@ export interface MealBrowserController {
   choose: (menuId: number, itemId: number, sourcePieceId?: string | number) => void;
   prefetchMeal: (menuId: number, itemId: number) => Promise<void>;
   submit: (draft: MealDraftValues) => void;
+  skipMeal: (pieceId: string | number) => Promise<boolean>;
   askAboutMeal?: (reference: ReturnType<typeof createMealReference>) => void;
   back: () => boolean;
   clearFeedback: () => void;
@@ -149,25 +155,30 @@ export function useMealBrowser(): MealBrowserController {
         : undefined))
     : undefined;
   const writeMutation = useMutation({
-    mutationFn: async (submission: {
-      delivery: Delivery;
-      detail: Detail;
-      draft: MealDraftValues;
-    }) => {
-      const { delivery: selectedDelivery, detail: selectedDetail, draft } = submission;
-      const args = selectionArgs(
-        selectedDelivery,
-        selectedDetail,
-        draft.source,
-        draft.choices,
-        draft.instructions,
-      );
+    mutationFn: async (submission: MealSubmission) => {
+      const change: MealWrite =
+        submission.kind === "set"
+          ? {
+              tool: "set_meal",
+              args: selectionArgs(
+                submission.delivery,
+                submission.detail,
+                submission.draft.source,
+                submission.draft.choices,
+                submission.draft.instructions,
+              ),
+            }
+          : {
+              tool: "remove_meal",
+              args: { deliveryId: submission.deliveryId, pieceId: submission.pieceId },
+            };
       const confirmation = new Confirmation();
-      const preview = await confirmation.preview(call, args);
+      const preview = await confirmation.preview(call, change);
       if (!confirmation.pending)
         return {
           notice:
-            resultText(preview) || "Unable to save this meal. Check your selection and try again.",
+            resultText(preview) ||
+            "Unable to update this meal. Check your selection and try again.",
           problem: true,
           needsRefresh: false,
         };
@@ -189,7 +200,10 @@ export function useMealBrowser(): MealBrowserController {
           await refreshBrowser();
           returnToBrowser();
           return {
-            notice: "Change sent. Delivery refreshed.",
+            notice:
+              change.tool === "remove_meal"
+                ? "Skip requested. Delivery refreshed."
+                : "Change sent. Delivery refreshed.",
             problem: false,
             needsRefresh: false,
           };
@@ -358,7 +372,31 @@ export function useMealBrowser(): MealBrowserController {
     submit: (draft) => {
       if (busy || queryClient.isMutating() > 0 || needsRefresh || !delivery || !detail) return;
       // Validation is part of the mutation so the same error state covers form and server failures.
-      writeMutation.mutate({ delivery, detail, draft });
+      writeMutation.mutate({ kind: "set", delivery, detail, draft });
+    },
+    skipMeal: async (pieceId) => {
+      if (
+        busy ||
+        queryClient.isMutating() > 0 ||
+        needsRefresh ||
+        !delivery ||
+        isPastDelivery(delivery.date)
+      )
+        return false;
+      const meal = delivery.meals.find(
+        (candidate) => String(candidate.pieceId) === String(pieceId),
+      );
+      if (!meal || meal.cancellationPending) return false;
+      try {
+        const result = await writeMutation.mutateAsync({
+          kind: "remove",
+          deliveryId: delivery.deliveryId,
+          pieceId: meal.pieceId,
+        });
+        return !result.problem;
+      } catch {
+        return false;
+      }
     },
     askAboutMeal: writeDraft
       ? (reference) => {

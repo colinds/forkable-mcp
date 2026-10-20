@@ -426,7 +426,10 @@ describe("read tool responses", () => {
         ui: { visibility: ["model", "app"] },
         "openai/widgetAccessible": true,
       });
-      for (const name of ["set_meal_all", "remove_meal", "rate_meal", "confirm_delivery"])
+      expect(definitions.find((tool) => tool.name === "remove_meal")?._meta).toMatchObject({
+        ui: { visibility: ["model", "app"] },
+      });
+      for (const name of ["set_meal_all", "rate_meal", "confirm_delivery"])
         expect(definitions.find((tool) => tool.name === name)?.["_meta"]).toMatchObject({
           ui: { visibility: ["model"] },
         });

@@ -16,6 +16,10 @@ export type CallTool = <Name extends keyof BrowserToolInputs>(
 
 export const itemKey = (menuId: number, itemId: number) => `${menuId}:${itemId}`;
 
+export type MealWrite =
+  | { tool: "set_meal"; args: BrowserToolInputs["set_meal"] }
+  | { tool: "remove_meal"; args: BrowserToolInputs["remove_meal"] };
+
 const textContentSchema = z.object({ type: z.literal("text"), text: z.string() });
 
 export function resultText(result: ToolResult): string {
@@ -75,17 +79,18 @@ export function writeResult(result: ToolResult): WriteResult | undefined {
 
 /** A preview authorizes only these exact arguments. Consume it before sending, even on transport failure. */
 export class Confirmation {
-  pending?: { args: SetMealInput; token: string; expiresAt: number };
+  pending?: { change: MealWrite; token: string; expiresAt: number };
   clear() {
     this.pending = undefined;
   }
-  async preview(call: CallTool, args: SetMealInput): Promise<ToolResult> {
+  async preview(call: CallTool, change: MealWrite): Promise<ToolResult> {
     this.clear();
-    const result = await call("set_meal", args);
+    const request = structuredClone(change);
+    const result = await call(request.tool, request.args);
     const value = writeResult(result);
     if (!result.isError && value?.mode === "preview" && value.confirmToken && value.expiresAt)
       this.pending = {
-        args: structuredClone(args),
+        change: request,
         token: value.confirmToken,
         expiresAt: Date.parse(value.expiresAt),
       };
@@ -96,6 +101,6 @@ export class Confirmation {
     this.clear();
     if (!pending || !Number.isFinite(pending.expiresAt) || pending.expiresAt <= Date.now())
       throw new Error("This preview expired. Review the meal again before confirming.");
-    return call("set_meal", { ...pending.args, confirmToken: pending.token });
+    return call(pending.change.tool, { ...pending.change.args, confirmToken: pending.token });
   }
 }

@@ -4,6 +4,7 @@ import { money } from "@forkable-mcp/shared/currency.ts";
 import { Button } from "@/app/components/button.tsx";
 import type { MealEditorController } from "@/app/hooks/use-meal-browser.ts";
 import type { ReactNode } from "react";
+import { MealSkipAction } from "./skip-action.tsx";
 
 export function MealOptions({
   browser,
@@ -117,6 +118,7 @@ export function MealOptions({
               {state.pendingAction === "drafting" ? "Adding to draft…" : "Ask about this meal"}
             </Button>
           )}
+          {browser.mealToSkip && <MealSkipAction meal={browser.mealToSkip} />}
         </footer>
       </form>
     </div>

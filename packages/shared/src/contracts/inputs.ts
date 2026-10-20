@@ -84,6 +84,13 @@ export const setMealInputSchema = z.object({
 
 export type SetMealInput = z.infer<typeof setMealInputSchema>;
 
+export const removeMealInputSchema = z.object({
+  deliveryId: z.number().int(),
+  pieceId: z.union([z.string(), z.number()]).describe("Piece id from list_deliveries"),
+  confirmToken: z.string().optional(),
+});
+export type RemoveMealInput = z.infer<typeof removeMealInputSchema>;
+
 export interface BrowserToolInputs {
   search_items: z.infer<typeof searchItemsInputSchema>;
   list_deliveries: z.infer<typeof listDeliveriesInputSchema>;
@@ -91,4 +98,5 @@ export interface BrowserToolInputs {
   recommend_meals: z.infer<typeof recommendMealsInputSchema>;
   get_delivery_status: z.infer<typeof deliveryStatusInputSchema>;
   set_meal: SetMealInput;
+  remove_meal: RemoveMealInput;
 }

@@ -9,6 +9,7 @@ export function createToolFixtures(config: ResolvedFixtureConfig) {
   let menuFailed = false;
   let detailFailed = false;
   let changed = false;
+  const removed = new Map<number, Set<string>>();
   const item = {
     itemId: 7,
     name: "Spicy tofu bowl",
@@ -175,7 +176,7 @@ export function createToolFixtures(config: ResolvedFixtureConfig) {
               orderId: 100,
               price: 15,
               venue: "Seoul Kitchen",
-              options: ["Side: Kimchi"],
+              options: config.currentOptions ?? ["Side: Kimchi"],
               group,
               isConfirmed: true,
             },
@@ -290,7 +291,7 @@ export function createToolFixtures(config: ResolvedFixtureConfig) {
           },
         ],
       };
-    if (args.name === "set_meal") {
+    if (args.name === "set_meal" || args.name === "remove_meal") {
       if (config.write.outcome === "blocked")
         return {
           isError: true,
@@ -312,18 +313,37 @@ export function createToolFixtures(config: ResolvedFixtureConfig) {
             content: [{ type: "text", text: "Forkable rejected the change: delivery frozen." }],
             structuredContent: { mode: "rejected" },
           };
-        changed = true;
+        if (args.name === "set_meal") changed = true;
+        else {
+          const id = Number(args.arguments?.deliveryId);
+          const pieces = removed.get(id) ?? new Set<string>();
+          pieces.add(String(args.arguments?.pieceId));
+          removed.set(id, pieces);
+        }
         result = { mode: "executed" };
       } else
         result = {
           mode: "preview",
-          summary: "Replace Pasta with Spicy tofu bowl (Kimchi) — $16.00",
+          summary:
+            args.name === "remove_meal"
+              ? "Remove Pasta from delivery 1"
+              : "Replace Pasta with Spicy tofu bowl (Kimchi) — $16.00",
           confirmToken: "fixture-token",
           expiresAt: new Date(
             Date.now() + (config.write.outcome === "expired" ? -1000 : 600000),
           ).toISOString(),
           warnings: [{ message: "Fixture preview — no live order will be sent." }],
         };
+    }
+    if (args.name === "list_deliveries") {
+      for (const delivery of result.deliveries as {
+        deliveryId: number;
+        meals: { pieceId: string }[];
+      }[]) {
+        delivery.meals = delivery.meals.filter(
+          (meal) => !removed.get(delivery.deliveryId)?.has(String(meal.pieceId)),
+        );
+      }
     }
     return { content: [], structuredContent: result };
   };

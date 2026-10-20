@@ -338,6 +338,7 @@ models on the server and UI state in the app. The linter enforces import boundar
 Use the standard MCP Apps bridge and host styles. OpenAI metadata is an optional layer.
 Only `open_forkable` advertises a UI resource. Data tools remain callable from the app without
 launching another view; resolve chat reads before opening the final requested view.
-Only `set_meal` is app-visible among write tools; it still uses the existing confirmation gate.
+`set_meal` and `remove_meal` are app-visible write tools; both use the existing confirmation gate.
+Skipping a meal requires an explicit user confirmation in the app.
 Context updates must honor host modalities and exclude credentials and confirmation tokens.
 Browser regression tests use fixture data, not live meal mutations.
