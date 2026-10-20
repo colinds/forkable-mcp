@@ -1,4 +1,4 @@
-import { X, MessageSquare } from "lucide-react";
+import { ArrowLeft, X, MessageSquare } from "lucide-react";
 import { IconButton } from "../icon-button.tsx";
 import { modifierMinimum, MEAL_INSTRUCTIONS_LIMIT } from "@/shared/meal-options.ts";
 import { Button } from "../button.tsx";
@@ -7,7 +7,13 @@ import { MealOptionsLoading } from "./loading.tsx";
 
 import { money } from "@/shared/currency.ts";
 import type { MealEditorController } from "../../hooks/use-meal-browser.ts";
-export function MealDetail({ browser }: { browser: MealEditorController }) {
+export function MealDetail({
+  browser,
+  backLabel,
+}: {
+  browser: MealEditorController;
+  backLabel?: string;
+}) {
   const { state } = browser;
   const { busy, delivery, detail } = state;
   const meal = detail ?? state.selectedMeal;
@@ -18,16 +24,28 @@ export function MealDetail({ browser }: { browser: MealEditorController }) {
     .join(" · ");
   return (
     <section className="detail" aria-label="Meal details">
-      <header className="detail-header">
+      <header className={`detail-header${backLabel ? " detail-page-header" : ""}`}>
+        {backLabel && (
+          <Button
+            className="detail-back"
+            disabled={busy && state.pendingAction !== "loading"}
+            onClick={browser.back}
+          >
+            <ArrowLeft size={18} aria-hidden="true" />
+            {backLabel}
+          </Button>
+        )}
         <h2 id="meal-title" tabIndex={-1}>
           {meal.name}
         </h2>
-        <IconButton
-          icon={X}
-          label="Close"
-          disabled={busy && state.pendingAction !== "loading"}
-          onClick={browser.back}
-        />
+        {!backLabel && (
+          <IconButton
+            icon={X}
+            label="Close"
+            disabled={busy && state.pendingAction !== "loading"}
+            onClick={browser.back}
+          />
+        )}
       </header>
       <div className="detail-summary">
         <MealPhoto key={meal.imageUrl} url={meal.imageUrl} name={meal.name} />

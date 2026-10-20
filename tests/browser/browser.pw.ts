@@ -13,6 +13,54 @@ test.beforeEach(async ({ page }) => {
     }),
   );
 });
+
+test("returning to the app refreshes delivery data without reloading menus", async ({ page }) => {
+  await page.goto("/");
+  const ui = page.frameLocator("iframe");
+  const selected = ui.getByRole("region", { name: "Selected meals" });
+  await expect(selected).toContainText("Chicken rice bowl");
+  const menusBefore = await page.evaluate(
+    () =>
+      (window as unknown as { calls: { name: string }[] }).calls.filter(
+        (call) => call.name === "get_menus",
+      ).length,
+  );
+  await page.evaluate(() => (window as unknown as { changeMeal: () => void }).changeMeal());
+  await ui.locator("html").evaluate(() => {
+    window.dispatchEvent(new Event("blur"));
+    window.dispatchEvent(new Event("focus"));
+  });
+  await expect(selected).toContainText("Spicy tofu bowl");
+  const calls = await page.evaluate(
+    () => (window as unknown as { calls: { name: string }[] }).calls,
+  );
+  expect(calls.filter((call) => call.name === "get_menus")).toHaveLength(menusBefore);
+  expect(calls.filter((call) => call.name === "set_meal")).toHaveLength(0);
+});
+
+test("return refresh waits until meal editing closes and keeps entered options", async ({
+  page,
+}) => {
+  await page.goto("/");
+  const ui = page.frameLocator("iframe");
+  await ui.getByRole("button", { name: /View Spicy tofu/ }).click();
+  const dialog = ui.getByRole("region", { name: "Meal details" });
+  await dialog.getByLabel("Kimchi").check();
+  await dialog.getByLabel("Notes", { exact: false }).fill("No onions");
+  await page.evaluate(() => (window as unknown as { changeMeal: () => void }).changeMeal());
+  await ui.locator("html").evaluate(() => {
+    window.dispatchEvent(new Event("blur"));
+    window.dispatchEvent(new Event("focus"));
+  });
+  await expect(dialog.getByLabel("Kimchi")).toBeChecked();
+  await expect(dialog.getByLabel("Notes", { exact: false })).toHaveValue("No onions");
+  await expect(
+    ui.getByRole("region", { name: "Selected meals", includeHidden: true }),
+  ).toContainText("Chicken rice bowl");
+  await ui.getByRole("button", { name: "Back to meals", exact: true }).click();
+  await expect(dialog).toHaveCount(0);
+  await expect(ui.getByRole("region", { name: "Selected meals" })).toContainText("Spicy tofu bowl");
+});
 test("photos, theme, search, options, exact target and one-click submission", async ({
   page,
 }, testInfo) => {
@@ -61,7 +109,7 @@ test("meal notes reach chat drafts and the exact confirmed request", async ({ pa
   await page.goto(fixtureUrl({ drafts: {} }));
   const ui = page.frameLocator("iframe");
   await ui.getByRole("button", { name: /View Spicy tofu/ }).click();
-  const dialog = ui.getByRole("dialog");
+  const dialog = ui.getByRole("region", { name: "Meal details" });
   const notes = dialog.getByLabel("Notes", { exact: false });
   await expect(notes).toHaveAttribute("maxlength", "100");
   await notes.fill("Please no onions");
@@ -90,7 +138,7 @@ test("restaurants that disable notes do not render a notes field", async ({ page
   await page.goto(fixtureUrl({ notesAllowed: false }));
   const ui = page.frameLocator("iframe");
   await ui.getByRole("button", { name: /View Spicy tofu/ }).click();
-  await expect(ui.getByRole("dialog")).toBeVisible();
+  await expect(ui.getByRole("region", { name: "Meal details" })).toBeVisible();
   await expect(ui.getByLabel("Notes", { exact: false })).toHaveCount(0);
 });
 
@@ -103,14 +151,21 @@ test("editing an existing meal keeps its notes without carrying them to another 
     .getByRole("region", { name: "Selected meals" })
     .getByRole("button", { name: /View Chicken rice bowl/ })
     .click();
-  await expect(ui.getByRole("dialog").getByLabel("Notes", { exact: false })).toHaveValue(
-    "Please no onions",
-  );
-  await ui.getByRole("dialog").getByLabel("Meal to replace").selectOption("b");
-  await expect(ui.getByRole("dialog").getByLabel("Notes", { exact: false })).toHaveValue("");
-  await ui.getByRole("button", { name: "Close", exact: true }).click();
+  await expect(
+    ui.getByRole("region", { name: "Meal details" }).getByLabel("Notes", { exact: false }),
+  ).toHaveValue("Please no onions");
+  await ui
+    .getByRole("region", { name: "Meal details" })
+    .getByLabel("Meal to replace")
+    .selectOption("b");
+  await expect(
+    ui.getByRole("region", { name: "Meal details" }).getByLabel("Notes", { exact: false }),
+  ).toHaveValue("");
+  await ui.getByRole("button", { name: "Back to meals", exact: true }).click();
   await ui.getByRole("button", { name: /View Another bowl/ }).click();
-  await expect(ui.getByRole("dialog").getByLabel("Notes", { exact: false })).toHaveValue("");
+  await expect(
+    ui.getByRole("region", { name: "Meal details" }).getByLabel("Notes", { exact: false }),
+  ).toHaveValue("");
 });
 
 for (const scenario of ["unknown", "rejected", "expired", "blocked"] as const)
@@ -208,7 +263,7 @@ test("dates scroll horizontally, keep same-day services distinct, and support ke
 test("meal modal keeps the grid and search, contains focus, and dismisses without saving", async ({
   page,
 }, testInfo) => {
-  await page.goto("/");
+  await page.goto(fixtureUrl({ displayMode: "fullscreen" }));
   const ui = page.frameLocator("iframe");
   await ui.getByLabel("Find a meal").fill("tofu");
   const card = ui.getByRole("button", { name: /View Spicy tofu/ });
@@ -298,7 +353,7 @@ test("chat receives delivery, search and modal context without confirmation toke
   await ui.getByLabel("Meal to replace").selectOption("b");
   await ui.getByLabel("Kimchi").check();
   expect(JSON.stringify(await current())).not.toContain("fixture-token");
-  await page.keyboard.press("Escape");
+  await ui.getByRole("button", { name: "Back to meals", exact: true }).click();
   await expect.poll(current).toMatchObject({ focusedMeal: null, search: "mango" });
 });
 
@@ -309,7 +364,7 @@ test("meal tool results launch the exact meal and are not fetched twice", async 
     }),
   );
   const ui = page.frameLocator("iframe");
-  await expect(ui.getByRole("dialog", { name: "Another bowl" })).toBeVisible();
+  await expect(ui.getByRole("region", { name: "Meal details" })).toBeVisible();
   const detailCalls = await page.evaluate(() =>
     (
       window as unknown as { calls: { name: string; arguments?: Record<string, unknown> }[] }
@@ -516,7 +571,7 @@ for (const launch of ["cancelled", "missing", "late-result", "late-cancelled"] a
         )
         .toBe(true);
     if (launch === "late-cancelled")
-      await expect(ui.getByRole("dialog", { name: "Spicy tofu bowl" })).toBeVisible();
+      await expect(ui.getByRole("region", { name: "Meal details" })).toBeVisible();
     expect(
       await page.evaluate(
         () =>
@@ -530,7 +585,9 @@ for (const launch of ["cancelled", "missing", "late-result", "late-cancelled"] a
 test("a native dialog close during confirmation cannot hide an uncertain outcome", async ({
   page,
 }) => {
-  await page.goto(fixtureUrl({ write: { outcome: "unknown", delayMs: 800 } }));
+  await page.goto(
+    fixtureUrl({ displayMode: "fullscreen", write: { outcome: "unknown", delayMs: 800 } }),
+  );
   const ui = page.frameLocator("iframe");
   await ui.getByRole("button", { name: /View Spicy tofu/ }).click();
   const dialog = ui.getByRole("dialog", { name: "Spicy tofu bowl" });
@@ -587,11 +644,11 @@ test("menus remain usable while optional reads are pending", async ({ page }) =>
   await expect(ui.getByText("Loading recommendations…")).toBeVisible();
   await expect(ui.getByText("Loading delivery updates…")).toBeVisible();
   await ui.getByRole("button", { name: /View Spicy tofu/ }).click();
-  await expect(ui.getByRole("dialog")).toBeVisible();
+  await expect(ui.getByRole("region", { name: "Meal details" })).toBeVisible();
   await expect(ui.getByLabel("Kimchi")).toBeEnabled();
   await page.evaluate(() => (window as unknown as { releaseAux: () => void }).releaseAux());
   await expect(ui.getByText("Loading recommendations…")).toHaveCount(0);
-  await expect(ui.getByRole("dialog")).toBeVisible();
+  await expect(ui.getByRole("region", { name: "Meal details" })).toBeVisible();
 });
 
 test("late auxiliary responses cannot overwrite the next delivery", async ({ page }) => {
@@ -619,12 +676,15 @@ test("optional read failures leave menus available", async ({ page }) => {
   ).toBeVisible();
   await expect(ui.getByText("Delivery updates unavailable")).toBeVisible();
   await ui.getByRole("button", { name: /View Spicy tofu/ }).click();
-  await expect(ui.getByRole("dialog")).toBeVisible();
+  await expect(ui.getByRole("region", { name: "Meal details" })).toBeVisible();
 });
 
 for (const width of [375, 1000]) {
   test(`inline search puts meal cards first at width ${width}`, async ({ page }, testInfo) => {
     await page.setViewportSize({ width, height: 812 });
+    await page.route("https://cdn.filestackcontent.com/**", (route) =>
+      route.fulfill({ contentType: "image/svg+xml", body: MEAL_ILLUSTRATION_SVG }),
+    );
     await page.goto(
       fixtureUrl({
         launch: { name: "search_items", arguments: { deliveryId: 1, query: "tofu" } },
@@ -647,10 +707,16 @@ for (const width of [375, 1000]) {
       ui.getByRole("region", { name: "Available meals" }).getByRole("button"),
     ).toHaveCount(1);
     await meal.click();
-    await expect(ui.getByRole("dialog")).toBeVisible();
+    await expect(ui.getByRole("region", { name: "Meal details" })).toBeVisible();
+    await expect(ui.getByRole("dialog")).toHaveCount(0);
+    await expect(ui.getByRole("region", { name: "Available meals" })).toBeHidden();
+    await expect(ui.getByRole("heading", { name: "Another bowl" })).toBeFocused();
+    await ui.locator("#app").screenshot({ path: testInfo.outputPath("inline-meal-page.png") });
     await ui.getByLabel("Meal to replace").selectOption("b");
     await ui.getByLabel("Kimchi").check();
-    await page.keyboard.press("Escape");
+    await ui.getByRole("button", { name: "Back to meals", exact: true }).click();
+    await expect(ui.getByLabel("Find a meal")).toHaveValue("tofu");
+    await expect(meal).toBeFocused();
     await ui.getByRole("button", { name: "Browse all meals" }).click();
     await expect(ui.locator("html")).toHaveAttribute("data-display-mode", "fullscreen");
     await expect(ui.getByRole("group", { name: "Delivery dates" })).toBeVisible();
@@ -658,6 +724,103 @@ for (const width of [375, 1000]) {
     await expect(
       ui.getByRole("region", { name: "Available meals" }).getByRole("button"),
     ).toHaveCount(2);
+  });
+}
+
+test("meal page and fullscreen modal share entered options without refetching", async ({
+  page,
+}) => {
+  await page.goto(fixtureUrl({ context: {} }));
+  const ui = page.frameLocator("iframe");
+  await ui.getByLabel("Find a meal").fill("tofu");
+  const card = ui.getByRole("button", { name: /View Spicy tofu/ });
+  await card.click();
+  const editor = ui.getByRole("region", { name: "Meal details" });
+  await editor.getByLabel("Meal to replace").selectOption("b");
+  await editor.getByLabel("Kimchi").check();
+  await editor.getByLabel("Notes", { exact: false }).fill("No onions");
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () =>
+          (
+            window as unknown as {
+              contextUpdates: {
+                structuredContent: { visibleMeals: unknown[]; focusedMeal?: { itemId: number } };
+              }[];
+            }
+          ).contextUpdates.at(-1)?.structuredContent,
+      ),
+    )
+    .toMatchObject({ visibleMeals: [], focusedMeal: { itemId: 7 } });
+  const before = await page.evaluate(
+    () => (window as unknown as { calls: unknown[] }).calls.length,
+  );
+  await page.evaluate(() =>
+    (window as unknown as { changeDisplayMode: (mode: string) => void }).changeDisplayMode(
+      "fullscreen",
+    ),
+  );
+  await expect(ui.getByRole("dialog")).toBeVisible();
+  await expect(editor.getByLabel("Kimchi")).toBeChecked();
+  await expect(editor.getByLabel("Notes", { exact: false })).toHaveValue("No onions");
+  await expect(ui.getByLabel("Find a meal")).toHaveValue("tofu");
+  await page.evaluate(() =>
+    (window as unknown as { changeDisplayMode: (mode: string) => void }).changeDisplayMode(
+      "inline",
+    ),
+  );
+  await expect(ui.getByRole("dialog")).toHaveCount(0);
+  await expect(editor.getByLabel("Kimchi")).toBeChecked();
+  await expect(editor.getByLabel("Meal to replace")).toHaveValue("b");
+  await expect(editor.getByLabel("Notes", { exact: false })).toHaveValue("No onions");
+  await editor.getByRole("button", { name: "Back to meals" }).click();
+  await expect(card).toBeFocused();
+  await expect(ui.getByLabel("Find a meal")).toHaveValue("tofu");
+  expect(await page.evaluate(() => (window as unknown as { calls: unknown[] }).calls.length)).toBe(
+    before,
+  );
+});
+
+for (const displayMode of ["inline", "fullscreen"] as const) {
+  test(`direct meal launch shows only a detail skeleton before loading in ${displayMode}`, async ({
+    page,
+  }) => {
+    await page.goto(
+      fixtureUrl({
+        displayMode,
+        details: "held",
+        launch: { name: "open_forkable", arguments: { deliveryId: 1, menuId: 10, itemId: 7 } },
+      }),
+    );
+    const ui = page.frameLocator("iframe");
+    const loading = ui.getByRole("status", { name: "Loading meal details", exact: true });
+    await expect(loading).toBeVisible();
+    await expect(loading).toHaveText("");
+    await expect(loading.locator(".photo.skeleton")).toBeVisible();
+    await expect(ui.locator(".browser-toolbar")).toHaveCount(0);
+    await expect(ui.getByRole("region", { name: "Available meals" })).toHaveCount(0);
+    await expect
+      .poll(() =>
+        page.evaluate(() =>
+          (
+            window as unknown as { calls: { name: string; arguments?: { itemId?: number } }[] }
+          ).calls.some((call) => call.name === "get_menus" && call.arguments?.itemId === 7),
+        ),
+      )
+      .toBe(true);
+    await page.evaluate(() =>
+      (window as unknown as { releaseDetail: (index: number) => void }).releaseDetail(0),
+    );
+    await expect(loading).toHaveCount(0);
+    await expect(ui.getByRole("region", { name: "Meal details" })).toBeVisible();
+    await expect(ui.getByRole("dialog")).toHaveCount(displayMode === "inline" ? 0 : 1);
+    if (displayMode === "inline") {
+      const back = ui.getByRole("button", { name: "Back to meals", exact: true });
+      const background = await back.evaluate((button) => getComputedStyle(button).backgroundColor);
+      await back.hover();
+      await expect(back).not.toHaveCSS("background-color", background);
+    }
   });
 }
 
@@ -861,7 +1024,7 @@ test("restored legacy text attachments are replaced with background state", asyn
 for (const width of [375, 1000]) {
   test(`meal modal adapts its photo and details at width ${width}`, async ({ page }, testInfo) => {
     await page.setViewportSize({ width, height: 850 });
-    await page.goto("/");
+    await page.goto(fixtureUrl({ displayMode: "fullscreen" }));
     const ui = page.frameLocator("iframe");
     await ui.getByRole("button", { name: /View Spicy tofu/ }).click();
     const dialog = ui.getByRole("dialog", { name: "Spicy tofu bowl" });
@@ -897,7 +1060,11 @@ for (const scenario of ["replace", "add", "narrow"]) {
   test(`meal modal screenshot for ${scenario}`, async ({ page }, testInfo) => {
     await page.setViewportSize({ width: scenario === "narrow" ? 390 : 1080, height: 900 });
     await page.route("https://cdn.filestackcontent.com/**", (route) => route.abort());
-    await page.goto(scenario === "add" ? fixtureUrl({ deliveryScenario: "no-meals" }) : "/");
+    await page.goto(
+      scenario === "add"
+        ? fixtureUrl({ displayMode: "fullscreen", deliveryScenario: "no-meals" })
+        : fixtureUrl({ displayMode: "fullscreen" }),
+    );
     await page.getByRole("button", { name: "Dark theme" }).click();
     const ui = page.frameLocator("iframe");
     await ui.getByRole("button", { name: /View Spicy tofu/ }).click();
@@ -930,7 +1097,7 @@ for (const platform of ["desktop", "web"] as const) {
     await page.goto(fixtureUrl({ drafts: { platform } }));
     const ui = page.frameLocator("iframe");
     await ui.getByRole("button", { name: /View Spicy tofu/ }).click();
-    const dialog = ui.getByRole("dialog", { name: "Spicy tofu bowl" });
+    const dialog = ui.getByRole("region", { name: "Meal details" });
     await dialog.getByLabel("Meal to replace").selectOption("b");
     await dialog.getByLabel("Kimchi").check();
     await dialog.getByRole("button", { name: "Ask about this meal" }).click();
@@ -972,7 +1139,7 @@ for (const scenario of [
     await page.goto(fixtureUrl(scenario.config));
     const ui = page.frameLocator("iframe");
     await ui.getByRole("button", { name: /View Spicy tofu/ }).click();
-    await expect(ui.getByRole("dialog")).toBeVisible();
+    await expect(ui.getByRole("region", { name: "Meal details" })).toBeVisible();
     await expect(ui.getByRole("button", { name: "Ask about this meal" })).toHaveCount(0);
   });
 }
@@ -1231,7 +1398,10 @@ for (const width of [375, 1000]) {
     await ui.getByRole("button", { name: "Change meal", exact: true }).click();
     await expect(ui.getByRole("region", { name: "Available meals" })).toBeVisible();
     await expect(ui.getByRole("region", { name: "Selected meals" })).toHaveCount(0);
-    await ui.getByRole("button", { name: "Back to delivery" }).click();
+    const back = ui.getByRole("button", { name: "Back to delivery" });
+    await expect(back).toHaveCSS("height", "28px");
+    await expect(back).toHaveCSS("width", "28px");
+    await back.click();
     await expect(ui.getByRole("region", { name: "Selected meals" })).toBeVisible();
     expect(
       await page.evaluate(() => (window as unknown as { calls: unknown[] }).calls.length),
@@ -1360,14 +1530,14 @@ for (const appearance of ["claude", "cursor", "chatgpt"] as const) {
         .locator("#app")
         .screenshot({ path: testInfo.outputPath(`${appearance}-${width}-dark.png`) });
       await meal.click();
-      const dialog = ui.getByRole("dialog");
+      const dialog = ui.getByRole("region", { name: "Meal details" });
       await expect(dialog).toBeVisible();
       await expect(dialog.getByRole("heading", { name: "Spicy tofu bowl" })).toBeVisible();
       expect(await dialog.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(
         true,
       );
       await dialog.screenshot({ path: testInfo.outputPath(`${appearance}-${width}-dialog.png`) });
-      await dialog.getByRole("button", { name: "Close", exact: true }).click();
+      await dialog.getByRole("button", { name: "Back to meals", exact: true }).click();
       await expect(meal).toBeFocused();
     });
   }
@@ -1379,6 +1549,7 @@ test("safe areas update live and keep modal actions inside the host's visible bo
   await page.setViewportSize({ width: 390, height: 900 });
   await page.goto(
     fixtureUrl({
+      displayMode: "fullscreen",
       appearance: "claude",
       initialFrameHeight: 800,
       safeAreaInsets: { top: 20, right: 16, bottom: 80, left: 16 },
@@ -1404,13 +1575,13 @@ test("safe areas update live and keep modal actions inside the host's visible bo
       }
     ).setSafeAreaInsets({ top: 0, right: 0, bottom: 0, left: 0 }),
   );
-  await expect(ui.locator("#app")).toHaveCSS("padding-bottom", "12px");
+  await expect(ui.locator("#app")).toHaveCSS("padding-bottom", "16px");
 });
 
 test.describe("touch host", () => {
   test.use({ hasTouch: true, isMobile: true, viewport: { width: 390, height: 900 } });
   test("compact icon controls remain usable touch targets", async ({ page }) => {
-    await page.goto(fixtureUrl({ appearance: "claude" }));
+    await page.goto(fixtureUrl({ displayMode: "fullscreen", appearance: "claude" }));
     const ui = page.frameLocator("iframe");
     const refresh = ui.getByRole("button", { name: "Refresh", exact: true });
     await expect(refresh).toBeVisible();
@@ -1434,13 +1605,13 @@ test("meal selection opens immediately with its preview while options are loadin
   await page.goto(fixtureUrl({ details: "held", appearance: "claude", theme: "dark" }));
   const ui = page.frameLocator("iframe");
   await ui.getByRole("button", { name: "View Spicy tofu bowl from Seoul Kitchen" }).click();
-  const dialog = ui.getByRole("dialog", { name: "Spicy tofu bowl" });
+  const dialog = ui.getByRole("region", { name: "Meal details" });
   await expect(dialog).toBeVisible();
   await expect(dialog.getByRole("status")).toHaveAccessibleName("Loading meal options");
   await expect(dialog.getByRole("status")).toHaveText("");
   await expect(dialog.getByText("$15.00", { exact: true })).toBeVisible();
   await expect(dialog.getByRole("img", { name: "Spicy tofu bowl" })).toBeVisible();
-  await expect(dialog.getByRole("button", { name: "Close", exact: true })).toBeEnabled();
+  await expect(dialog.getByRole("button", { name: "Back to meals", exact: true })).toBeEnabled();
   await expect(dialog.getByRole("button", { name: /Replace meal/ })).toHaveCount(0);
   await dialog.screenshot({ path: testInfo.outputPath("meal-options-loading.png") });
   await page.evaluate(() =>
@@ -1460,7 +1631,7 @@ test("meal selection opens immediately with its preview while options are loadin
 test("closing a loading meal ignores its late reply and does not replace a newer selection", async ({
   page,
 }) => {
-  await page.goto(fixtureUrl({ details: "held" }));
+  await page.goto(fixtureUrl({ displayMode: "fullscreen", details: "held" }));
   const ui = page.frameLocator("iframe");
   const first = ui.getByRole("button", { name: "View Spicy tofu bowl from Seoul Kitchen" });
   await first.click();
@@ -1471,6 +1642,17 @@ test("closing a loading meal ignores its late reply and does not replace a newer
   await ui.getByRole("button", { name: "View Another bowl from Second Restaurant" }).click();
   const second = ui.getByRole("dialog", { name: "Another bowl" });
   await expect(second).toBeVisible();
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () =>
+          (
+            window as unknown as { calls: { name: string; arguments?: { itemId?: number } }[] }
+          ).calls.filter((call) => call.name === "get_menus" && call.arguments?.itemId != null)
+            .length,
+      ),
+    )
+    .toBe(2);
   await page.evaluate(() =>
     (
       window as unknown as { releaseDetail: (index: number, failed?: boolean) => void }
@@ -1489,7 +1671,7 @@ test("a failed meal read keeps its preview and retries only when requested", asy
   await page.goto(fixtureUrl({ details: "error-once" }));
   const ui = page.frameLocator("iframe");
   await ui.getByRole("button", { name: "View Spicy tofu bowl from Seoul Kitchen" }).click();
-  const dialog = ui.getByRole("dialog", { name: "Spicy tofu bowl" });
+  const dialog = ui.getByRole("region", { name: "Meal details" });
   await expect(dialog.getByRole("alert")).toHaveText("Meal options unavailable.");
   await expect(dialog.getByRole("img", { name: "Spicy tofu bowl" })).toBeVisible();
   const count = () =>

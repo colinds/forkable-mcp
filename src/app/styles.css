@@ -193,6 +193,14 @@ button:disabled {
 .skeleton-control {
   height: 36px;
 }
+.skeleton-back {
+  width: 100px;
+  height: 28px;
+}
+.skeleton-title {
+  width: 65%;
+  height: 28px;
+}
 @keyframes options-pulse {
   50% {
     opacity: 0.45;
@@ -360,11 +368,11 @@ legend {
   background: color-mix(in srgb, var(--foreground) 30%, transparent);
   backdrop-filter: blur(4px);
 }
-.meal-dialog .photo {
+:is(.meal-dialog, .meal-page) .photo {
   max-height: 240px;
 }
 @media (min-width: 720px) {
-  .meal-dialog .detail {
+  :is(.meal-dialog, .meal-page) .detail {
     grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
     align-items: start;
     gap: 24px;
@@ -372,14 +380,34 @@ legend {
   .detail-header {
     grid-column: 1 / -1;
   }
-  .meal-dialog .detail-summary {
+  :is(.meal-dialog, .meal-page) .detail-summary {
     position: sticky;
     top: 0;
   }
-  .meal-dialog .photo {
+  :is(.meal-dialog, .meal-page) .photo {
     aspect-ratio: 1;
     max-height: none;
   }
+}
+.meal-page .detail {
+  padding: 0;
+}
+.detail-page-header {
+  flex-direction: column;
+  align-items: flex-start;
+}
+.detail-back {
+  gap: 6px;
+  background: transparent;
+  border-color: transparent;
+}
+.detail-back:not(:disabled):hover {
+  background: var(--secondary);
+  color: var(--foreground);
+}
+html[data-display-mode="inline"] #app:has(.meal-page) {
+  max-height: none;
+  overflow-y: visible;
 }
 @media (max-width: 480px) {
   .date-chip {
@@ -632,7 +660,8 @@ html[data-display-mode="inline"] #app {
 .browser-date-row {
   margin-top: 4px;
 }
-.refresh-button {
+.refresh-button,
+.app-toolbar .icon-button {
   width: 28px;
   height: 28px;
   padding: 5px;
@@ -641,7 +670,8 @@ html[data-display-mode="inline"] #app {
   border-color: transparent;
   box-shadow: none;
 }
-.refresh-button:hover {
+.refresh-button:hover,
+.app-toolbar .icon-button:hover {
   color: var(--foreground);
   background: var(--secondary);
 }

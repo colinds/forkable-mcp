@@ -12,6 +12,8 @@ import { MealFilters } from "./filters.tsx";
 import { MealCards } from "./grid.tsx";
 import { MealDetail } from "./detail.tsx";
 import { MealDialog } from "./dialog.tsx";
+import { MealPage } from "./page.tsx";
+import { MealPageLoading } from "./page-loading.tsx";
 import { DeliveryProgress } from "../delivery-progress.tsx";
 import { SelectedMeals } from "./selected.tsx";
 import { useModelContext } from "../../hooks/use-model-context.ts";
@@ -41,6 +43,8 @@ export function MealBrowser({
   const presentation =
     displayMode === "fullscreen" ? "browse" : (viewOverride ?? browser.launch.view);
   const compact = presentation !== "browse";
+  const editing = !!state.delivery && !!(state.detail || state.selectedMeal);
+  const inlineEditor = displayMode === "inline" && editing;
   const view = useMemo(
     () =>
       menuView({
@@ -62,7 +66,7 @@ export function MealBrowser({
   );
   const contextFailed = useModelContext(
     { ...state, presentation },
-    view,
+    inlineEditor ? { ...view, ordered: [] } : view,
     state.deliveriesLoaded && !state.busy ? updateContext : undefined,
   );
   const { delivery, detail, busy, notice, problem } = state;
@@ -91,135 +95,151 @@ export function MealBrowser({
     setOpener(document.activeElement instanceof HTMLElement ? document.activeElement : undefined);
     browser.choose(menuId, itemId, sourcePieceId);
   }
+  if (initial?.input.itemId != null && state.pendingAction === "loading" && !editing)
+    return (
+      <div className="meal-page">
+        <MealPageLoading />
+      </div>
+    );
   return (
     <div aria-busy={busy && !state.selectedMeal} className={compact ? "compact-view" : undefined}>
-      <BrowserToolbar
-        title={title}
-        date={compact ? delivery?.date : undefined}
-        service={presentation === "meals" ? (delivery?.service ?? undefined) : undefined}
-        busy={busy}
-        onRefresh={browser.refresh}
-      >
-        {presentation === "meals" && (
+      <div hidden={inlineEditor}>
+        <BrowserToolbar
+          title={title}
+          date={compact ? delivery?.date : undefined}
+          service={presentation === "meals" ? (delivery?.service ?? undefined) : undefined}
+          busy={busy}
+          onRefresh={browser.refresh}
+        >
+          {presentation === "meals" && (
+            <>
+              {browser.launch.view === "delivery" && (
+                <IconButton
+                  icon={ArrowLeft}
+                  label="Back to delivery"
+                  disabled={busy}
+                  onClick={() => setViewOverride("delivery")}
+                />
+              )}
+              <Button disabled={busy} onClick={browseAll}>
+                Browse all meals
+              </Button>
+            </>
+          )}
+        </BrowserToolbar>
+        {displayError && (
+          <p role="alert" className="notice">
+            {displayError}
+          </p>
+        )}
+        {contextFailed && (
+          <p className="muted" role="status">
+            Chat context could not be updated. Try reopening the app.
+          </p>
+        )}
+        {notice && !detail && !state.selectedMeal && (
+          <p className={`notice ${problem ? "error" : ""}`} role={problem ? "alert" : "status"}>
+            {notice}
+          </p>
+        )}
+        {!state.deliveries.length && <p className="empty">{emptyMessage}</p>}
+        {!!state.deliveries.length && (
           <>
-            {browser.launch.view === "delivery" && (
-              <IconButton
-                icon={ArrowLeft}
-                label="Back to delivery"
-                disabled={busy}
-                onClick={() => setViewOverride("delivery")}
+            {(presentation === "browse" ||
+              (presentation === "delivery" && browser.launch.showDates)) && (
+              <DateStrip
+                deliveries={state.deliveries}
+                selectedId={delivery?.deliveryId}
+                busy={busy}
+                onSelect={browser.setDelivery}
               />
             )}
-            <Button disabled={busy} onClick={browseAll}>
-              Browse all meals
-            </Button>
-          </>
-        )}
-      </BrowserToolbar>
-      {displayError && (
-        <p role="alert" className="notice">
-          {displayError}
-        </p>
-      )}
-      {contextFailed && (
-        <p className="muted" role="status">
-          Chat context could not be updated. Try reopening the app.
-        </p>
-      )}
-      {notice && !detail && !state.selectedMeal && (
-        <p className={`notice ${problem ? "error" : ""}`} role={problem ? "alert" : "status"}>
-          {notice}
-        </p>
-      )}
-      {!state.deliveries.length && <p className="empty">{emptyMessage}</p>}
-      {!!state.deliveries.length && (
-        <>
-          {(presentation === "browse" ||
-            (presentation === "delivery" && browser.launch.showDates)) && (
-            <DateStrip
-              deliveries={state.deliveries}
-              selectedId={delivery?.deliveryId}
-              busy={busy}
-              onSelect={browser.setDelivery}
-            />
-          )}
-          {presentation !== "meals" && delivery && (
-            <SelectedMeals
-              delivery={delivery}
-              menus={state.menus}
-              busy={busy}
-              choose={choose}
-              status={state.deliveryStatus}
-              onBrowseMeals={
-                presentation === "delivery" && !isPastDelivery(delivery.date)
-                  ? () => setViewOverride("meals")
-                  : undefined
-              }
-            />
-          )}
-          {presentation !== "meals" && delivery && (
-            <DeliveryProgress
-              key={delivery.deliveryId}
-              delivery={delivery}
-              status={state.deliveryStatus}
-              unavailable={state.statusUnavailable}
-              loading={state.statusLoading}
-              openLink={openLink}
-            />
-          )}
-          {delivery && isPastDelivery(delivery.date) ? (
-            <p className="muted">
-              Past delivery. Menus and meal changes are available for upcoming deliveries.
-            </p>
-          ) : (
-            presentation !== "delivery" && (
-              <section className="menu-browser" aria-labelledby="browse-menus-title">
-                <h2 id="browse-menus-title" className={compact ? "sr-only" : undefined}>
-                  {compact ? "Meal results" : "Browse menus"}
-                </h2>
-                <MealFilters
-                  menus={state.menus}
-                  value={state.filters}
-                  query={state.query}
-                  onQueryChange={browser.setQuery}
-                  busy={busy}
-                  onChange={browser.setFilters}
-                  onClear={() => browser.setQuery("")}
-                />
-                {(!compact || state.filters.recommendedOnly) && state.recommendationsLoading && (
-                  <p className="muted" role="status">
-                    Loading recommendations…
-                  </p>
-                )}
-                {(!compact || state.filters.recommendedOnly) &&
-                  state.recommendationsUnavailable && (
+            {presentation !== "meals" && delivery && (
+              <SelectedMeals
+                delivery={delivery}
+                menus={state.menus}
+                busy={busy}
+                choose={choose}
+                status={state.deliveryStatus}
+                onBrowseMeals={
+                  presentation === "delivery" && !isPastDelivery(delivery.date)
+                    ? () => setViewOverride("meals")
+                    : undefined
+                }
+              />
+            )}
+            {presentation !== "meals" && delivery && (
+              <DeliveryProgress
+                key={delivery.deliveryId}
+                delivery={delivery}
+                status={state.deliveryStatus}
+                unavailable={state.statusUnavailable}
+                loading={state.statusLoading}
+                openLink={openLink}
+              />
+            )}
+            {delivery && isPastDelivery(delivery.date) ? (
+              <p className="muted">
+                Past delivery. Menus and meal changes are available for upcoming deliveries.
+              </p>
+            ) : (
+              presentation !== "delivery" && (
+                <section className="menu-browser" aria-labelledby="browse-menus-title">
+                  <h2 id="browse-menus-title" className={compact ? "sr-only" : undefined}>
+                    {compact ? "Meal results" : "Browse menus"}
+                  </h2>
+                  <MealFilters
+                    menus={state.menus}
+                    value={state.filters}
+                    query={state.query}
+                    onQueryChange={browser.setQuery}
+                    busy={busy}
+                    onChange={browser.setFilters}
+                    onClear={() => browser.setQuery("")}
+                  />
+                  {(!compact || state.filters.recommendedOnly) && state.recommendationsLoading && (
                     <p className="muted" role="status">
-                      {state.filters.recommendedOnly
-                        ? 'Recommendations are unavailable. Turn off "Recommended only" to browse all meals.'
-                        : "Recommendations are unavailable. You can still browse all meals."}
+                      Loading recommendations…
                     </p>
                   )}
-                <MealCards
-                  menus={state.menus}
-                  view={view}
-                  query={state.query}
-                  busy={busy || (state.filters.recommendedOnly && state.recommendationsLoading)}
-                  choose={choose}
-                />
-              </section>
-            )
-          )}
-        </>
-      )}
-      {(detail || state.selectedMeal) && delivery && (
-        <MealDialog
-          busy={busy && state.pendingAction !== "loading"}
-          onClose={browser.back}
-          returnFocus={opener}
-        >
-          <MealDetail browser={browser} />
-        </MealDialog>
-      )}
+                  {(!compact || state.filters.recommendedOnly) &&
+                    state.recommendationsUnavailable && (
+                      <p className="muted" role="status">
+                        {state.filters.recommendedOnly
+                          ? 'Recommendations are unavailable. Turn off "Recommended only" to browse all meals.'
+                          : "Recommendations are unavailable. You can still browse all meals."}
+                      </p>
+                    )}
+                  <MealCards
+                    menus={state.menus}
+                    view={view}
+                    query={state.query}
+                    busy={busy || (state.filters.recommendedOnly && state.recommendationsLoading)}
+                    choose={choose}
+                  />
+                </section>
+              )
+            )}
+          </>
+        )}
+      </div>
+      {editing &&
+        (inlineEditor ? (
+          <MealPage returnFocus={opener}>
+            <MealDetail
+              browser={browser}
+              backLabel={presentation === "delivery" ? "Back to delivery" : "Back to meals"}
+            />
+          </MealPage>
+        ) : (
+          <MealDialog
+            busy={busy && state.pendingAction !== "loading"}
+            onClose={browser.back}
+            returnFocus={opener}
+          >
+            <MealDetail browser={browser} />
+          </MealDialog>
+        ))}
     </div>
   );
 }

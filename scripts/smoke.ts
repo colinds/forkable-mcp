@@ -110,6 +110,10 @@ async function checkInstalled(runner: Runner, cwd: string, home: string): Promis
   log(`${runner} registered ${names.length} tools`);
 
   const browser = listedTools.find((tool) => tool.name === "open_forkable");
+  if (!browser?.description?.includes("data tools for text-only answers"))
+    fail(`${runner}: meal browser is missing standalone tool-routing guidance`);
+  if (!client.getInstructions()?.includes("final display step"))
+    fail(`${runner}: server is missing meal browser orchestration instructions`);
   if (!browser?.icons?.some((icon) => icon.src === serverPng.src))
     fail(`${runner}: meal browser does not share the server PNG icon`);
   const ui = browser?.["_meta"]?.ui as { resourceUri?: string } | undefined;
