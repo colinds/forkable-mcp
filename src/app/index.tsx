@@ -4,7 +4,7 @@ import { createRoot } from "react-dom/client";
 import { App } from "@modelcontextprotocol/ext-apps";
 import "@openai/mcp-extensions/app/styles.css";
 import "./styles.css";
-import { MealBrowser } from "./components/meal/browser.tsx";
+import { MealApp } from "./app.tsx";
 import { observeAppSize } from "./lib/host-size.ts";
 import { applyHostContext } from "./lib/host-theme.ts";
 import { type InitialView } from "./lib/initial-view.ts";
@@ -47,7 +47,7 @@ function renderView() {
   renderedDraftSupport = supportsEditableDrafts(app);
   root.render(
     <StrictMode>
-      <MealBrowser
+      <MealApp
         key={revision}
         host={{ callTool: call, createDraft: renderedDraftSupport ? writeDraft : undefined }}
         initial={initial}

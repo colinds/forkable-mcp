@@ -1,49 +1,29 @@
-import { BrowserToolbar } from "../browser-toolbar.tsx";
-import type { BrowserView } from "@/shared/contracts/browser.ts";
+import { BrowserToolbar } from "../components/browser-toolbar.tsx";
 import { ArrowLeft } from "lucide-react";
-import { IconButton } from "../icon-button.tsx";
-import type { McpUiDisplayMode } from "@modelcontextprotocol/ext-apps";
-import { activeFilterCount, defaultFilters, menuView } from "../../lib/menu-filters.ts";
-import { isPastDelivery, type InitialView } from "../../lib/initial-view.ts";
+import { IconButton } from "../components/icon-button.tsx";
+import { Outlet } from "@tanstack/react-router";
+import { useMealApp } from "../lib/app-context.ts";
+import { MealEditorContext } from "../lib/editor-context.ts";
+import { activeFilterCount, menuView } from "../lib/menu-filters.ts";
+import { isPastDelivery } from "../lib/initial-view.ts";
 import { useState, useMemo } from "react";
-import { Button } from "../button.tsx";
-import { DateStrip } from "../date-strip.tsx";
-import { MealFilters } from "./filters.tsx";
-import { MealCards } from "./grid.tsx";
-import { MealDetail } from "./detail.tsx";
-import { MealDialog } from "./dialog.tsx";
-import { MealPage } from "./page.tsx";
-import { MealPageLoading } from "./page-loading.tsx";
-import { DeliveryProgress } from "../delivery-progress.tsx";
-import { SelectedMeals } from "./selected.tsx";
-import { useModelContext } from "../../hooks/use-model-context.ts";
-import type { UpdateContext } from "../../lib/model-context.ts";
-import { useMealBrowser, type MealBrowserHost } from "../../hooks/use-meal-browser.ts";
-import type { OpenLink } from "../../lib/tools.ts";
+import { Button } from "../components/button.tsx";
+import { DateStrip } from "../components/date-strip.tsx";
+import { MealFilters } from "../components/meal/browse/filters.tsx";
+import { MealCards } from "../components/meal/browse/grid.tsx";
+import { DeliveryProgress } from "../components/delivery-progress.tsx";
+import { SelectedMeals } from "../components/meal/browse/selected.tsx";
+import { useModelContext } from "../hooks/use-model-context.ts";
+import { useMealBrowser } from "../hooks/use-meal-browser.ts";
 
-export function MealBrowser({
-  host,
-  openLink,
-  updateContext,
-  initial,
-  expand,
-  displayMode = "inline",
-}: {
-  host: MealBrowserHost;
-  openLink?: OpenLink;
-  updateContext?: UpdateContext;
-  initial?: InitialView;
-  expand?: () => Promise<void>;
-  displayMode?: McpUiDisplayMode;
-}) {
+export function MealBrowserPage() {
+  const { openLink, updateContext, expand, displayMode = "inline" } = useMealApp();
   const [displayError, setDisplayError] = useState<string>();
-  const [viewOverride, setViewOverride] = useState<BrowserView>();
-  const browser = useMealBrowser(host, initial);
+  const browser = useMealBrowser();
   const { state } = browser;
-  const presentation =
-    displayMode === "fullscreen" ? "browse" : (viewOverride ?? browser.launch.view);
+  const presentation = displayMode === "fullscreen" ? "browse" : browser.view;
   const compact = presentation !== "browse";
-  const editing = !!state.delivery && !!(state.detail || state.selectedMeal);
+  const editing = browser.editing;
   const inlineEditor = displayMode === "inline" && editing;
   const view = useMemo(
     () =>
@@ -65,9 +45,9 @@ export function MealBrowser({
     ],
   );
   const contextFailed = useModelContext(
-    { ...state, presentation },
+    { ...state, presentation, source: "", choices: {}, instructions: "" },
     inlineEditor ? { ...view, ordered: [] } : view,
-    state.deliveriesLoaded && !state.busy ? updateContext : undefined,
+    state.deliveriesLoaded && !state.busy && !editing ? updateContext : undefined,
   );
   const { delivery, detail, busy, notice, problem } = state;
   const [opener, setOpener] = useState<HTMLElement>();
@@ -77,9 +57,7 @@ export function MealBrowser({
       void expand().catch(() => setDisplayError("Full view is unavailable in this host."));
   }
   function browseAll() {
-    browser.setQuery("");
-    browser.setFilters(defaultFilters);
-    setViewOverride("browse");
+    browser.browse();
     openFullView();
   }
   let title = "Meals";
@@ -95,12 +73,6 @@ export function MealBrowser({
     setOpener(document.activeElement instanceof HTMLElement ? document.activeElement : undefined);
     browser.choose(menuId, itemId, sourcePieceId);
   }
-  if (initial?.input.itemId != null && state.pendingAction === "loading" && !editing)
-    return (
-      <div className="meal-page">
-        <MealPageLoading />
-      </div>
-    );
   return (
     <div aria-busy={busy && !state.selectedMeal} className={compact ? "compact-view" : undefined}>
       <div hidden={inlineEditor}>
@@ -118,7 +90,7 @@ export function MealBrowser({
                   icon={ArrowLeft}
                   label="Back to delivery"
                   disabled={busy}
-                  onClick={() => setViewOverride("delivery")}
+                  onClick={() => browser.setView("delivery")}
                 />
               )}
               <Button disabled={busy} onClick={browseAll}>
@@ -163,7 +135,7 @@ export function MealBrowser({
                 status={state.deliveryStatus}
                 onBrowseMeals={
                   presentation === "delivery" && !isPastDelivery(delivery.date)
-                    ? () => setViewOverride("meals")
+                    ? () => browser.setView("meals")
                     : undefined
                 }
               />
@@ -223,23 +195,18 @@ export function MealBrowser({
           </>
         )}
       </div>
-      {editing &&
-        (inlineEditor ? (
-          <MealPage returnFocus={opener}>
-            <MealDetail
-              browser={browser}
-              backLabel={presentation === "delivery" ? "Back to delivery" : "Back to meals"}
-            />
-          </MealPage>
-        ) : (
-          <MealDialog
-            busy={busy && state.pendingAction !== "loading"}
-            onClose={browser.back}
-            returnFocus={opener}
-          >
-            <MealDetail browser={browser} />
-          </MealDialog>
-        ))}
+      <MealEditorContext
+        value={{
+          browser,
+          inline: displayMode === "inline",
+          opener,
+          backLabel: presentation === "delivery" ? "Back to delivery" : "Back to meals",
+          view,
+          presentation,
+        }}
+      >
+        <Outlet />
+      </MealEditorContext>
     </div>
   );
 }
