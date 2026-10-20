@@ -1,6 +1,6 @@
 {
   "name": "forkable-mcp",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "description": "Unofficial MCP server for Forkable — order and manage corporate lunches from any MCP client.",
   "keywords": [
     "bun",
