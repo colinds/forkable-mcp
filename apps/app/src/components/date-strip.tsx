@@ -1,7 +1,8 @@
-import { useEffect, useRef, useMemo } from "react";
+import { useEffect, useId, useRef, useMemo } from "react";
+import { Check, Plus } from "lucide-react";
 import type { Delivery } from "@forkable-mcp/shared/contracts/meals.ts";
 
-import { dateLabels } from "@/app/lib/delivery-labels.ts";
+import { dateLabels, serviceLabel } from "@/app/lib/delivery-labels.ts";
 
 export function DateStrip({
   deliveries,
@@ -15,6 +16,7 @@ export function DateStrip({
   onSelect: (id: number) => void;
 }) {
   const strip = useRef<HTMLDivElement>(null);
+  const statusId = useId();
   const dateCounts = useMemo(() => {
     const counts = new Map<string, number>();
     for (const delivery of deliveries)
@@ -50,26 +52,36 @@ export function DateStrip({
       {deliveries.map((delivery) => {
         const label = dateLabels(delivery.date);
         const sameDay = (dateCounts.get(delivery.date) ?? 0) > 1;
+        const hasMeal = delivery.meals.length > 0;
         return (
           <button
             type="button"
             key={delivery.deliveryId}
             className="date-chip cursor-interaction"
             aria-pressed={delivery.deliveryId === selectedId}
-            aria-label={`${label.weekday}, ${label.date}, ${delivery.service ?? "delivery"}${delivery.club ? `, ${delivery.club}` : ""}`}
+            aria-label={`${label.weekday}, ${label.date}, ${serviceLabel(delivery.service) ?? "Delivery"}${delivery.club ? `, ${delivery.club}` : ""}`}
+            aria-describedby={`${statusId}-${delivery.deliveryId}`}
             disabled={busy}
             onClick={() => onSelect(delivery.deliveryId)}
           >
             <span className="muted">{label.weekday}</span>
             <time dateTime={delivery.date}>{label.date}</time>
+            <span id={`${statusId}-${delivery.deliveryId}`} className="sr-only">
+              {hasMeal ? "Meal selected" : "No meal selected. Choose a meal."}
+            </span>
             {sameDay ? (
               <span className="date-context">
-                {delivery.service}
+                {serviceLabel(delivery.service)}
                 {delivery.club ? ` · ${delivery.club}` : ""}
               </span>
             ) : (
-              <span className="muted">
-                {delivery.meals.length ? "Meal selected" : "Choose a meal"}
+              <span className="date-status muted">
+                {hasMeal ? (
+                  <Check size={14} aria-hidden="true" />
+                ) : (
+                  <Plus size={14} aria-hidden="true" />
+                )}
+                {hasMeal ? "Selected" : "Choose a meal"}
               </span>
             )}
           </button>

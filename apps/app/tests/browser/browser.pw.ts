@@ -744,6 +744,30 @@ test("failed image shows fallback without hiding the meal", async ({ page }) => 
   await expect(ui.getByRole("button", { name: /View Spicy tofu/ })).toBeEnabled();
 });
 
+test("date cards pair selection labels with check and plus icons", async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 960, height: 900 });
+  await page.emulateMedia({ colorScheme: "dark" });
+  await page.goto(
+    fixtureUrl({
+      deliveryScenario: "date-statuses",
+      appearance: "claude",
+      theme: "dark",
+      launch: { name: "open_forkable", arguments: { from: "2026-10-05", to: "2026-10-09" } },
+    }),
+  );
+  const ui = page.frameLocator("iframe");
+  const strip = ui.getByRole("group", { name: "Delivery dates" });
+  const dates = strip.getByRole("button");
+  await expect(dates).toHaveCount(5);
+  await expect(dates.nth(0).locator(".date-status")).toHaveText("Selected");
+  await expect(dates.nth(0).locator(".lucide-check")).toBeVisible();
+  await expect(dates.nth(0)).toHaveAccessibleDescription("Meal selected");
+  await expect(dates.nth(1).locator(".date-status")).toHaveText("Choose a meal");
+  await expect(dates.nth(1).locator(".lucide-plus")).toBeVisible();
+  await expect(dates.nth(1)).toHaveAccessibleDescription("No meal selected. Choose a meal.");
+  await strip.screenshot({ path: testInfo.outputPath("date-cards.png") });
+});
+
 test("dates scroll horizontally, keep same-day services distinct, and support keyboard selection", async ({
   page,
 }, testInfo) => {
@@ -801,6 +825,117 @@ test("meal modal keeps the grid and search, contains focus, and dismisses withou
   await dialog.getByRole("button", { name: "Close", exact: true }).click();
   await expect(dialog).toHaveCount(0);
 });
+for (const width of [375, 1000]) {
+  test(`delivery metadata is capitalized, compact and consistent at ${width}px`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto(fixtureUrl({ tracking: true, appearance: "claude", theme: "dark" }));
+    const ui = page.frameLocator("iframe");
+    const selected = ui.getByRole("region", { name: "Selected meals" });
+    await expect(selected.locator(".selected-heading .metadata-list")).toContainText("Lunch");
+    await expect(selected.locator(".selected-heading .lucide")).toHaveCount(2);
+    const metadata = ui.getByRole("region", { name: "Delivery updates" }).locator(".delivery-meta");
+    await expect(metadata).not.toContainText("Local time");
+    await expect(metadata).not.toContainText("delivery local time");
+    await expect(metadata.locator(".lucide")).toHaveCount(2);
+    const schedule = await metadata.locator(".metadata-item").first().boundingBox();
+    const billing = await metadata.locator(".metadata-item").last().boundingBox();
+    if (width === 1000) {
+      expect(Math.abs(schedule!.y - billing!.y)).toBeLessThanOrEqual(1);
+      expect(billing!.x - schedule!.x - schedule!.width).toBeLessThanOrEqual(20);
+    }
+    expect(await metadata.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(
+      true,
+    );
+  });
+}
+
+for (const timezoneId of ["America/Los_Angeles", "America/New_York"]) {
+  test.describe(`scheduled delivery timezone in ${timezoneId}`, () => {
+    test.use({ timezoneId });
+    test("only labels the timezone when it differs from the device", async ({ page }) => {
+      await page.goto(fixtureUrl({ tracking: true }));
+      const ui = page.frameLocator("iframe");
+      const schedule = ui
+        .getByRole("region", { name: "Delivery updates" })
+        .locator(".delivery-meta .metadata-item")
+        .first();
+      await expect(schedule).toContainText("11:45 AM–12:15 PM");
+      if (timezoneId === "America/New_York") await expect(schedule).toContainText("PDT");
+      else await expect(schedule).not.toContainText("PDT");
+      await expect(schedule).not.toContainText("Local time");
+    });
+  });
+}
+
+test("single-order updates retain the delivery lifecycle when the order has no status", async ({
+  page,
+}) => {
+  await page.goto(fixtureUrl({ deliveryUpdates: "pending" }));
+  const ui = page.frameLocator("iframe");
+  const progress = ui.getByRole("region", { name: "Delivery updates" });
+  await expect(progress).toContainText("Awaiting delivery updates");
+  await expect(progress).not.toContainText("Delivery status unavailable");
+  await expect(progress.locator(".status-badge .lucide-badge-check")).toBeVisible();
+});
+
+for (const width of [375, 1000]) {
+  test(`a single delivery shows its arrival and tracking once at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto(fixtureUrl({ deliveryUpdates: "delivered" }));
+    const ui = page.frameLocator("iframe");
+    const progress = ui.getByRole("region", { name: "Delivery updates" });
+    await expect(progress).toContainText("Delivered at 11:28 AM PDT");
+    expect((await progress.innerText()).match(/\bDelivered\b/g)).toHaveLength(1);
+    await expect(progress.getByText("Seoul Kitchen", { exact: true })).toHaveCount(0);
+    await expect(progress.locator(".order-update")).toHaveCount(0);
+    await expect(progress.getByRole("link", { name: "Track order" })).toHaveCount(1);
+    if (width === 375) {
+      const link = await progress.getByRole("link", { name: "Track order" }).boundingBox();
+      const region = await progress.boundingBox();
+      expect(Math.abs(link!.width - region!.width)).toBeLessThanOrEqual(2);
+    }
+    expect(await progress.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(
+      true,
+    );
+  });
+
+  test(`multiple deliveries keep restaurant statuses and tracking links separate at ${width}px`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto(fixtureUrl({ deliveryUpdates: "multiple" }));
+    const ui = page.frameLocator("iframe");
+    const progress = ui.getByRole("region", { name: "Delivery updates" });
+    await expect(progress.locator(".delivery-summary")).toContainText("2 orders");
+    const updates = progress.locator(".order-update");
+    await expect(updates).toHaveCount(2);
+    await expect(updates.nth(0)).toContainText("Seoul Kitchen");
+    await expect(updates.nth(0)).toContainText("Delivered at 11:28 AM PDT");
+    await expect(updates.nth(0).getByRole("link")).toHaveAttribute(
+      "href",
+      "https://track.example/meal",
+    );
+    await expect(updates.nth(1)).toContainText("Second Restaurant");
+    await expect(updates.nth(1)).toContainText("Delayed · 12:10 PM–12:30 PM PDT");
+    await expect(updates.nth(1).getByRole("link")).toHaveAttribute(
+      "href",
+      "https://track.example/second",
+    );
+    if (width === 375) {
+      const region = await progress.boundingBox();
+      for (const link of await progress.getByRole("link").all()) {
+        const bounds = await link.boundingBox();
+        expect(Math.abs(bounds!.width - region!.width)).toBeLessThanOrEqual(2);
+      }
+    }
+    expect(await progress.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(
+      true,
+    );
+  });
+}
+
 test("delivery details translate lifecycle states and show actual ETA, options and billing", async ({
   page,
 }) => {
@@ -813,10 +948,10 @@ test("delivery details translate lifecycle states and show actual ETA, options a
   await expect(ui.getByRole("region", { name: "Selected meals" })).toContainText("Group A3");
   await page.goto(fixtureUrl({ tracking: true }));
   const progress = ui.getByRole("region", { name: "Delivery updates" });
-  await expect(progress).toContainText("Arriving On Time");
-  await expect(progress).toContainText("11:50am - 12:10pm PDT");
+  await expect(progress).toContainText("Arriving on time");
+  await expect(progress).toContainText("11:50 AM–12:10 PM PDT");
   await expect(progress).toContainText("Reported due: $2.50");
-  await expect(progress.getByRole("link", { name: "Track Order" })).toHaveAttribute(
+  await expect(progress.getByRole("link", { name: "Track order" })).toHaveAttribute(
     "href",
     "https://track.example/meal",
   );
@@ -940,7 +1075,7 @@ test("restaurant sections persist for filters and combine only during search", a
   await expect(meals.getByRole("region", { name: "Garden Table" }).getByRole("button")).toHaveCount(
     2,
   );
-  const track = ui.getByRole("link", { name: "Track Order" });
+  const track = ui.getByRole("link", { name: "Track order" });
   expect((await track.boundingBox())?.height).toBeGreaterThanOrEqual(44);
   await page.evaluate(() =>
     (window as unknown as { changeDisplayMode: (mode: string) => void }).changeDisplayMode(
@@ -1112,7 +1247,9 @@ test("a native dialog close during confirmation cannot hide an uncertain outcome
   const ui = page.frameLocator("iframe");
   await ui.getByRole("button", { name: /View Spicy tofu/ }).click();
   const dialog = ui.getByRole("dialog", { name: "Spicy tofu bowl" });
-  await expect(dialog).toContainText("2026-10-05 · Lunch · Office");
+  await expect(dialog.locator("time[datetime='2026-10-05']")).toContainText("Mon, Oct 5");
+  await expect(dialog.locator(".metadata-list")).toContainText("Lunch");
+  await expect(dialog.locator(".metadata-list")).toContainText("Office");
   await ui.getByLabel("Meal to replace").selectOption("b");
   await ui.getByLabel("Kimchi").check();
   await ui.getByRole("button", { name: "Replace meal" }).click();
@@ -2001,7 +2138,7 @@ for (const width of [375, 1000]) {
     await expect(ui.getByRole("heading", { name: "Your delivery" })).toBeVisible();
     await expect(ui.getByRole("region", { name: "Selected meals" })).toBeVisible();
     await expect(ui.getByRole("region", { name: "Delivery updates" })).toBeVisible();
-    await expect(ui.getByRole("link", { name: "Track Order" })).toBeVisible();
+    await expect(ui.getByRole("link", { name: "Track order" })).toBeVisible();
     await expect(ui.getByRole("group", { name: "Delivery dates" })).toHaveCount(0);
     await expect(ui.getByRole("region", { name: "Available meals" })).toHaveCount(0);
     await expect(

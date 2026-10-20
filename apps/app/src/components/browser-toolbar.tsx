@@ -1,6 +1,6 @@
 import { RefreshCw } from "lucide-react";
 import type { ReactNode } from "react";
-import { dateLabels } from "@/app/lib/delivery-labels.ts";
+import { DeliveryMetadata } from "./delivery-metadata.tsx";
 import { IconButton } from "./icon-button.tsx";
 
 export function BrowserToolbar({
@@ -18,7 +18,6 @@ export function BrowserToolbar({
   onRefresh: () => void;
   children?: ReactNode;
 }) {
-  const label = date ? dateLabels(date) : undefined;
   const refresh = (
     <IconButton
       icon={RefreshCw}
@@ -37,14 +36,9 @@ export function BrowserToolbar({
           </h2>
           {!date && refresh}
         </div>
-        {date && label && (
+        {date && (
           <div className="browser-date-row">
-            <p className="muted">
-              <time dateTime={date}>
-                {label.weekday}, {label.date}
-              </time>
-              {service ? ` · ${service}` : ""}
-            </p>
+            <DeliveryMetadata date={date} service={service} />
             {refresh}
           </div>
         )}

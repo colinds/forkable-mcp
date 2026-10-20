@@ -3,6 +3,9 @@ import { isPastDelivery } from "@/app/lib/initial-view.ts";
 import { MealCard } from "./card.tsx";
 import { Button } from "@/app/components/button.tsx";
 import type { Delivery, Menu, DeliveryStatus } from "@forkable-mcp/shared/contracts/meals.ts";
+import { DeliveryMetadata } from "@/app/components/delivery-metadata.tsx";
+import { MetadataItem } from "@/app/components/metadata-item.tsx";
+import { SlidersHorizontal } from "lucide-react";
 
 export function SelectedMeals({
   delivery,
@@ -25,7 +28,7 @@ export function SelectedMeals({
     <section className="selected-meals" aria-label="Selected meals">
       <div className="selected-heading">
         <h2>{delivery.meals.length === 1 ? "Your meal" : "Your meals"}</h2>
-        <p className="muted">{[delivery.service, delivery.club].filter(Boolean).join(" · ")}</p>
+        <DeliveryMetadata service={delivery.service} club={delivery.club} />
       </div>
       {!delivery.meals.length && <p className="muted">No meal selected. Choose one below.</p>}
       <div className="selected-cards">
@@ -44,7 +47,15 @@ export function SelectedMeals({
                 ingredients={item?.ingredients}
                 restaurant={mealStatus?.venue ?? menu?.name}
                 price={mealStatus?.price}
-                description={mealStatus?.options.join(" · ")}
+                description={
+                  mealStatus?.options.length ? (
+                    <MetadataItem icon={SlidersHorizontal}>
+                      {mealStatus.options
+                        .map((option) => option.replace(/^choose\s+/i, ""))
+                        .join(" · ")}
+                    </MetadataItem>
+                  ) : undefined
+                }
                 caption={
                   meal.cancellationPending
                     ? "Removal pending"
