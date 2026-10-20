@@ -1,6 +1,6 @@
 import { RefreshCw } from "lucide-react";
 import type { ReactNode } from "react";
-import { dateLabels } from "../lib/delivery-labels.ts";
+import { dateLabels } from "@/app/lib/delivery-labels.ts";
 import { IconButton } from "./icon-button.tsx";
 
 export function BrowserToolbar({

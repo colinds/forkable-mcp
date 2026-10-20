@@ -1,7 +1,7 @@
 import { useMutation } from "@tanstack/react-query";
 import { useRouter, type ErrorComponentProps } from "@tanstack/react-router";
-import { useMealApp } from "../lib/app-context.ts";
-import { BrowserToolbar } from "../components/browser-toolbar.tsx";
+import { useMealApp } from "@/app/lib/app-context.ts";
+import { BrowserToolbar } from "@/app/components/browser-toolbar.tsx";
 
 export function MealLoadError({ error }: ErrorComponentProps) {
   const { queryClient, queries } = useMealApp();

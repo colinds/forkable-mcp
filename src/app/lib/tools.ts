@@ -1,9 +1,9 @@
 import { modifierMinimum } from "@/shared/meal-options.ts";
 import type { CallToolResult } from "@modelcontextprotocol/client";
-import type { SetMealInput, BrowserToolInputs } from "../../shared/contracts/inputs.ts";
+import type { SetMealInput, BrowserToolInputs } from "@/shared/contracts/inputs.ts";
 import { z } from "zod";
-import type { Delivery, Detail } from "../../shared/contracts/meals.ts";
-import { writeResultSchema, type WriteResult } from "../../shared/contracts/writes.ts";
+import type { Delivery, Detail } from "@/shared/contracts/meals.ts";
+import { writeResultSchema, type WriteResult } from "@/shared/contracts/writes.ts";
 
 export type OpenLink = (url: string) => Promise<{ isError?: boolean }>;
 

@@ -1,17 +1,17 @@
-import { useState } from "react";
+import { useMealDraft } from "@/app/lib/meal-draft-context.ts";
 import { useSearch } from "@tanstack/react-router";
 import { selectedMealTotal } from "@/shared/meal-options.ts";
 import { createMealReference } from "@/shared/meal-reference.ts";
 import type { MealBrowserController } from "./use-meal-browser.ts";
 import type { Detail } from "@/shared/contracts/meals.ts";
-import type { MealDraftValues } from "../lib/editor-types.ts";
+import type { MealDraftValues } from "@/app/lib/editor-types.ts";
 
 const noChoices: Record<string, number[]> = {};
 
 export function useMealEditor(browser: MealBrowserController, detail: Detail) {
   const { delivery } = browser.state;
   const { sourcePieceId } = useSearch({ from: "__root__" });
-  const [edited, setEdited] = useState<MealDraftValues>();
+  const { draft: edited, setDraft: setEdited } = useMealDraft();
   const defaultSource =
     sourcePieceId ?? (delivery?.meals.length === 1 ? delivery.meals[0]!.pieceId : "");
   function notesFor(pieceId: string | number) {

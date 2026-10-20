@@ -1,8 +1,8 @@
 import { useState } from "react";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { RouterProvider } from "@tanstack/react-router";
-import { MealAppContext, type MealAppProps } from "./lib/app-context.ts";
-import { createMealQueries, createQueryClient } from "./lib/queries.ts";
+import { MealAppContext, type MealAppProps } from "@/app/lib/app-context.ts";
+import { createMealQueries, createQueryClient } from "@/app/lib/queries.ts";
 import { createMealRouter } from "./router.ts";
 
 export function MealApp(props: MealAppProps) {

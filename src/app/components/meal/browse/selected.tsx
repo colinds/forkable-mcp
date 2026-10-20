@@ -1,5 +1,5 @@
 import { MealCard } from "./card.tsx";
-import { Button } from "../../button.tsx";
+import { Button } from "@/app/components/button.tsx";
 import type { Delivery, Menu, DeliveryStatus } from "@/shared/contracts/meals.ts";
 
 export function SelectedMeals({

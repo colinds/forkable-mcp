@@ -1,6 +1,11 @@
 export function MealOptionsLoading() {
   return (
-    <div className="options-loading" role="status" aria-label="Loading meal options">
+    <div
+      className="detail-content"
+      role="status"
+      aria-label="Loading meal options"
+      aria-busy="true"
+    >
       <div className="option-skeleton" aria-hidden="true">
         <div className="skeleton skeleton-label" />
         {Array.from({ length: 3 }, (_, index) => (
@@ -10,6 +15,7 @@ export function MealOptionsLoading() {
           </div>
         ))}
       </div>
+      <div className="skeleton skeleton-control" aria-hidden="true" />
     </div>
   );
 }

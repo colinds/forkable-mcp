@@ -7,16 +7,16 @@ import {
   redirect,
 } from "@tanstack/react-router";
 import type { QueryClient } from "@tanstack/react-query";
-import { MealBrowserPage } from "./pages/browser.tsx";
-import { MealEditorPage } from "./pages/meal/page.tsx";
-import { MealPending } from "./pages/meal/pending.tsx";
-import { MealLoadError } from "./pages/error.tsx";
-import { MealRouteError } from "./pages/meal/error.tsx";
-import { resultText } from "./lib/tools.ts";
-import { MealAppLoading } from "./pages/loading.tsx";
-import { isPastDelivery, type InitialView } from "./lib/initial-view.ts";
-import { MEAL_PATH, navigationSchema, parseMealParams } from "./lib/navigation.ts";
-import type { MealQueries } from "./lib/queries.ts";
+import { MealBrowserPage } from "@/app/pages/browser.tsx";
+import { MealEditorPage } from "@/app/pages/meal/page.tsx";
+import { MealPending } from "@/app/pages/meal/pending.tsx";
+import { MealLoadError } from "@/app/pages/error.tsx";
+import { MealRouteError } from "@/app/pages/meal/error.tsx";
+import { resultText } from "@/app/lib/tools.ts";
+import { MealAppLoading } from "@/app/pages/loading.tsx";
+import { isPastDelivery, type InitialView } from "@/app/lib/initial-view.ts";
+import { MEAL_PATH, navigationSchema, parseMealParams } from "@/app/lib/navigation.ts";
+import type { MealQueries } from "@/app/lib/queries.ts";
 
 interface RouterContext {
   queryClient: QueryClient;
@@ -34,7 +34,7 @@ const root = createRootRouteWithContext<RouterContext>()({
     )
       throw new Error(resultText(context.initial.result) || "Forkable could not load this view.");
   },
-  loader: async ({ context, deps, location }) => {
+  loader: async ({ context, deps }) => {
     const initialLoad =
       context.queryClient.getQueryData(context.queries.deliveries().queryKey) === undefined;
     const deliveries = await context.queryClient.ensureQueryData(context.queries.deliveries());
@@ -44,23 +44,6 @@ const root = createRootRouteWithContext<RouterContext>()({
         : deliveries.find((d) => d.deliveryId === deps.deliveryId);
     if (initialLoad && selected)
       await context.queryClient.ensureQueryData(context.queries.menus(selected));
-    const input = context.initial?.input;
-    if (
-      initialLoad &&
-      location.pathname !== "/" &&
-      selected &&
-      !isPastDelivery(selected.date) &&
-      input?.deliveryId === selected.deliveryId &&
-      input.menuId != null &&
-      input.itemId != null
-    )
-      await context.queryClient.ensureQueryData(
-        context.queries.detail({
-          deliveryId: selected.deliveryId,
-          menuId: input.menuId,
-          itemId: input.itemId,
-        }),
-      );
   },
   component: MealBrowserPage,
   errorComponent: MealLoadError,
@@ -90,7 +73,6 @@ const meal = createRoute({
         to: "/",
         search: (previous) => ({ ...previous, deliveryId: delivery.deliveryId }),
       });
-    return context.queryClient.ensureQueryData(context.queries.detail(params));
   },
   component: MealEditorPage,
   remountDeps: ({ params, search }) => ({ ...params, sourcePieceId: search.sourcePieceId }),

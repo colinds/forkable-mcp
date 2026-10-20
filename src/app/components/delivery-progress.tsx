@@ -6,8 +6,8 @@ import {
   clockTime,
   fulfillmentLabel,
   trackingUrl,
-} from "../lib/delivery-labels.ts";
-import { type OpenLink } from "../lib/tools.ts";
+} from "@/app/lib/delivery-labels.ts";
+import { type OpenLink } from "@/app/lib/tools.ts";
 import { money } from "@/shared/currency.ts";
 import { type Delivery, type DeliveryStatus } from "@/shared/contracts/meals.ts";
 

@@ -1,6 +1,6 @@
 import { ArrowLeft, X } from "lucide-react";
-import { IconButton } from "../../icon-button.tsx";
-import { Button } from "../../button.tsx";
+import { IconButton } from "@/app/components/icon-button.tsx";
+import { Button } from "@/app/components/button.tsx";
 
 export function MealNavigation({
   backLabel,

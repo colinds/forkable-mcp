@@ -1,16 +1,16 @@
-import { createDraftWriter, supportsEditableDrafts } from "./lib/chat-draft.ts";
+import { createDraftWriter, supportsEditableDrafts } from "@/app/lib/chat-draft.ts";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { App } from "@modelcontextprotocol/ext-apps";
 import "@openai/mcp-extensions/app/styles.css";
 import "./styles.css";
 import { MealApp } from "./app.tsx";
-import { observeAppSize } from "./lib/host-size.ts";
-import { applyHostContext } from "./lib/host-theme.ts";
-import { type InitialView } from "./lib/initial-view.ts";
+import { observeAppSize } from "@/app/lib/host-size.ts";
+import { applyHostContext } from "@/app/lib/host-theme.ts";
+import { type InitialView } from "@/app/lib/initial-view.ts";
 import { browserInputSchema } from "@/shared/contracts/browser.ts";
-import { createContextUpdater } from "./lib/model-context.ts";
-import type { CallTool } from "./lib/tools.ts";
+import { createContextUpdater } from "@/app/lib/model-context.ts";
+import type { CallTool } from "@/app/lib/tools.ts";
 const app = new App(
   { name: "Forkable", version: "1.0.0" },
   { availableDisplayModes: ["inline", "fullscreen"] },

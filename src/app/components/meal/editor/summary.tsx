@@ -1,7 +1,7 @@
 import type { Delivery } from "@/shared/contracts/meals.ts";
 import { money } from "@/shared/currency.ts";
-import type { MealPreview } from "../../../lib/editor-types.ts";
-import { MealPhoto } from "../photo.tsx";
+import type { MealPreview } from "@/app/lib/editor-types.ts";
+import { MealPhoto } from "@/app/components/meal/photo.tsx";
 
 export function MealSummary({ meal, delivery }: { meal: MealPreview; delivery?: Delivery }) {
   return (

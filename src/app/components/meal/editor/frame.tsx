@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { useEditorContext } from "../../../lib/editor-context.ts";
+import { useEditorContext } from "@/app/lib/editor-context.ts";
 import { MealInlineFrame } from "./inline-frame.tsx";
 import { MealDialog } from "./dialog.tsx";
 
