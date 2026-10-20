@@ -988,6 +988,16 @@ describe("per-piece state badges", () => {
     expect(p?.cancellationPending).toBe(true);
     expect(p).not.toHaveProperty("isLateSwappable");
   });
+
+  test("compactDelivery exposes an explicit capacity exception for an owned late-swappable meal", () => {
+    expect(
+      compactDelivery(deliveryWith({ isLateSwappable: true }), undefined, ME).meals[0]
+        ?.canSwapAtCapacity,
+    ).toBe(true);
+    expect(
+      compactDelivery(deliveryWith({ isLateSwappable: false }), undefined, ME).meals[0],
+    ).not.toHaveProperty("canSwapAtCapacity");
+  });
 });
 
 describe("a delayed courier is loud", () => {

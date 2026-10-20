@@ -3,6 +3,7 @@ import { itemKey } from "@/app/lib/tools.ts";
 import { type Menu } from "@forkable-mcp/shared/contracts/meals.ts";
 import { MealCard } from "./card.tsx";
 import { MealCardsLoading } from "./loading.tsx";
+import { isMenuSoldOut } from "@forkable-mcp/shared/menu-availability.ts";
 
 export function MealCards({
   menus,
@@ -39,7 +40,7 @@ export function MealCards({
             showRestaurant={layout === "results"}
             price={item.price}
             ingredients={item.ingredients}
-            soldOut={menu.soldOut}
+            soldOut={isMenuSoldOut(menu)}
             recommendationRank={rank}
             disabled={busy}
             onChoose={() => choose(menu.menuId, item.itemId)}
@@ -64,10 +65,9 @@ export function MealCards({
             <section key={group.name} className="restaurant-group" aria-label={group.name}>
               <div className="restaurant-heading">
                 <h3>{group.name}</h3>
-                {group.items.length > 0 &&
-                  group.items.every(({ menu }) => menu.soldOut === true) && (
-                    <span className="sold-out">Sold out</span>
-                  )}
+                {group.items.length > 0 && group.items.every(({ menu }) => isMenuSoldOut(menu)) && (
+                  <span className="sold-out">Sold out</span>
+                )}
                 <span className="muted">
                   {group.items.length} {group.items.length === 1 ? "meal" : "meals"}
                 </span>

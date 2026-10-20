@@ -9,6 +9,7 @@ export const ingredientCategorySchema = z.enum([
   "eggs",
 ]);
 export type IngredientCategory = z.infer<typeof ingredientCategorySchema>;
+export const menuCapacitySchema = z.enum(["available", "at_capacity", "over_capacity"]);
 
 export const ratingSchema = z.object({
   level: z.number().nullable(),
@@ -33,6 +34,7 @@ const mealSchema = z.object({
   itemId: z.number().int(),
   name: z.string().nullable().optional(),
   cancellationPending: z.boolean(),
+  canSwapAtCapacity: z.boolean().optional(),
   instructions: z.string().optional(),
   group: z.string().nullable().optional(),
   isConfirmed: z.boolean().nullable().optional(),
@@ -68,7 +70,7 @@ const itemSchema = z.object({
 const menuSchema = z.object({
   menuId: z.number().int(),
   name: z.string(),
-  soldOut: z.boolean().optional(),
+  capacityStatus: menuCapacitySchema.optional(),
   items: z.array(itemSchema),
 });
 

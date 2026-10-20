@@ -95,6 +95,7 @@ const delivery: Delivery = {
         },
       ],
     },
+    { id: 103, pieces: [] },
   ],
 };
 
@@ -658,7 +659,7 @@ describe("read tool responses", () => {
     expect(compactMenu).toEqual({
       menuId: MENU_ID,
       name: "Test Kitchen",
-      soldOut: true,
+      capacityStatus: "at_capacity",
       items: [
         {
           itemId: ITEM_ID,

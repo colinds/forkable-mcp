@@ -209,7 +209,12 @@ export function createToolFixtures(config: ResolvedFixtureConfig) {
           }
         : {
             menus: [
-              { menuId: 10, name: "Seoul Kitchen", soldOut: config.soldOut, items: [item] },
+              {
+                menuId: 10,
+                name: "Seoul Kitchen",
+                capacityStatus: config.soldOut ? "at_capacity" : "available",
+                items: [item],
+              },
               {
                 menuId: 20,
                 name: "Second Restaurant",

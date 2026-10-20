@@ -73,6 +73,22 @@ test("ingredient rows align at the bottom and scroll without wrapping on narrow 
   expect(firstCard!.y + firstCard!.height - firstRow!.y - firstRow!.height).toBeLessThan(18);
 });
 
+test("at-capacity restaurants allow edits to the same menu but not replacements from another menu", async ({
+  page,
+}) => {
+  await page.goto(fixtureUrl({ soldOut: true }));
+  const ui = page.frameLocator("iframe");
+  const card = ui.getByRole("button", { name: "View Spicy tofu bowl from Seoul Kitchen" });
+  await expect(card).toHaveAccessibleDescription("Sold out");
+  await card.click();
+  await ui.getByLabel("Kimchi").check();
+  const source = ui.getByLabel("Meal to replace");
+  await source.selectOption("a");
+  await expect(ui.getByRole("button", { name: /^Replace meal ·/ })).toBeEnabled();
+  await source.selectOption("b");
+  await expect(ui.getByRole("button", { name: /^Replace meal ·/ })).toBeDisabled();
+});
+
 for (const displayMode of ["inline", "fullscreen"] as const) {
   for (const deliveryScenario of ["default", "no-meals"] as const) {
     test(`sold-out meals cannot be ordered in ${displayMode} (${deliveryScenario})`, async ({
@@ -96,7 +112,7 @@ for (const displayMode of ["inline", "fullscreen"] as const) {
       ).toBeVisible();
       await expect(ui.getByText("Forkable will check", { exact: false })).toHaveCount(0);
       const source = ui.getByLabel("Meal to replace");
-      if (await source.count()) await source.selectOption({ index: 1 });
+      if (await source.count()) await source.selectOption({ index: 2 });
       await ui.getByLabel("Kimchi").check();
       await expect(ui.getByRole("button", { name: /^(Replace|Add) meal ·/ })).toBeDisabled();
       await ui

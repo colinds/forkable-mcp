@@ -3,6 +3,7 @@ import { MealIngredients } from "../ingredients.tsx";
 import type { IngredientCategory } from "@forkable-mcp/shared/contracts/meals.ts";
 
 import { money } from "@forkable-mcp/shared/currency.ts";
+import { useId } from "react";
 
 interface MealCardProps {
   name: string;
@@ -36,11 +37,16 @@ export function MealCard({
   onChoose,
   onPrefetch,
 }: MealCardProps) {
+  const availabilityId = useId();
   const content = (
     <>
       {(soldOut || recommendationRank !== undefined) && (
         <div className="card-badges">
-          {soldOut && <span className="sold-out">Sold out</span>}
+          {soldOut && (
+            <span id={availabilityId} className="sold-out">
+              Sold out
+            </span>
+          )}
           {recommendationRank !== undefined && (
             <span className="recommendation">Recommended · #{recommendationRank}</span>
           )}
@@ -65,6 +71,7 @@ export function MealCard({
       className={`${className} cursor-interaction`}
       disabled={disabled}
       aria-label={`View ${name}${restaurant ? ` from ${restaurant}` : ""}`}
+      aria-describedby={soldOut ? availabilityId : undefined}
       onClick={onChoose}
       onPointerEnter={onPrefetch}
       onFocus={onPrefetch}

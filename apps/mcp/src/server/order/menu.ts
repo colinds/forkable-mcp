@@ -80,7 +80,7 @@ export function compactMenus(
   return menus.map((m) => ({
     menuId: m.id,
     name: m.displayName || m.name || `menu ${m.id}`,
-    ...(indicators?.soldOut.has(m.id) ? { soldOut: indicators.soldOut.get(m.id) } : {}),
+    capacityStatus: indicators?.capacity.get(m.id),
     items: m.sections
       .flatMap((section) => section.items)
       .map((item) => ({

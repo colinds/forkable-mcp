@@ -1,4 +1,8 @@
-import { ingredientCategorySchema } from "@forkable-mcp/shared/contracts/meals.ts";
+import {
+  ingredientCategorySchema,
+  type menuCapacitySchema,
+} from "@forkable-mcp/shared/contracts/meals.ts";
+import type { z } from "zod";
 import type { ForkableClient } from "../net/client.ts";
 import { ReauthRequiredError } from "../net/errors.ts";
 import type { Delivery, Menu } from "./types.ts";
@@ -27,11 +31,11 @@ export async function loadMenuIndicators(
   const date = delivery.forDeliveryAt?.slice(0, 10);
   const venueIds = [...new Set(menus.flatMap((menu) => (menu.venue ? [menu.venue.id] : [])))];
   const [groups, usage] = await Promise.all([
-    optionalRead(
+    optionalRead<IngredientGroup[] | undefined>(
       client.query<IngredientGroup[]>("ingredients", undefined, "category ingredients"),
-      [],
+      undefined,
     ),
-    date && venueIds.length && !delivery.club?.isDemo
+    date && venueIds.length && !delivery.club?.isDemo && (delivery.orders?.length ?? 0) > 2
       ? optionalRead(
           client.query<VenueUsage>("venueUsage", { ids: venueIds, from: date, to: date }),
           {},
@@ -40,10 +44,10 @@ export async function loadMenuIndicators(
   ]);
   let period: "am" | "pm" | undefined;
   if (typeof delivery.afternoon === "boolean") period = delivery.afternoon ? "pm" : "am";
-  const soldOut = new Map<number, boolean>();
+  const capacity = new Map<number, z.infer<typeof menuCapacitySchema>>();
   for (const menu of menus) {
     if (delivery.club?.isDemo) {
-      soldOut.set(menu.id, false);
+      capacity.set(menu.id, "available");
       continue;
     }
     const venue = menu.venue;
@@ -51,18 +55,24 @@ export async function loadMenuIndicators(
     if (
       delivery.orders?.some((order) => order.venue?.id === venue.id && order.isOverVenueCapacity)
     ) {
-      soldOut.set(menu.id, true);
+      capacity.set(menu.id, "over_capacity");
       continue;
     }
     const count = date && period ? usage?.[venue.id]?.[date]?.[period] : undefined;
     if (count !== undefined && Number.isFinite(count) && venue.capacity != null)
-      soldOut.set(menu.id, venue.capacity > 0 && count >= venue.capacity);
+      capacity.set(
+        menu.id,
+        venue.capacity > 0 && count >= venue.capacity ? "at_capacity" : "available",
+      );
   }
-  return { groups: groups ?? [], soldOut };
+  return { groups: groups ?? undefined, capacity };
 }
 
-export function ingredientCategories(tags: string[] | undefined, groups: IngredientGroup[]) {
-  if (!tags) return undefined;
+export function ingredientCategories(
+  tags: string[] | undefined,
+  groups: IngredientGroup[] | undefined,
+) {
+  if (!tags || !groups) return undefined;
   const included = new Set(tags);
   return ingredientCategorySchema.options.filter((category) =>
     groups.some(
