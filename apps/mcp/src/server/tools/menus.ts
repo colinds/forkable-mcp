@@ -81,7 +81,7 @@ export function registerSearchTool(server: McpServer): void {
       _meta: APP_TOOL_META,
       title: "Search menu items",
       description:
-        "Search items across a delivery's available menus by keyword. Returns meal data without opening a UI. To display results, call open_forkable afterwards with this deliveryId and query.",
+        "Search items across a delivery's available menus by keyword. Returns matching meals for a chat answer; does not open or update an app view.",
       inputSchema: searchItemsInputSchema,
       outputSchema: withReauth(searchResultsSchema),
       annotations: { readOnlyHint: true, openWorldHint: true },
