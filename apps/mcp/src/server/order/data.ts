@@ -7,15 +7,15 @@ const RATING_SEL = "id level reasons comment forGuest allowRatingFollowUps attac
 
 const DELIVERY_CORE =
   "id state simpleState forDeliveryAt userConfirmed copayAmount availableMenuIds " +
-  "allowanceType weeklyAllowance weeklyAllowanceAvailable forBuffet " +
-  "deliveryWindow serviceWindow { baseTime name } club { id name market { timezone } }";
+  "allowanceType weeklyAllowance weeklyAllowanceAvailable forBuffet afternoon " +
+  "deliveryWindow serviceWindow { baseTime name } club { id name isDemo market { timezone } }";
 
 const PIECE_CORE =
   "id itemId menuId userId name price instructions group isConfirmed isLateSwappable isRemoval requestStatus isLateOrder " +
   `userRating { ${RATING_SEL} }`;
 
 const ORDER_CORE =
-  "id state menu { name } venue { name displayName } " +
+  "id state isOverVenueCapacity menu { name } venue { id name displayName } " +
   "dropoffCompletedAt etaStatus { start end status shortTz trackingUrl }";
 
 export const DELIVERY_SEL =
@@ -29,8 +29,8 @@ export const DELIVERY_DETAIL_SEL =
   "userReceipt { due clubCopay }";
 
 const MENU_SEL =
-  "id name displayName disableSpecialInstructions " +
-  "sections { items { id menuId name description price imageUrl dietLevel modifierIds " +
+  "id name displayName disableSpecialInstructions venue { id capacity } " +
+  "sections { items { id menuId name description price imageUrl dietLevel ingredientTags modifierIds " +
   "modifiers { id name display optionSetId min max required hidden options { id name price } } } } " +
   "optionSets { id price }";
 

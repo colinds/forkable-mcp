@@ -14,6 +14,106 @@ test.beforeEach(async ({ page }) => {
   );
 });
 
+test("meal cards show a compact ingredient row instead of diet labels", async ({ page }) => {
+  await page.goto(fixtureUrl());
+  const ui = page.frameLocator("iframe");
+  const card = ui.getByRole("button", { name: "View Spicy tofu bowl from Seoul Kitchen" });
+  const ingredients = card.getByRole("list", { name: "Reported ingredients" });
+  await expect(ingredients.getByRole("listitem")).toHaveText(["Dairy", "Gluten", "Soy", "Eggs"]);
+  await expect(card).not.toContainText("Vegetarian");
+  await expect(ingredients.locator("svg")).toHaveCount(0);
+  await expect(card.getByText("Seoul Kitchen", { exact: true })).toHaveCount(0);
+  await ui.getByRole("searchbox").fill("tofu");
+  const restaurant = card.getByText("Seoul Kitchen", { exact: true });
+  await expect(restaurant).toBeVisible();
+  const restaurantBounds = await restaurant.boundingBox();
+  const titleBounds = await card.getByRole("heading", { name: "Spicy tofu bowl" }).boundingBox();
+  expect(restaurantBounds!.y + restaurantBounds!.height).toBeLessThanOrEqual(titleBounds!.y);
+  await page.setViewportSize({ width: 420, height: 800 });
+  await expect(ingredients).toBeVisible();
+  expect(await card.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
+});
+
+test("ingredient rows align at the bottom and scroll without wrapping on narrow cards", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 375, height: 900 });
+  await page.goto(fixtureUrl({ menus: "restaurants" }));
+  const ui = page.frameLocator("iframe");
+  const first = ui.getByRole("button", { name: "View Spicy tofu bowl from Seoul Kitchen" });
+  const second = ui.getByRole("button", { name: "View Bulgogi bowl from Seoul Kitchen" });
+  const firstTags = first.getByRole("list", { name: "Reported ingredients" });
+  const secondTags = second.getByRole("list", { name: "Reported ingredients" });
+  await expect(firstTags).toBeVisible();
+  const firstCard = await first.boundingBox();
+  const secondCard = await second.boundingBox();
+  expect(firstCard!.y).toBe(secondCard!.y);
+  const firstTitle = await first.getByRole("heading").boundingBox();
+  const secondTitle = await second.getByRole("heading").boundingBox();
+  expect(firstTitle!.y).toBe(secondTitle!.y);
+  const recommendation = await first.getByText("Recommended · #1", { exact: true }).boundingBox();
+  const photo = await first.locator(".photo").boundingBox();
+  expect(recommendation!.y).toBeGreaterThanOrEqual(photo!.y);
+  expect(recommendation!.y + recommendation!.height).toBeLessThanOrEqual(photo!.y + photo!.height);
+  const firstRow = await firstTags.boundingBox();
+  const secondRow = await secondTags.boundingBox();
+  expect(Math.abs(firstRow!.y - secondRow!.y)).toBeLessThanOrEqual(1);
+  const overflow = await firstTags.evaluate((row) => {
+    const positions = [...row.children].map((item) => item.getBoundingClientRect().top);
+    row.scrollLeft = row.scrollWidth;
+    return {
+      positions,
+      scrollable: row.scrollWidth > row.clientWidth,
+      scrolled: row.scrollLeft > 0,
+    };
+  });
+  expect(new Set(overflow.positions).size).toBe(1);
+  expect(overflow.scrollable).toBe(true);
+  expect(overflow.scrolled).toBe(true);
+  expect(firstCard!.y + firstCard!.height - firstRow!.y - firstRow!.height).toBeLessThan(18);
+});
+
+for (const displayMode of ["inline", "fullscreen"] as const) {
+  for (const deliveryScenario of ["default", "no-meals"] as const) {
+    test(`sold-out meals cannot be ordered in ${displayMode} (${deliveryScenario})`, async ({
+      page,
+    }) => {
+      await page.goto(fixtureUrl({ soldOut: true, displayMode, deliveryScenario }));
+      const ui = page.frameLocator("iframe");
+      const card = ui.getByRole("button", { name: "View Spicy tofu bowl from Seoul Kitchen" });
+      await expect(card.getByText("Sold out", { exact: true })).toBeVisible();
+      const badge = await card.getByText("Sold out", { exact: true }).boundingBox();
+      const bounds = await card.boundingBox();
+      expect(badge!.width).toBeLessThan(bounds!.width / 2);
+      await expect(
+        ui.getByRole("region", { name: "Seoul Kitchen", exact: true }).getByText("Sold out"),
+      ).toHaveCount(2);
+      await card.click();
+      await expect(
+        ui
+          .getByRole("status")
+          .filter({ hasText: "Sold out for this delivery. Please choose another restaurant." }),
+      ).toBeVisible();
+      await expect(ui.getByText("Forkable will check", { exact: false })).toHaveCount(0);
+      const source = ui.getByLabel("Meal to replace");
+      if (await source.count()) await source.selectOption({ index: 1 });
+      await ui.getByLabel("Kimchi").check();
+      await expect(ui.getByRole("button", { name: /^(Replace|Add) meal ·/ })).toBeDisabled();
+      await ui
+        .locator("form")
+        .evaluate((form) =>
+          form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })),
+        );
+      const writes = await page.evaluate(() =>
+        (window as unknown as { calls: { name: string }[] }).calls.filter((call) =>
+          ["set_meal", "remove_meal"].includes(call.name),
+        ),
+      );
+      expect(writes).toEqual([]);
+    });
+  }
+}
+
 test("opening and closing a native modal preserves the scrolled browser", async ({ page }) => {
   await page.goto(fixtureUrl({ displayMode: "fullscreen", initialFrameHeight: 600 }));
   const ui = page.frameLocator("iframe");
@@ -119,13 +219,13 @@ test("selected card preserves focus and keeps long details clear of Skip", async
       if (!node.textContent?.trim()) continue;
       const range = document.createRange();
       range.selectNodeContents(node);
+      const overflowRow = node.parentElement?.closest(".meal-ingredients")?.getBoundingClientRect();
       rects.push(
-        ...Array.from(range.getClientRects(), (rect) => ({
-          x: rect.x,
-          y: rect.y,
-          width: rect.width,
-          height: rect.height,
-        })),
+        ...Array.from(range.getClientRects(), (rect) => {
+          const left = overflowRow ? Math.max(rect.left, overflowRow.left) : rect.left;
+          const right = overflowRow ? Math.min(rect.right, overflowRow.right) : rect.right;
+          return { x: left, y: rect.y, width: Math.max(0, right - left), height: rect.height };
+        }).filter((rect) => rect.width > 0),
       );
     }
     return rects;
@@ -349,6 +449,11 @@ test("initial delivery loading uses skeletons instead of text", async ({ page })
   const loading = ui.getByRole("status", { name: "Loading deliveries", exact: true });
   await expect(loading).toBeVisible();
   await expect(loading.locator(".skeleton").first()).toBeVisible();
+  const skeleton = loading.locator(".meal-card").first();
+  const border = await skeleton.evaluate((element) => getComputedStyle(element).borderColor);
+  await skeleton.hover();
+  await expect(skeleton).toHaveCSS("border-color", border);
+  await expect(skeleton).not.toHaveCSS("cursor", "pointer");
   await expect(ui.getByText(/Loading (deliveries|meals)\u2026/)).toHaveCount(0);
   await page.evaluate(() => (window as unknown as { releaseMenus: () => void }).releaseMenus());
   await expect(loading).toHaveCount(0);
@@ -2130,6 +2235,10 @@ for (const displayMode of ["inline", "fullscreen"] as const) {
     await expect(loading.getByRole("heading", { name: "Spicy tofu bowl" })).toBeVisible();
     await expect(loading.locator(".detail-summary img")).toBeVisible();
     await expect(loading.locator(".detail-summary .price")).toBeVisible();
+    const ingredients = loading
+      .locator(".detail-summary")
+      .getByRole("list", { name: "Reported ingredients" });
+    await expect(ingredients.getByRole("listitem")).toHaveText(["Dairy", "Gluten", "Soy", "Eggs"]);
     await expect(loading.locator(".option-skeleton")).toBeVisible();
     const summary = await loading.locator(".detail-summary").elementHandle();
     await expect(
@@ -2154,6 +2263,7 @@ for (const displayMode of ["inline", "fullscreen"] as const) {
     );
     const dialog = ui.getByRole("region", { name: "Meal details" });
     await expect(dialog.getByLabel("Kimchi")).toBeVisible();
+    await expect(ingredients.getByRole("listitem")).toHaveText(["Dairy", "Gluten", "Soy", "Eggs"]);
     expect(await summary!.evaluate((element) => element.isConnected)).toBe(true);
     await expect(dialog.getByRole("status")).toHaveCount(0);
     expect(

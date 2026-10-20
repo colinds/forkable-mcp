@@ -41,6 +41,7 @@ export function SelectedMeals({
                 horizontal
                 name={meal.name ?? item?.name ?? "Selected meal"}
                 imageUrl={item?.imageUrl ?? null}
+                ingredients={item?.ingredients}
                 restaurant={mealStatus?.venue ?? menu?.name}
                 price={mealStatus?.price}
                 description={mealStatus?.options.join(" · ")}

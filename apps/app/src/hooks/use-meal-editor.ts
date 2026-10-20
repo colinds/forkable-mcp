@@ -10,6 +10,8 @@ const noChoices: Record<string, number[]> = {};
 
 export function useMealEditor(browser: MealBrowserController, detail: Detail) {
   const { delivery } = browser.state;
+  const soldOut =
+    browser.state.menus.find((menu) => menu.menuId === detail.menuId)?.soldOut === true;
   const { sourcePieceId } = useSearch({ from: "__root__" });
   const { draft: edited, setDraft: setEdited } = useMealDraft();
   const defaultSource =
@@ -41,7 +43,10 @@ export function useMealEditor(browser: MealBrowserController, detail: Detail) {
     mealTotal: selectedMealTotal(detail, draft.choices),
     back: browser.back,
     mealToSkip,
-    submit: () => browser.submit(draft),
+    soldOut,
+    submit: () => {
+      if (!soldOut) return browser.submit(draft);
+    },
     chooseOption: (modifierId: number, optionId: number, checked: boolean, max: number | null) => {
       const picked = draft.choices[modifierId] ?? [];
       let options = picked.filter((id) => id !== optionId);

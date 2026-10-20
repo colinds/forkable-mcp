@@ -14,6 +14,7 @@ import { type McpServer } from "@modelcontextprotocol/server";
 import { appResult, errResult } from "@/server/results.ts";
 import { guard, APP_TOOL_META } from "@/server/tools/shared.ts";
 import { loadDeliveries, findDelivery, loadMenus, loadDietLabels } from "@/server/order/data.ts";
+import { loadMenuIndicators } from "@/server/order/menu-indicators.ts";
 import {
   imageMd,
   flattenItems,
@@ -67,8 +68,12 @@ export function registerMenuTool(server: McpServer): void {
             return `${m.displayName || m.name || `menu ${m.id}`} (${items.length} items):\n${lines.join("\n")}`;
           })
           .join("\n\n");
+        const [diets, indicators] = await Promise.all([
+          loadDietLabels(client),
+          loadMenuIndicators(client, d, menus),
+        ]);
         return appResult(getMenusResultSchema, summary || "No items.", {
-          menus: compactMenus(menus, await loadDietLabels(client)),
+          menus: compactMenus(menus, diets, indicators),
         });
       }),
   );

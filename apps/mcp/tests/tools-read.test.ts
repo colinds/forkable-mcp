@@ -32,6 +32,7 @@ const ITEM_ID = 20;
 const delivery: Delivery = {
   id: DELIVERY_ID,
   forDeliveryAt: "2026-08-28T12:00:00-07:00",
+  afternoon: false,
   state: "scheduled",
   userConfirmed: true,
   availableMenuIds: [MENU_ID],
@@ -100,6 +101,7 @@ const delivery: Delivery = {
 const menu: Menu = {
   id: MENU_ID,
   name: "Test Kitchen",
+  venue: { id: 77, capacity: 10 },
   sections: [
     {
       items: [
@@ -111,6 +113,7 @@ const menu: Menu = {
           price: 12.5,
           imageUrl: "https://images.example/bowl.jpg",
           dietLevel: 1,
+          ingredientTags: ["milk", "yogurt", "egg", "high_carb"],
           modifiers: [
             {
               id: 30,
@@ -166,6 +169,13 @@ describe("read tool responses", () => {
       if (root === "myInProgressDeliveryIds") return [];
       if (root === "menus") return [structuredClone(menu)];
       if (root === "diets") return [{ level: 1, label: "vegetarian" }];
+      if (root === "ingredients")
+        return [
+          { category: "eggs", ingredients: ["egg"] },
+          { category: "dairy", ingredients: ["milk", "yogurt"] },
+          { category: "high_carb", ingredients: ["high_carb"] },
+        ];
+      if (root === "venueUsage") return { 77: { "2026-08-28": { am: 10, pm: 0 } } };
       if (root === "searchMenuItems") return { nodes: [{ id: ITEM_ID, menuId: MENU_ID }] };
       if (root === "mealGenerationScores") {
         return [{ menuId: MENU_ID, itemId: ITEM_ID, score: 0.91 }];
@@ -648,6 +658,7 @@ describe("read tool responses", () => {
     expect(compactMenu).toEqual({
       menuId: MENU_ID,
       name: "Test Kitchen",
+      soldOut: true,
       items: [
         {
           itemId: ITEM_ID,
@@ -656,6 +667,7 @@ describe("read tool responses", () => {
           imageUrl: "https://images.example/bowl.jpg",
           description: "A useful description",
           diet: "vegetarian",
+          ingredients: ["dairy", "eggs"],
           hasModifiers: true,
         },
       ],

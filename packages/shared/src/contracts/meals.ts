@@ -1,5 +1,15 @@
 import { z } from "zod";
 
+export const ingredientCategorySchema = z.enum([
+  "dairy",
+  "gluten",
+  "nuts",
+  "soy",
+  "seafood",
+  "eggs",
+]);
+export type IngredientCategory = z.infer<typeof ingredientCategorySchema>;
+
 export const ratingSchema = z.object({
   level: z.number().nullable(),
   reasons: z.array(z.string()),
@@ -50,6 +60,7 @@ const itemSchema = z.object({
   price: z.number().nullable(),
   imageUrl: z.string().nullable(),
   diet: z.string().nullable().optional(),
+  ingredients: z.array(ingredientCategorySchema).optional(),
   hasModifiers: z.boolean().optional(),
   description: z.string().nullable().optional(),
 });
@@ -57,6 +68,7 @@ const itemSchema = z.object({
 const menuSchema = z.object({
   menuId: z.number().int(),
   name: z.string(),
+  soldOut: z.boolean().optional(),
   items: z.array(itemSchema),
 });
 

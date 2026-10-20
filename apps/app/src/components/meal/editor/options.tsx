@@ -13,7 +13,7 @@ export function MealOptions({
   browser: MealEditorController;
   children?: ReactNode;
 }) {
-  const { state } = browser;
+  const { state, soldOut } = browser;
   const { busy, delivery, detail: meal } = state;
   if (!delivery) return null;
   const submitLabel = delivery.meals.length ? "Replace meal" : "Add meal";
@@ -107,11 +107,21 @@ export function MealOptions({
           </div>
         )}
         <footer className="detail-actions">
-          <Button type="submit" primary disabled={busy || state.needsRefresh}>
+          <Button
+            type="submit"
+            primary
+            disabled={busy || state.needsRefresh || soldOut}
+            aria-describedby={soldOut ? "sold-out-message" : undefined}
+          >
             {state.pendingAction === "saving"
               ? "Saving…"
               : `${submitLabel} · ${money(browser.mealTotal)}`}
           </Button>
+          {soldOut && (
+            <p id="sold-out-message" className="muted" role="status">
+              Sold out for this delivery. Please choose another restaurant.
+            </p>
+          )}
           {browser.askAboutMeal && (
             <Button disabled={busy} onClick={browser.askAboutMeal}>
               <MessageSquare aria-hidden="true" />

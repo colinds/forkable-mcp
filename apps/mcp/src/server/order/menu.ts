@@ -2,6 +2,7 @@ import { type Menu as PublicMenu, type Detail } from "@forkable-mcp/shared/contr
 import { optionPrice, resolveItemModifiers } from "@/server/order/selections.ts";
 import { formatMoney } from "@/server/order/format.ts";
 import { type Menu, type MenuItem } from "@/server/order/types.ts";
+import { ingredientCategories, type loadMenuIndicators } from "./menu-indicators.ts";
 
 export function formatKnownPrice(value: number | null | undefined): string {
   return typeof value === "number" && Number.isFinite(value)
@@ -71,10 +72,15 @@ export function resolveExactItem(
 }
 
 /** Menu and item identity plus the fields needed to choose what to order. */
-export function compactMenus(menus: Menu[], diets?: Map<number, string>): PublicMenu[] {
+export function compactMenus(
+  menus: Menu[],
+  diets?: Map<number, string>,
+  indicators?: Awaited<ReturnType<typeof loadMenuIndicators>>,
+): PublicMenu[] {
   return menus.map((m) => ({
     menuId: m.id,
     name: m.displayName || m.name || `menu ${m.id}`,
+    ...(indicators?.soldOut.has(m.id) ? { soldOut: indicators.soldOut.get(m.id) } : {}),
     items: m.sections
       .flatMap((section) => section.items)
       .map((item) => ({
@@ -84,6 +90,9 @@ export function compactMenus(menus: Menu[], diets?: Map<number, string>): Public
         imageUrl: item.imageUrl ?? null,
         description: item.description ?? null,
         diet: item.dietLevel != null ? (diets?.get(item.dietLevel) ?? null) : null,
+        ingredients: indicators
+          ? ingredientCategories(item.ingredientTags, indicators.groups)
+          : undefined,
         hasModifiers: (item.modifiers?.length ?? 0) > 0,
       })),
   }));

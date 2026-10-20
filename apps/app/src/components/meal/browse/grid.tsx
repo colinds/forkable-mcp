@@ -36,9 +36,11 @@ export function MealCards({
             name={item.name}
             imageUrl={item.imageUrl}
             restaurant={menu.name}
+            showRestaurant={layout === "results"}
             price={item.price}
-            diet={item.diet}
-            caption={rank ? `Recommended · #${rank}` : undefined}
+            ingredients={item.ingredients}
+            soldOut={menu.soldOut}
+            recommendationRank={rank}
             disabled={busy}
             onChoose={() => choose(menu.menuId, item.itemId)}
             onPrefetch={() => prefetchMeal(menu.menuId, item.itemId)}
@@ -62,6 +64,10 @@ export function MealCards({
             <section key={group.name} className="restaurant-group" aria-label={group.name}>
               <div className="restaurant-heading">
                 <h3>{group.name}</h3>
+                {group.items.length > 0 &&
+                  group.items.every(({ menu }) => menu.soldOut === true) && (
+                    <span className="sold-out">Sold out</span>
+                  )}
                 <span className="muted">
                   {group.items.length} {group.items.length === 1 ? "meal" : "meals"}
                 </span>
