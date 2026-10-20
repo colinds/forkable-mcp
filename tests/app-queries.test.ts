@@ -1,4 +1,4 @@
-import { afterEach, expect, mock, test } from "bun:test";
+import { afterEach, expect, mock, setSystemTime, test } from "bun:test";
 import { createMealQueries, createQueryClient } from "@/app/lib/queries.ts";
 import type { Delivery } from "@/shared/contracts/meals.ts";
 
@@ -8,7 +8,10 @@ function client() {
   clients.push(instance);
   return instance;
 }
-afterEach(() => clients.splice(0).forEach((instance) => instance.clear()));
+afterEach(() => {
+  clients.splice(0).forEach((instance) => instance.clear());
+  setSystemTime();
+});
 
 const item = {
   menuId: 10,
@@ -103,4 +106,21 @@ test("seeded deliveries use the same chronological order as fresh reads", async 
   const listed = await client().ensureQueryData(queries.deliveries());
   expect(listed.map((entry) => entry.deliveryId)).toEqual([1, 2]);
   expect(call).not.toHaveBeenCalled();
+});
+
+test("evicted launch data retains its original age and refetches instead of becoming fresh again", async () => {
+  const menus = [{ menuId: 10, name: "Original menu", items: [item] }];
+  const fresh = [{ menuId: 10, name: "Updated menu", items: [item] }];
+  const call = mock(async () => ({ content: [], structuredContent: { menus: fresh } }));
+  const queries = createMealQueries(call, {
+    input: { deliveryId: 1 },
+    result: { structuredContent: { menus } },
+  });
+  const cache = client();
+  expect((await cache.fetchQuery(queries.menus(delivery)))[0]?.name).toBe("Original menu");
+  expect(call).not.toHaveBeenCalled();
+  cache.removeQueries({ queryKey: queries.menus(delivery).queryKey });
+  setSystemTime(new Date(Date.now() + 6 * 60_000));
+  expect((await cache.fetchQuery(queries.menus(delivery)))[0]?.name).toBe("Updated menu");
+  expect(call).toHaveBeenCalledTimes(1);
 });

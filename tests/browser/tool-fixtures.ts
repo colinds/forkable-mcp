@@ -5,6 +5,8 @@ export function createToolFixtures(config: ResolvedFixtureConfig) {
   const calls: { name: string; arguments?: Record<string, unknown> }[] = [];
   const pendingAux: (() => void)[] = [];
   const pendingDetails: ((failed: boolean) => void)[] = [];
+  const pendingMenus: (() => void)[] = [];
+  let menuFailed = false;
   let detailFailed = false;
   let changed = false;
   const item = {
@@ -29,6 +31,19 @@ export function createToolFixtures(config: ResolvedFixtureConfig) {
     args: Parameters<NonNullable<AppBridge["oncalltool"]>>[0],
   ): ReturnType<NonNullable<AppBridge["oncalltool"]>> => {
     calls.push({ name: args.name, arguments: args.arguments });
+    if (
+      args.name === "get_menus" &&
+      !args.arguments?.itemId &&
+      config.menuRead &&
+      args.arguments?.deliveryId === config.menuRead.deliveryId
+    ) {
+      if (config.menuRead.response === "held")
+        await new Promise<void>((resolve) => pendingMenus.push(resolve));
+      if (config.menuRead.response === "error-once" && !menuFailed) {
+        menuFailed = true;
+        return { isError: true, content: [{ type: "text", text: "Menus unavailable." }] };
+      }
+    }
     if (args.name === "get_menus" && args.arguments?.itemId) {
       let failed = false;
       if (config.details === "held")
@@ -320,6 +335,7 @@ export function createToolFixtures(config: ResolvedFixtureConfig) {
       changed = true;
     },
     releaseDetail: (index: number, failed = false) => pendingDetails[index]?.(failed),
+    releaseMenus: () => pendingMenus.splice(0).forEach((release) => release()),
     releaseAux: () => pendingAux.splice(0).forEach((release) => release()),
   };
 }

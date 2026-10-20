@@ -35,14 +35,18 @@ const root = createRootRouteWithContext<RouterContext>()({
       throw new Error(resultText(context.initial.result) || "Forkable could not load this view.");
   },
   loader: async ({ context, deps, location }) => {
+    const initialLoad =
+      context.queryClient.getQueryData(context.queries.deliveries().queryKey) === undefined;
     const deliveries = await context.queryClient.ensureQueryData(context.queries.deliveries());
     const selected =
       deps.deliveryId == null
         ? deliveries[0]
         : deliveries.find((d) => d.deliveryId === deps.deliveryId);
-    if (selected) await context.queryClient.ensureQueryData(context.queries.menus(selected));
+    if (initialLoad && selected)
+      await context.queryClient.ensureQueryData(context.queries.menus(selected));
     const input = context.initial?.input;
     if (
+      initialLoad &&
       location.pathname !== "/" &&
       selected &&
       !isPastDelivery(selected.date) &&
