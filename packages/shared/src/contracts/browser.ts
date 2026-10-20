@@ -6,6 +6,13 @@ import { calendarDateSchema, recommendMealsInputSchema } from "./inputs.ts";
 export const browserViewSchema = z.enum(["browse", "delivery", "meals"]);
 export type BrowserView = z.infer<typeof browserViewSchema>;
 
+export const CURRENT_VIEW_GUIDANCE =
+  "Use only tools actually exposed in this conversation. When Forkable is already open, " +
+  "prefer its available view tools to inspect or update it. If no such tools are exposed, " +
+  "answer with meal data in chat without naming or suggesting unavailable tools. " +
+  "Do not reopen the app as a substitute for updating it or claim that its view changed. " +
+  "Launch an app when none is known to be open, or when the user explicitly asks for a new view.";
+
 export const browserInputSchema = z.object({
   deliveryId: z
     .number()

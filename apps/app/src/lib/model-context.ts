@@ -1,4 +1,4 @@
-import type { BrowserView } from "@forkable-mcp/shared/contracts/browser.ts";
+import { CURRENT_VIEW_GUIDANCE, type BrowserView } from "@forkable-mcp/shared/contracts/browser.ts";
 import { createMealReference, referenceUri } from "@forkable-mcp/shared/meal-reference.ts";
 import type { OpenAIModelContextHostState } from "@openai/mcp-extensions/app";
 import { type MenuView, type MenuFilters } from "./menu-filters.ts";
@@ -43,7 +43,8 @@ export function browserContext(
   const context = {
     app: "Forkable",
     guidance:
-      "Food requests refer to the available Forkable menu. Browsing is not authorization to place or change an order.",
+      "Food requests refer to the available Forkable menu. Browsing is not authorization to place or change an order. " +
+      CURRENT_VIEW_GUIDANCE,
     view: view.detail ? "meal-details" : (view.presentation ?? "menu"),
     delivery: delivery
       ? {

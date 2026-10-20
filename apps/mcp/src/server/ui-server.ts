@@ -6,7 +6,10 @@ import {
   RESOURCE_MIME_TYPE,
   type McpUiAppToolConfig,
 } from "@modelcontextprotocol/ext-apps/server";
-import { openBrowserInputSchema } from "@forkable-mcp/shared/contracts/browser.ts";
+import {
+  CURRENT_VIEW_GUIDANCE,
+  openBrowserInputSchema,
+} from "@forkable-mcp/shared/contracts/browser.ts";
 import { FORK_ICONS } from "./ui-icon.ts";
 import { IMAGE_ORIGINS } from "@forkable-mcp/shared/images.ts";
 
@@ -15,8 +18,8 @@ declare const APP_HTML_PATH: string;
 export const APP_URI = "ui://forkable/meal-browser.html";
 
 export const MEAL_BROWSER_INSTRUCTIONS =
-  "If the current Forkable app exposes read_view and show_meals, use them to inspect and update " +
-  "that app instead of reopening it. Otherwise, follow the launch flow: " +
+  CURRENT_VIEW_GUIDANCE +
+  " To launch a new view: " +
   "When showing Forkable meals, resolve the requested delivery and menu details with data tools first, " +
   "then call open_forkable once as the final display step. The app loads its own data; " +
   "additional reads are not needed to render it. Always pass the matching deliveryId when showing " +
@@ -49,9 +52,10 @@ export function registerMealBrowser(
     title: "Forkable",
     icons: FORK_ICONS,
     description:
-      "Show an interactive delivery, meal search, or lunch browser in Forkable. " +
+      "Launch an interactive delivery, meal search, or lunch browser in Forkable. " +
       "Use for requests to see meals; use data tools for text-only answers. " +
-      "If the current app exposes show_meals, use that to update its view instead of reopening. " +
+      "This does not target an already-open view. Prefer available current-view tools for that; " +
+      "if unavailable, answer with data tools rather than reopening unless the user asks for a new view. " +
       "Resolve the matching delivery/menu IDs first, then open once as the final display step. " +
       "Search and filters apply to one delivery. Opening the app does not place an order; " +
       "this tool returns launch instructions, not meal data.",
