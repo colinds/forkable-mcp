@@ -14,6 +14,48 @@ test.beforeEach(async ({ page }) => {
   );
 });
 
+test("opening and closing a native modal preserves the scrolled browser", async ({ page }) => {
+  await page.goto(fixtureUrl({ displayMode: "fullscreen", initialFrameHeight: 600 }));
+  const ui = page.frameLocator("iframe");
+  const card = ui.getByRole("button", { name: "View Another bowl from Second Restaurant" });
+  await card.scrollIntoViewIfNeeded();
+  const scroll = () => ui.locator("html").evaluate(() => window.scrollY);
+  await expect.poll(scroll).toBeGreaterThan(0);
+  const before = await scroll();
+  await card.click();
+  await expect(ui.getByRole("dialog")).toBeVisible();
+  await expect.poll(scroll).toBe(before);
+  await ui.getByRole("button", { name: "Close", exact: true }).click();
+  await expect(ui.getByRole("dialog")).toHaveCount(0);
+  await expect.poll(scroll).toBe(before);
+  await expect(card).toBeFocused();
+});
+
+test("card intent prefetches options and reuses them when opened", async ({ page }) => {
+  await page.goto(fixtureUrl({ displayMode: "fullscreen", details: "held" }));
+  const ui = page.frameLocator("iframe");
+  const card = ui.getByRole("button", { name: "View Spicy tofu bowl from Seoul Kitchen" });
+  await card.hover();
+  const requests = () =>
+    page.evaluate(
+      () =>
+        (
+          window as unknown as { calls: { name: string; arguments?: { itemId?: number } }[] }
+        ).calls.filter((call) => call.name === "get_menus" && call.arguments?.itemId === 7).length,
+    );
+  await expect.poll(requests).toBe(1);
+  await expect(ui.getByRole("dialog")).toHaveCount(0);
+  await page.evaluate(() =>
+    (window as unknown as { releaseDetail: (index: number) => void }).releaseDetail(0),
+  );
+  await card.click();
+  await expect(ui.getByLabel("Kimchi")).toBeVisible();
+  await expect(ui.getByRole("status", { name: "Loading meal details", exact: true })).toHaveCount(
+    0,
+  );
+  expect(await requests()).toBe(1);
+});
+
 test("returning to the app refreshes delivery data without reloading menus", async ({ page }) => {
   await page.goto("/");
   const ui = page.frameLocator("iframe");
@@ -860,9 +902,21 @@ test("meal page and fullscreen modal share entered options without refetching", 
       ),
     )
     .toMatchObject({ visibleMeals: [], focusedMeal: { itemId: 7 } });
-  const before = await page.evaluate(
-    () => (window as unknown as { calls: unknown[] }).calls.length,
-  );
+  const activeMealReads = () =>
+    page.evaluate(
+      () =>
+        (
+          window as unknown as {
+            calls: { name: string; arguments?: { menuId?: number; itemId?: number } }[];
+          }
+        ).calls.filter(
+          (call) =>
+            call.name !== "get_menus" ||
+            call.arguments?.itemId == null ||
+            (call.arguments.menuId === 10 && call.arguments.itemId === 7),
+        ).length,
+    );
+  const before = await activeMealReads();
   await page.evaluate(() =>
     (window as unknown as { changeDisplayMode: (mode: string) => void }).changeDisplayMode(
       "fullscreen",
@@ -884,9 +938,7 @@ test("meal page and fullscreen modal share entered options without refetching", 
   await editor.getByRole("button", { name: "Back to meals" }).click();
   await expect(card).toBeFocused();
   await expect(ui.getByLabel("Find a meal")).toHaveValue("tofu");
-  expect(await page.evaluate(() => (window as unknown as { calls: unknown[] }).calls.length)).toBe(
-    before,
-  );
+  expect(await activeMealReads()).toBe(before);
 });
 
 for (const displayMode of ["inline", "fullscreen"] as const) {
@@ -1591,9 +1643,15 @@ for (const width of [375, 1000]) {
       )
       .toMatchObject({ view: "delivery", visibleMeals: [] });
     await page.screenshot({ path: testInfo.outputPath(`inline-delivery-${width}.png`) });
-    const before = await page.evaluate(
-      () => (window as unknown as { calls: unknown[] }).calls.length,
-    );
+    const browserReads = () =>
+      page.evaluate(
+        () =>
+          (
+            window as unknown as { calls: { name: string; arguments?: { itemId?: number } }[] }
+          ).calls.filter((call) => !(call.name === "get_menus" && call.arguments?.itemId != null))
+            .length,
+      );
+    const before = await browserReads();
     await ui.getByRole("button", { name: "Change meal", exact: true }).click();
     await expect(ui.getByRole("region", { name: "Available meals" })).toBeVisible();
     await expect(ui.getByRole("region", { name: "Selected meals" })).toHaveCount(0);
@@ -1602,9 +1660,7 @@ for (const width of [375, 1000]) {
     await expect(back).toHaveCSS("width", "28px");
     await back.click();
     await expect(ui.getByRole("region", { name: "Selected meals" })).toBeVisible();
-    expect(
-      await page.evaluate(() => (window as unknown as { calls: unknown[] }).calls.length),
-    ).toBe(before);
+    expect(await browserReads()).toBe(before);
   });
 }
 

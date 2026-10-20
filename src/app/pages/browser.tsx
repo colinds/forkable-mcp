@@ -131,6 +131,7 @@ export function MealBrowserPage() {
                 menus={state.menus}
                 busy={busy}
                 choose={choose}
+                prefetchMeal={browser.prefetchMeal}
                 status={state.deliveryStatus}
                 onBrowseMeals={
                   presentation === "delivery" && !isPastDelivery(delivery.date)
@@ -183,6 +184,7 @@ export function MealBrowserPage() {
                     busy={busy || (state.filters.recommendedOnly && state.recommendationsLoading)}
                     loading={state.mealsLoading}
                     choose={choose}
+                    prefetchMeal={browser.prefetchMeal}
                   />
                 </section>
               )
