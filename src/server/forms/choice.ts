@@ -1,6 +1,6 @@
 import type { OpenAIForm } from "@openai/mcp-extensions";
-import type { MealChoice } from "@/shared/contracts/preparation.ts";
-import { money } from "@/shared/currency.ts";
+import type { MealChoice } from "@forkable/shared/contracts/preparation.ts";
+import { money } from "@forkable/shared/currency.ts";
 import { KEEP_ICON, SKIP_ICON, MEAL_ICON } from "./icons.ts";
 import { loadMealThumbnail, type MealThumbnail } from "./thumbnail.ts";
 

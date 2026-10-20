@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { patchSession } from "@/server/auth/session.ts";
 import { ENDPOINT } from "@/server/net/endpoints.ts";
 import type { Delivery, Piece } from "@/server/order/types.ts";
-import { addDaysLocal } from "@/shared/dates.ts";
+import { addDaysLocal } from "@forkable/shared/dates.ts";
 import { deliveryRange } from "@/server/order/data.ts";
 import { registerAllTools } from "@/server/tools/index.ts";
 import { createWriteGate } from "@/server/write-gate.ts";

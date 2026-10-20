@@ -20,7 +20,7 @@ import {
   searchResultsSchema,
   itemDetailSchema,
   recommendationsSchema,
-} from "@/shared/contracts/meals.ts";
+} from "@forkable/shared/contracts/meals.ts";
 
 type ToolHandler = (args: Record<string, unknown>) => Promise<CallToolResult>;
 

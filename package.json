@@ -25,6 +25,37 @@
   "bin": {
     "forkable-mcp": "dist/index.js"
   },
+  "workspaces": {
+    "packages": [
+      "apps/*",
+      "packages/*"
+    ],
+    "catalog": {
+      "@modelcontextprotocol/core": "^2.3.1",
+      "@modelcontextprotocol/ext-apps": "2.0.3",
+      "@modelcontextprotocol/server": "^2.3.1",
+      "@openai/mcp-extensions": "0.2.0",
+      "@steipete/sweet-cookie": "^0.4.4",
+      "cookie": "^2.0.1",
+      "set-cookie-parser": "^3.1.3",
+      "zod": "^4.6.7",
+      "@modelcontextprotocol/client": "^2.3.1",
+      "@modelcontextprotocol/sdk": "^1.32.1",
+      "@playwright/test": "^1.64.0",
+      "@tanstack/react-query": "^5.104.5",
+      "@tanstack/react-router": "^1.170.45",
+      "@types/bun": "^1.4.3",
+      "@types/react": "^19.3.0",
+      "@types/react-dom": "^19.3.0",
+      "lucide-react": "^1.59.0",
+      "oxfmt": "^0.73.0",
+      "oxlint": "^1.88.0",
+      "react": "^19.3.0",
+      "react-dom": "^19.3.0",
+      "typescript": "^7.0.2",
+      "lucide-static": "^1.59.0"
+    }
+  },
   "files": [
     "dist",
     "skills",
@@ -40,40 +71,34 @@
     "auth": "bun run src/index.ts --auth",
     "test": "bun test",
     "test:tz": "TZ=Asia/Kolkata bun test",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && bun run --workspaces typecheck",
     "lint": "oxlint",
     "lint:fix": "oxlint --fix",
-    "fmt": "oxfmt src tests scripts package.json tsconfig.json",
-    "fmt:check": "oxfmt --check src tests scripts package.json tsconfig.json",
+    "fmt": "oxfmt src apps packages tests scripts package.json tsconfig.json .oxlintrc.json",
+    "fmt:check": "oxfmt --check src apps packages tests scripts package.json tsconfig.json .oxlintrc.json",
     "smoke": "bun run scripts/smoke.ts",
-    "check": "oxlint && bun run fmt:check && tsc --noEmit && bun test && bun run test:tz",
-    "test:browser": "playwright test --config=tests/browser/playwright.config.ts"
+    "check": "oxlint && bun run fmt:check && bun run typecheck && bun test && bun run test:tz",
+    "test:browser": "bun run --filter @forkable/app test:browser"
   },
   "dependencies": {
-    "@modelcontextprotocol/core": "^2.3.1",
-    "@modelcontextprotocol/ext-apps": "2.0.3",
-    "@modelcontextprotocol/server": "^2.3.1",
-    "@openai/mcp-extensions": "0.2.0",
-    "@steipete/sweet-cookie": "^0.4.4",
-    "cookie": "^2.0.1",
-    "set-cookie-parser": "^3.1.3",
-    "zod": "^4.6.7"
+    "@modelcontextprotocol/core": "catalog:",
+    "@modelcontextprotocol/ext-apps": "catalog:",
+    "@modelcontextprotocol/server": "catalog:",
+    "@openai/mcp-extensions": "catalog:",
+    "@steipete/sweet-cookie": "catalog:",
+    "cookie": "catalog:",
+    "set-cookie-parser": "catalog:",
+    "zod": "catalog:"
   },
   "devDependencies": {
-    "@modelcontextprotocol/client": "^2.3.1",
-    "@modelcontextprotocol/sdk": "^1.32.1",
-    "@playwright/test": "^1.64.0",
-    "@tanstack/react-query": "^5.104.5",
-    "@tanstack/react-router": "^1.170.45",
-    "@types/bun": "^1.4.3",
-    "@types/react": "^19.3.0",
-    "@types/react-dom": "^19.3.0",
-    "lucide-react": "^1.59.0",
-    "oxfmt": "^0.73.0",
-    "oxlint": "^1.88.0",
-    "react": "^19.3.0",
-    "react-dom": "^19.3.0",
-    "typescript": "^7.0.2"
+    "@forkable/shared": "workspace:*",
+    "@modelcontextprotocol/client": "catalog:",
+    "@modelcontextprotocol/sdk": "catalog:",
+    "@types/bun": "catalog:",
+    "lucide-static": "catalog:",
+    "oxfmt": "catalog:",
+    "oxlint": "catalog:",
+    "typescript": "catalog:"
   },
   "engines": {
     "node": ">=22"

@@ -1,4 +1,4 @@
-import { type ForkableReference } from "@/shared/meal-reference.ts";
+import { type ForkableReference } from "@forkable/shared/meal-reference.ts";
 import {
   ResourceTemplate,
   type McpServer,

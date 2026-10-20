@@ -1,8 +1,8 @@
-import { addDaysLocal, isCalendarDate } from "@/shared/dates.ts";
+import { addDaysLocal, isCalendarDate } from "@forkable/shared/dates.ts";
 import { expect, test, describe } from "bun:test";
 import { buildSelectionsHash, resolveItemModifiers } from "@/server/order/selections.ts";
 import { compactItemDetail, itemDetail } from "@/server/order/menu.ts";
-import { selectedMealTotal } from "@/shared/meal-options.ts";
+import { selectedMealTotal } from "@forkable/shared/meal-options.ts";
 import { mealForm } from "@/server/forms/meal.ts";
 import {
   evaluateGuards,

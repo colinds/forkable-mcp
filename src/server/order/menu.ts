@@ -1,4 +1,4 @@
-import { type Menu as PublicMenu, type Detail } from "@/shared/contracts/meals.ts";
+import { type Menu as PublicMenu, type Detail } from "@forkable/shared/contracts/meals.ts";
 import { optionPrice, resolveItemModifiers } from "@/server/order/selections.ts";
 import { formatMoney } from "@/server/order/format.ts";
 import { type Menu, type MenuItem } from "@/server/order/types.ts";

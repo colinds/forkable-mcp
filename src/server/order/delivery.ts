@@ -1,4 +1,4 @@
-import { type Delivery as PublicDelivery } from "@/shared/contracts/meals.ts";
+import { type Delivery as PublicDelivery } from "@forkable/shared/contracts/meals.ts";
 import { allPieces, ownPieces } from "@/server/order/guards.ts";
 import { deliveryStatus, ratingDetails } from "@/server/order/status.ts";
 import {

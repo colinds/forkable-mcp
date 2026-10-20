@@ -25,10 +25,19 @@ test.each(["start", "dev"])(
     try {
       await Promise.all([
         cp("src", join(dir, "src"), { recursive: true }),
+        cp("apps", join(dir, "apps"), {
+          recursive: true,
+          filter: (source) => !source.split(/[\\/]/).includes("node_modules"),
+        }),
+        cp("packages", join(dir, "packages"), {
+          recursive: true,
+          filter: (source) => !source.split(/[\\/]/).includes("node_modules"),
+        }),
         cp("scripts", join(dir, "scripts"), { recursive: true }),
         ...["package.json", "tsconfig.json"].map((file) => cp(file, join(dir, file))),
         symlink(resolve("node_modules"), join(dir, "node_modules"), "dir"),
       ]);
+      await symlink(resolve("apps/app/node_modules"), join(dir, "apps/app/node_modules"), "dir");
       const transport = new StdioClientTransport({
         command: "bun",
         args: ["run", mode],
@@ -55,11 +64,11 @@ test.each(["start", "dev"])(
         mode === "dev",
       );
       if (mode === "dev") {
-        const css = Bun.file(join(dir, "src/app/styles.css"));
+        const css = Bun.file(join(dir, "apps/app/src/styles.css"));
         const originalCss = await css.text();
         await Bun.write(css, `${originalCss}\nbody { --rebuild-probe: css-rebuilt; }`);
         await waitForHtml(dir, "css-rebuilt");
-        const entry = Bun.file(join(dir, "src/app/index.tsx"));
+        const entry = Bun.file(join(dir, "apps/app/src/index.tsx"));
         const originalEntry = await entry.text();
         await Bun.write(entry, "export const broken = ;");
         await Bun.sleep(300);

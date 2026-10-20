@@ -6,9 +6,9 @@ import {
   RESOURCE_MIME_TYPE,
   type McpUiAppToolConfig,
 } from "@modelcontextprotocol/ext-apps/server";
-import { openBrowserInputSchema } from "@/shared/contracts/browser.ts";
+import { openBrowserInputSchema } from "@forkable/shared/contracts/browser.ts";
 import { FORK_ICONS } from "./ui-icon.ts";
-import { IMAGE_ORIGINS } from "../shared/images.ts";
+import { IMAGE_ORIGINS } from "@forkable/shared/images.ts";
 
 declare const APP_HTML_PATH: string;
 

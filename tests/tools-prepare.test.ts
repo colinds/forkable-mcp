@@ -1,8 +1,8 @@
 import { z } from "zod";
 import { KEEP_ICON, SKIP_ICON, MEAL_ICON } from "@/server/forms/icons.ts";
 import { PNG_BASE64, PNG_DATA_URI } from "./fixtures/image.ts";
-import { referenceUri } from "@/shared/meal-reference.ts";
-import { writeResultSchema } from "@/shared/contracts/writes.ts";
+import { referenceUri } from "@forkable/shared/meal-reference.ts";
+import { writeResultSchema } from "@forkable/shared/contracts/writes.ts";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -16,8 +16,8 @@ import { ForkableClient } from "@/server/net/client.ts";
 import { registerAllTools } from "@/server/tools/index.ts";
 import { createWriteGate } from "@/server/write-gate.ts";
 import type { Delivery, Menu } from "@/server/order/types.ts";
-import { todayLocal } from "@/shared/dates.ts";
-import { prepareMealResultSchema } from "@/shared/contracts/preparation.ts";
+import { todayLocal } from "@forkable/shared/dates.ts";
+import { prepareMealResultSchema } from "@forkable/shared/contracts/preparation.ts";
 
 const imagePickerSchema = z.object({
   type: z.literal("object"),

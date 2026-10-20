@@ -24,7 +24,7 @@ jobs:
         with:
           bun-version: latest
       - run: bun install --frozen-lockfile
-      - run: bunx playwright install --with-deps chromium
+      - run: bun run --filter @forkable/app install:browser
       - run: bun run test:browser
 
   package:

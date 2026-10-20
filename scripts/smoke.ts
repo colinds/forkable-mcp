@@ -12,7 +12,7 @@
 import { Client } from "@modelcontextprotocol/client";
 import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
 import { execFile } from "node:child_process";
-import { access, mkdir, mkdtemp, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
@@ -185,6 +185,18 @@ async function checkPackage(runner: Runner, root: string, tarball: string): Prom
 
   const bin = join(consumer, "node_modules", ".bin", "forkable-mcp");
   if (!(await exists(bin))) fail(`no binary at ${bin} — check package.json "bin"`);
+  const installed = JSON.parse(
+    await readFile(join(consumer, "node_modules", "forkable-mcp", "package.json"), "utf8"),
+  ) as { dependencies: Record<string, string> };
+  for (const [name, version] of Object.entries(installed.dependencies)) {
+    if (name.startsWith("@forkable/") || /^(catalog|workspace):/.test(version))
+      fail(`${runner}: unresolved workspace dependency ${name}@${version}`);
+    if (
+      ["react", "react-dom", "lucide-react", "lucide-static"].includes(name) ||
+      name.startsWith("@tanstack/")
+    )
+      fail(`${runner}: build-only dependency ${name} leaked into the published runtime`);
+  }
   await checkInstalled(runner, consumer, join(root, `home-${runner}`));
 }
 

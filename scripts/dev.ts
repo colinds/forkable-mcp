@@ -7,7 +7,7 @@ const app = Bun.spawn(
   [
     process.execPath,
     "build",
-    "src/app/index.html",
+    "apps/app/src/index.html",
     "--compile",
     "--target=browser",
     "--outfile=dist/app.html",
