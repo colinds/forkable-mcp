@@ -1,4 +1,4 @@
-# CLAUDE.md
+# AGENTS.md
 
 Development guidance for **forkable-mcp**. User setup belongs in [README.md](./README.md); this file
 records implementation contracts that coding agents must preserve.
@@ -85,6 +85,9 @@ The error boundary is intentional:
 - `QueryError` represents GraphQL errors on a read.
 - `ReauthRequiredError` is handled by the tool wrapper and must not be collapsed into a generic
   transport error.
+
+Preserve `structuredContent: { error: "forkable_reauth_required", reason }` on auth failures.
+Tools with output schemas include that error contract so SDK v1 clients can validate it too.
 
 Responses must be valid JSON objects with a valid GraphQL envelope. A mutation refusal can have an
 empty `errors` array and carry its reason only in `errorDetails.base`; `mutate` checks both.
