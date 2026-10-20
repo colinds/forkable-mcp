@@ -65,6 +65,28 @@ function deterministicGate(options: Parameters<typeof createWriteGate>[0] = {}) 
   });
 }
 
+const resultFor = async (error: Error): Promise<CallToolResult> => {
+  const gate = deterministicGate();
+  const preview = await gate(context(), {
+    tool: "set_meal",
+    argsHash: argsHash(),
+    plan: async () => clonePlan(),
+  });
+  return gate(
+    context(42, async () => {
+      throw error;
+    }),
+    {
+      tool: "set_meal",
+      argsHash: argsHash(),
+      confirmToken: confirmToken(preview),
+      plan: async () => {
+        throw new Error("must not replan");
+      },
+    },
+  );
+};
+
 describe("hashWriteArgs", () => {
   test("is stable under object reordering and excludes confirmToken", () => {
     const first = hashWriteArgs({
@@ -345,28 +367,6 @@ describe("createWriteGate", () => {
   });
 
   test("maps definite and uncertain mutation failures", async () => {
-    const resultFor = async (error: Error): Promise<CallToolResult> => {
-      const gate = deterministicGate();
-      const preview = await gate(context(), {
-        tool: "set_meal",
-        argsHash: argsHash(),
-        plan: async () => clonePlan(),
-      });
-      return gate(
-        context(42, async () => {
-          throw error;
-        }),
-        {
-          tool: "set_meal",
-          argsHash: argsHash(),
-          confirmToken: confirmToken(preview),
-          plan: async () => {
-            throw new Error("must not replan");
-          },
-        },
-      );
-    };
-
     const rejected = await resultFor(
       new MutationError("replacePiece", ["not allowed", "not allowed"], {
         base: [{ error: "venue_capacity_overage" }],

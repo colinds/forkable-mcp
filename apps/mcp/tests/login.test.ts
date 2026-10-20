@@ -64,12 +64,10 @@ describe("loginWithPassword", () => {
       cookie: "_easyorder_session=old",
       delegationSessionId: "delegated-session",
     });
-    const fetchImpl: FetchImpl = async () =>
-      res(200, { data: { me: { id: 7, email: "new@example.com", fullName: "New User" } } });
-
     const { session } = await ingestCredentials(
       { cookie: "_easyorder_session=new", csrf: "csrf" },
-      fetchImpl,
+      async () =>
+        res(200, { data: { me: { id: 7, email: "new@example.com", fullName: "New User" } } }),
     );
 
     expect(session.delegationSessionId).toBeNull();
@@ -77,27 +75,25 @@ describe("loginWithPassword", () => {
   });
 
   test("rejects SSO-only accounts before attempting login", async () => {
-    const fetchImpl: FetchImpl = async (url) => {
-      if (url.endsWith("/public/graphql"))
-        return res(200, {
-          data: { identities: [{ integration: { allowSsoPasswordLogin: false } }] },
-        });
-      throw new Error("should not reach createSession");
-    };
-    await expect(loginWithPassword({ email: "a@b.com", password: "x" }, fetchImpl)).rejects.toThrow(
-      /SSO/,
-    );
+    await expect(
+      loginWithPassword({ email: "a@b.com", password: "x" }, async (url) => {
+        if (url.endsWith("/public/graphql"))
+          return res(200, {
+            data: { identities: [{ integration: { allowSsoPasswordLogin: false } }] },
+          });
+        throw new Error("should not reach createSession");
+      }),
+    ).rejects.toThrow(/SSO/);
   });
 
   test("surfaces createSession errorDetails", async () => {
-    const fetchImpl: FetchImpl = async (url) => {
-      if (url.endsWith("/public/graphql")) return res(200, { data: { identities: [] } });
-      if (url.endsWith("/csrf_token"))
-        return res(200, { token: "t" }, ["_easyorder_session=s; path=/"]);
-      return res(200, { data: { createSession: { errorDetails: ["Invalid password"] } } });
-    };
-    await expect(loginWithPassword({ email: "a@b.com", password: "x" }, fetchImpl)).rejects.toThrow(
-      /Invalid password/,
-    );
+    await expect(
+      loginWithPassword({ email: "a@b.com", password: "x" }, async (url) => {
+        if (url.endsWith("/public/graphql")) return res(200, { data: { identities: [] } });
+        if (url.endsWith("/csrf_token"))
+          return res(200, { token: "t" }, ["_easyorder_session=s; path=/"]);
+        return res(200, { data: { createSession: { errorDetails: ["Invalid password"] } } });
+      }),
+    ).rejects.toThrow(/Invalid password/);
   });
 });

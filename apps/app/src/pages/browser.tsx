@@ -74,8 +74,8 @@ export function MealBrowserPage() {
     browser.choose(menuId, itemId, sourcePieceId);
   }
   function browseMeals(sourcePieceId?: string | number) {
-    browser.setView("meals", sourcePieceId);
-    if (displayMode === "fullscreen") {
+    browser.setView(presentation === "browse" ? browser.view : "meals", sourcePieceId);
+    if (presentation === "browse") {
       menuHeading.current?.focus({ preventScroll: true });
       menuHeading.current?.scrollIntoView({ block: "start" });
     }

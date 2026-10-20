@@ -105,6 +105,24 @@ function withoutOperation(message: string, operation: string): string {
   return clean.startsWith(unknown) ? clean.slice(unknown.length) : clean;
 }
 
+const blockedResult = (plan: WritePlan, note?: string): WriteGateResult => {
+  const blocking = blockers(plan.guards);
+  return {
+    isError: true,
+    content: text(
+      [note, `Blocked — ${plan.summary}`, ...blocking.map((guard) => `  ✗ ${guard.message}`)]
+        .filter((line): line is string => line !== undefined)
+        .join("\n"),
+    ),
+    structuredContent: {
+      mode: "blocked",
+      summary: plan.summary,
+      deliveryIds: plan.deliveryIds,
+      blockers: blocking.map((guard) => ({ code: guard.code, message: guard.message })),
+    },
+  };
+};
+
 /** Create one process-local, single-use pending-write gate. */
 export function createWriteGate(options: WriteGateOptions = {}): WriteGate {
   const ttlMs = options.ttlMs ?? DEFAULT_TTL_MS;
@@ -167,24 +185,6 @@ export function createWriteGate(options: WriteGateOptions = {}): WriteGate {
   };
 
   return async (ctx, call) => {
-    const blockedResult = (plan: WritePlan, note?: string): WriteGateResult => {
-      const blocking = blockers(plan.guards);
-      return {
-        isError: true,
-        content: text(
-          [note, `Blocked — ${plan.summary}`, ...blocking.map((guard) => `  ✗ ${guard.message}`)]
-            .filter((line): line is string => line !== undefined)
-            .join("\n"),
-        ),
-        structuredContent: {
-          mode: "blocked",
-          summary: plan.summary,
-          deliveryIds: plan.deliveryIds,
-          blockers: blocking.map((guard) => ({ code: guard.code, message: guard.message })),
-        },
-      };
-    };
-
     const previewResult = async (
       plan: WritePlan,
       confirmationError?: { reason: TakeFailure; message: string },

@@ -223,10 +223,17 @@ test("meal actions sit below the card and confirm before removing", async ({ pag
   await expect(card).toHaveCount(0);
 });
 
-for (const width of [375, 1000]) {
-  test(`per-meal Change remembers the meal being replaced at ${width}px`, async ({ page }) => {
+for (const [displayMode, width] of [
+  ["inline", 375],
+  ["inline", 1000],
+  ["fullscreen", 375],
+  ["fullscreen", 1000],
+] as const) {
+  test(`per-meal Change remembers the meal being replaced in ${displayMode} at ${width}px`, async ({
+    page,
+  }) => {
     await page.setViewportSize({ width, height: 900 });
-    await page.goto(fixtureUrl({ displayMode: "fullscreen" }));
+    await page.goto(fixtureUrl({ displayMode }));
     const ui = page.frameLocator("iframe");
     const actions = ui.getByRole("group", { name: "Actions for Pasta", exact: true });
     const change = actions.getByRole("button", { name: "Change meal", exact: true });
@@ -236,6 +243,7 @@ for (const width of [375, 1000]) {
     expect(button!.x).toBeCloseTo(row!.x, 0);
     await change.click();
     await expect(ui.getByRole("heading", { name: "Browse menus", exact: true })).toBeFocused();
+    await expect(ui.getByRole("region", { name: "Selected meals" })).toBeVisible();
     await ui
       .getByRole("region", { name: "Available meals" })
       .getByRole("button", { name: "View Spicy tofu bowl from Seoul Kitchen", exact: true })
@@ -942,9 +950,11 @@ for (const width of [375, 1000]) {
     );
     if (width === 375) {
       const region = await progress.boundingBox();
-      for (const link of await progress.getByRole("link").all()) {
-        const bounds = await link.boundingBox();
-        expect(Math.abs(bounds!.width - region!.width)).toBeLessThanOrEqual(2);
+      const bounds = await Promise.all(
+        (await progress.getByRole("link").all()).map((link) => link.boundingBox()),
+      );
+      for (const bound of bounds) {
+        expect(Math.abs(bound!.width - region!.width)).toBeLessThanOrEqual(2);
       }
     }
     expect(await progress.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(

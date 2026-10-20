@@ -176,11 +176,11 @@ export function useMealBrowser(): MealBrowserController {
               args: { deliveryId: submission.deliveryId, pieceId: submission.pieceId },
             };
       const confirmation = new Confirmation();
-      const preview = await confirmation.preview(call, change);
+      const previewResult = await confirmation.preview(call, change);
       if (!confirmation.pending)
         return {
           notice:
-            resultText(preview) ||
+            resultText(previewResult) ||
             "Unable to update this meal. Check your selection and try again.",
           problem: true,
           needsRefresh: false,

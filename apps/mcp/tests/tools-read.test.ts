@@ -24,6 +24,10 @@ import {
 
 type ToolHandler = (args: Record<string, unknown>) => Promise<CallToolResult>;
 
+const expired = async () => {
+  throw new ReauthRequiredError("expired");
+};
+
 const USER_ID = 42;
 const DELIVERY_ID = 1;
 const MENU_ID = 10;
@@ -246,9 +250,6 @@ describe("read tool responses", () => {
       async (reason) => {
         if (reason === "missing") rmSync(join(home, "session.json"));
         else {
-          const expired = async () => {
-            throw new ReauthRequiredError("expired");
-          };
           ForkableClient.prototype.gql = expired;
           ForkableClient.prototype.query = expired;
         }
@@ -437,7 +438,7 @@ describe("read tool responses", () => {
         ui: { visibility: ["model", "app"] },
         "openai/widgetAccessible": true,
       });
-      expect(definitions.find((tool) => tool.name === "remove_meal")?._meta).toMatchObject({
+      expect(definitions.find((tool) => tool.name === "remove_meal")?.["_meta"]).toMatchObject({
         ui: { visibility: ["model", "app"] },
       });
       for (const name of ["set_meal_all", "rate_meal", "confirm_delivery"])
