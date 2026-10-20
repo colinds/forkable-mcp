@@ -410,6 +410,57 @@ test("restored context does not suppress returning to an earlier view", async ()
   expect(sent).toEqual([b, a]);
 });
 
+test("context updates from separate views are serialized and deduplicated", async () => {
+  const started = Promise.withResolvers<void>();
+  const held = Promise.withResolvers<void>();
+  const sent: unknown[] = [];
+  const applied: unknown[] = [];
+  const browse = { content: [], structuredContent: { view: "browse" } };
+  const editor = { content: [], structuredContent: { view: "meal-details" } };
+  const update = createContextUpdater({
+    getHostCapabilities: () => ({ updateModelContext: { structuredContent: {} } }),
+    getHostContext: () => ({}),
+    updateModelContext: async (value) => {
+      sent.push(value);
+      if (value.structuredContent?.view === "browse") {
+        started.resolve();
+        await held.promise;
+      }
+      applied.push(value);
+      return {};
+    },
+  });
+  const first = update(browse);
+  await started.promise;
+  const second = update(editor);
+  const duplicate = update(editor);
+  await Promise.resolve();
+  expect(sent).toEqual([browse]);
+  held.resolve();
+  await Promise.all([first, second, duplicate]);
+  expect(sent).toEqual([browse, editor]);
+  expect(applied).toEqual([browse, editor]);
+});
+
+test("a failed context update does not block the next view", async () => {
+  const editor = { content: [], structuredContent: { view: "meal-details" } };
+  const applied: unknown[] = [];
+  const update = createContextUpdater({
+    getHostCapabilities: () => ({ updateModelContext: { structuredContent: {} } }),
+    getHostContext: () => ({}),
+    updateModelContext: async (value) => {
+      if (value.structuredContent?.view === "browse") throw new Error("Host unavailable");
+      applied.push(value);
+      return {};
+    },
+  });
+  const failed = update({ content: [], structuredContent: { view: "browse" } });
+  const next = update(editor);
+  await expect(failed).rejects.toThrow("Host unavailable");
+  await next;
+  expect(applied).toEqual([editor]);
+});
+
 test("selected meal total includes chosen options and preserves an unknown base price", () => {
   const meal: Detail = {
     ...detail,
