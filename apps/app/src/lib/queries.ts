@@ -50,14 +50,27 @@ export function createMealQueries(call: CallTool, initial?: InitialView) {
   return {
     seed,
     launch: initialLaunch(initial),
-    deliveries: () =>
-      queryOptions({
+    deliveries: (requestedRange?: { from?: string; to?: string }) => {
+      const selectedRange =
+        requestedRange === undefined
+          ? range
+          : {
+              ...(requestedRange.from ? { from: requestedRange.from } : {}),
+              ...(requestedRange.to ? { to: requestedRange.to } : {}),
+            };
+      return queryOptions({
         initialDataUpdatedAt: seededAt,
-        queryKey: ["deliveries", range],
+        queryKey: ["deliveries", selectedRange],
         queryFn: async () =>
-          sortDeliveries(data(await call("list_deliveries", range), deliveriesSchema).deliveries),
-        initialData: seed.deliveries ? sortDeliveries(seed.deliveries) : undefined,
-      }),
+          sortDeliveries(
+            data(await call("list_deliveries", selectedRange), deliveriesSchema).deliveries,
+          ),
+        initialData:
+          seed.deliveries && JSON.stringify(selectedRange) === JSON.stringify(range)
+            ? sortDeliveries(seed.deliveries)
+            : undefined,
+      });
+    },
     menus: (delivery: Delivery) =>
       queryOptions({
         initialDataUpdatedAt: seededAt,

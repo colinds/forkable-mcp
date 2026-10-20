@@ -107,7 +107,7 @@ export function useMealBrowser(): MealBrowserController {
       returnToBrowser();
     },
   });
-  const deliveriesQuery = useSuspenseQuery(queries.deliveries());
+  const deliveriesQuery = useSuspenseQuery(queries.deliveries(navigation));
   const deliveries = deliveriesQuery.data;
   const wanted = target?.deliveryId ?? navigation.deliveryId ?? seed.status?.deliveryId;
   const delivery =
@@ -117,7 +117,7 @@ export function useMealBrowser(): MealBrowserController {
   );
   const recommendationsQuery = useQuery(
     delivery
-      ? queries.recommendations(delivery, launch.limit)
+      ? queries.recommendations(delivery, navigation.limit)
       : { queryKey: ["recommendations"], queryFn: skipToken },
   );
   const statusQuery = useQuery(
@@ -270,14 +270,16 @@ export function useMealBrowser(): MealBrowserController {
   async function refreshBrowser() {
     await queryClient.cancelQueries();
     await queryClient.invalidateQueries({ refetchType: "none" });
-    const listed = await queryClient.fetchQuery(queries.deliveries());
+    const listed = await queryClient.fetchQuery(queries.deliveries(navigation));
     const selected = listed.find((item) => item.deliveryId === delivery?.deliveryId) ?? listed[0];
     if (selected && serverSearch)
       await queryClient.fetchQuery(queries.search(selected.deliveryId, navigation.query ?? ""));
     if (selected) {
       await queryClient.fetchQuery(queries.menus(selected));
       void queryClient.fetchQuery(queries.status(selected)).catch(() => {});
-      void queryClient.fetchQuery(queries.recommendations(selected, launch.limit)).catch(() => {});
+      void queryClient
+        .fetchQuery(queries.recommendations(selected, navigation.limit))
+        .catch(() => {});
     }
     if (selected?.deliveryId !== navigation.deliveryId)
       await router.navigate({

@@ -1,3 +1,4 @@
+import { registerAppTools } from "@/app/lib/app-tools.ts";
 import { createDraftWriter, supportsEditableDrafts } from "@/app/lib/chat-draft.ts";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
@@ -13,9 +14,10 @@ import { createContextUpdater } from "@/app/lib/model-context.ts";
 import type { CallTool } from "@/app/lib/tools.ts";
 const app = new App(
   { name: "Forkable", version: "1.0.0" },
-  { availableDisplayModes: ["inline", "fullscreen"] },
+  { tools: {}, availableDisplayModes: ["inline", "fullscreen"] },
   { autoResize: false },
 );
+const appTools = registerAppTools(app);
 const call: CallTool = (name, args) => {
   if (recovering) recoveryReadStarted = true;
   return app.callServerTool({ name, arguments: args });
@@ -51,6 +53,7 @@ function renderView() {
         key={revision}
         host={{ callTool: call, createDraft: renderedDraftSupport ? writeDraft : undefined }}
         initial={initial}
+        appTools={appTools}
         displayMode={app.getHostContext()?.displayMode}
         expand={
           app.getHostContext()?.availableDisplayModes?.includes("fullscreen")

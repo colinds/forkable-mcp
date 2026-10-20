@@ -14,7 +14,7 @@ import { MealLoadError } from "@/app/pages/error.tsx";
 import { MealRouteError } from "@/app/pages/meal/error.tsx";
 import { resultText } from "@/app/lib/tools.ts";
 import { MealAppLoading } from "@/app/pages/loading.tsx";
-import { isPastDelivery, type InitialView } from "@/app/lib/initial-view.ts";
+import { initialRange, isPastDelivery, type InitialView } from "@/app/lib/initial-view.ts";
 import { MEAL_PATH, navigationSchema, parseMealParams } from "@/app/lib/navigation.ts";
 import type { MealQueries } from "@/app/lib/queries.ts";
 
@@ -26,18 +26,18 @@ interface RouterContext {
 
 const root = createRootRouteWithContext<RouterContext>()({
   validateSearch: navigationSchema,
-  loaderDeps: ({ search }) => ({ deliveryId: search.deliveryId }),
-  beforeLoad: ({ context }) => {
+  loaderDeps: ({ search }) => ({ deliveryId: search.deliveryId, from: search.from, to: search.to }),
+  beforeLoad: ({ context, search }) => {
     if (
       context.initial?.result.isError &&
-      !context.queryClient.getQueryData(context.queries.deliveries().queryKey)
+      !context.queryClient.getQueryData(context.queries.deliveries(search).queryKey)
     )
       throw new Error(resultText(context.initial.result) || "Forkable could not load this view.");
   },
   loader: async ({ context, deps }) => {
     const initialLoad =
-      context.queryClient.getQueryData(context.queries.deliveries().queryKey) === undefined;
-    const deliveries = await context.queryClient.ensureQueryData(context.queries.deliveries());
+      context.queryClient.getQueryData(context.queries.deliveries(deps).queryKey) === undefined;
+    const deliveries = await context.queryClient.ensureQueryData(context.queries.deliveries(deps));
     const selected =
       deps.deliveryId == null
         ? deliveries[0]
@@ -61,8 +61,10 @@ const meal = createRoute({
       itemId: String(params.itemId),
     }),
   },
-  loader: async ({ context, params }) => {
-    const deliveries = await context.queryClient.ensureQueryData(context.queries.deliveries());
+  loader: async ({ context, params, location }) => {
+    const deliveries = await context.queryClient.ensureQueryData(
+      context.queries.deliveries(location.search),
+    );
     const delivery = deliveries.find((candidate) => candidate.deliveryId === params.deliveryId);
     if (!delivery)
       throw new Error(
@@ -87,6 +89,7 @@ export function createMealRouter(context: RouterContext) {
   const { launch, seed } = context.queries;
   const search = navigationSchema.parse({
     ...input,
+    ...initialRange(context.initial),
     deliveryId: input?.deliveryId ?? seed.status?.deliveryId,
     view: launch.view,
     filters: launch.filters,

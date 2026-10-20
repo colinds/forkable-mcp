@@ -1,7 +1,8 @@
+import { useAppTools } from "@/app/hooks/use-app-tools.ts";
 import { BrowserToolbar } from "@/app/components/browser-toolbar.tsx";
 import { ArrowLeft } from "lucide-react";
 import { IconButton } from "@/app/components/icon-button.tsx";
-import { Outlet } from "@tanstack/react-router";
+import { Outlet, useSearch } from "@tanstack/react-router";
 import { useMealApp } from "@/app/lib/app-context.ts";
 import { MealEditorContext } from "@/app/lib/editor-context.ts";
 import { activeFilterCount, menuView } from "@/app/lib/menu-filters.ts";
@@ -20,6 +21,7 @@ export function MealBrowserPage() {
   const { openLink, updateContext, expand, displayMode = "inline" } = useMealApp();
   const [displayError, setDisplayError] = useState<string>();
   const browser = useMealBrowser();
+  const navigation = useSearch({ from: "__root__" });
   const { state } = browser;
   const presentation = displayMode === "fullscreen" ? "browse" : browser.view;
   const compact = presentation !== "browse";
@@ -44,9 +46,12 @@ export function MealBrowserPage() {
       presentation,
     ],
   );
+  const contextView = { ...state, presentation, source: "", choices: {}, instructions: "" };
+  const contextMenu = inlineEditor ? { ...view, ordered: [] } : view;
+  useAppTools(contextView, contextMenu);
   const contextFailed = useModelContext(
-    { ...state, presentation, source: "", choices: {}, instructions: "" },
-    inlineEditor ? { ...view, ordered: [] } : view,
+    contextView,
+    contextMenu,
     state.deliveriesLoaded && !state.busy && !editing ? updateContext : undefined,
   );
   const { delivery, detail, busy, notice, problem } = state;
@@ -94,7 +99,7 @@ export function MealBrowserPage() {
           >
             {presentation === "meals" && (
               <>
-                {browser.launch.view === "delivery" && (
+                {delivery && (
                   <IconButton
                     icon={ArrowLeft}
                     label="Back to delivery"
@@ -127,7 +132,9 @@ export function MealBrowserPage() {
           {!!state.deliveries.length && (
             <>
               {(presentation === "browse" ||
-                (presentation === "delivery" && browser.launch.showDates)) && (
+                (presentation === "delivery" &&
+                  state.deliveries.length > 1 &&
+                  Boolean(navigation.from || navigation.to))) && (
                 <DateStrip
                   deliveries={state.deliveries}
                   selectedId={delivery?.deliveryId}

@@ -1,3 +1,4 @@
+import { useEditorTools } from "@/app/hooks/use-app-tools.ts";
 import { useEditorContext } from "@/app/lib/editor-context.ts";
 import { useMealEditor } from "@/app/hooks/use-meal-editor.ts";
 import { useModelContext } from "@/app/hooks/use-model-context.ts";
@@ -14,9 +15,12 @@ export function MealEditorOptions() {
   const { data: meal } = useSuspenseQuery(queries.detail(params));
   const editor = useMealEditor(browser, meal);
   const { busy } = editor.state;
+  const contextView = { ...editor.state, presentation };
+  const contextMenu = inline ? { ...view, ordered: [] } : view;
+  useEditorTools(contextView, contextMenu);
   const contextFailed = useModelContext(
-    { ...editor.state, presentation },
-    inline ? { ...view, ordered: [] } : view,
+    contextView,
+    contextMenu,
     browser.state.deliveriesLoaded && !busy ? updateContext : undefined,
   );
   return (

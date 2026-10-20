@@ -112,6 +112,11 @@ bridge.onupdatemodelcontext = async (context) => {
   }
   return {};
 };
+Object.assign(window, {
+  listAppTools: () => bridge.listTools({}),
+  callAppTool: (name: string, args: Record<string, unknown> = {}) =>
+    bridge.callTool({ name, arguments: args }),
+});
 bridge.oncalltool = respond;
 bridge.onrequestdisplaymode = async ({ mode }) => {
   displayMode = mode;

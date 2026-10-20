@@ -9,7 +9,7 @@ export function MealLoadError({ error }: ErrorComponentProps) {
   const retry = useMutation({
     mutationFn: async () => {
       await queryClient.invalidateQueries({ refetchType: "none" });
-      await queryClient.fetchQuery(queries.deliveries());
+      await queryClient.fetchQuery(queries.deliveries(router.state.location.search));
       await queryClient.refetchQueries(
         { predicate: (query) => query.state.status === "error" },
         { throwOnError: true },

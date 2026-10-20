@@ -1,3 +1,4 @@
+import type { AppTools } from "./app-tools.ts";
 import { createContext, useContext } from "react";
 import type { QueryClient } from "@tanstack/react-query";
 import type { McpUiDisplayMode } from "@modelcontextprotocol/ext-apps";
@@ -9,6 +10,7 @@ import type { OpenLink } from "./tools.ts";
 
 export interface MealAppProps {
   host: MealBrowserHost;
+  appTools?: AppTools;
   initial?: InitialView;
   displayMode?: McpUiDisplayMode;
   expand?: () => Promise<void>;

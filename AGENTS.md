@@ -336,6 +336,9 @@ and use them for server registration and frontend response validation. Keep raw 
 models on the server and UI state in the app. The linter enforces import boundaries.
 
 Use the standard MCP Apps bridge and host styles. OpenAI metadata is an optional layer.
+Live app views expose `read_view` and `show_meals` through the MCP Apps bridge only. Prefer those
+for an already-open view when the host discovers them; they are not server tools. Share navigation,
+filters, and context projections with the UI, and do not discard unsaved edits through model navigation.
 Only `open_forkable` advertises a UI resource. Data tools remain callable from the app without
 launching another view; resolve chat reads before opening the final requested view.
 `set_meal` and `remove_meal` are app-visible write tools; both use the existing confirmation gate.
