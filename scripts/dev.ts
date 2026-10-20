@@ -1,4 +1,6 @@
-export {};
+import { fileURLToPath } from "node:url";
+
+const root = fileURLToPath(new URL("../", import.meta.url));
 
 process.env.NODE_ENV = "development";
 await import("./build.ts");
@@ -7,24 +9,28 @@ const app = Bun.spawn(
   [
     process.execPath,
     "build",
-    "src/app/index.html",
+    "apps/app/src/index.html",
     "--compile",
     "--target=browser",
-    "--outfile=dist/app.html",
+    "--outfile=apps/mcp/dist/app.html",
     "--sourcemap=inline",
     "--define",
     'process.env.NODE_ENV:"development"',
     "--watch",
     "--no-clear-screen",
   ],
-  { stdout: "ignore", stderr: "inherit" },
+  { cwd: root, stdout: "ignore", stderr: "inherit" },
 );
 
-const server = Bun.spawn([process.execPath, "--watch", "--no-clear-screen", "src/index.ts"], {
-  stdin: "inherit",
-  stdout: "inherit",
-  stderr: "inherit",
-});
+const server = Bun.spawn(
+  [process.execPath, "--watch", "--no-clear-screen", "apps/mcp/src/index.ts"],
+  {
+    cwd: root,
+    stdin: "inherit",
+    stdout: "inherit",
+    stderr: "inherit",
+  },
+);
 
 function stop() {
   if (app.exitCode === null) app.kill();

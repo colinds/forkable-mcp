@@ -24,7 +24,7 @@ jobs:
         with:
           bun-version: latest
       - run: bun install --frozen-lockfile
-      - run: bunx playwright install --with-deps chromium
+      - run: bun run --filter @forkable-mcp/app install:browser
       - run: bun run test:browser
 
   package:
@@ -36,7 +36,8 @@ jobs:
           bun-version: latest
       - run: bun install --frozen-lockfile
       - run: mkdir artifacts
-      - run: bun pm pack --destination artifacts
+      - run: bun pm pack --destination ../../artifacts
+        working-directory: apps/mcp
       - run: bun build scripts/smoke.ts --target=node --format=esm --outfile=artifacts/smoke.mjs
       - uses: actions/upload-artifact@v4
         with:

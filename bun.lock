@@ -4,36 +4,87 @@
   "workspaces": {
     "": {
       "name": "forkable-mcp",
+      "devDependencies": {
+        "@modelcontextprotocol/client": "catalog:",
+        "@types/bun": "catalog:",
+        "oxfmt": "^0.73.0",
+        "oxlint": "^1.88.0",
+        "typescript": "catalog:",
+      },
+    },
+    "apps/app": {
+      "name": "@forkable-mcp/app",
+      "version": "0.0.0",
+      "dependencies": {
+        "@forkable-mcp/shared": "workspace:*",
+        "@modelcontextprotocol/ext-apps": "catalog:",
+        "@openai/mcp-extensions": "catalog:",
+        "@tanstack/react-query": "^5.104.5",
+        "@tanstack/react-router": "^1.170.45",
+        "lucide-react": "^1.59.0",
+        "react": "^19.3.0",
+        "react-dom": "^19.3.0",
+        "zod": "catalog:",
+      },
+      "devDependencies": {
+        "@modelcontextprotocol/client": "catalog:",
+        "@playwright/test": "^1.64.0",
+        "@types/bun": "catalog:",
+        "@types/react": "^19.3.0",
+        "@types/react-dom": "^19.3.0",
+        "typescript": "catalog:",
+      },
+    },
+    "apps/mcp": {
+      "name": "forkable-mcp",
+      "version": "0.8.0",
+      "bin": {
+        "forkable-mcp": "dist/index.js",
+      },
       "dependencies": {
         "@modelcontextprotocol/core": "^2.3.1",
-        "@modelcontextprotocol/ext-apps": "2.0.3",
+        "@modelcontextprotocol/ext-apps": "catalog:",
         "@modelcontextprotocol/server": "^2.3.1",
-        "@openai/mcp-extensions": "0.2.0",
+        "@openai/mcp-extensions": "catalog:",
         "@steipete/sweet-cookie": "^0.4.4",
         "cookie": "^2.0.1",
         "set-cookie-parser": "^3.1.3",
-        "zod": "^4.6.7",
+        "zod": "catalog:",
       },
       "devDependencies": {
-        "@modelcontextprotocol/client": "^2.3.1",
+        "@forkable-mcp/shared": "workspace:*",
+        "@modelcontextprotocol/client": "catalog:",
         "@modelcontextprotocol/sdk": "^1.32.1",
-        "@playwright/test": "^1.64.0",
-        "@tanstack/react-query": "^5.104.5",
-        "@tanstack/react-router": "^1.170.45",
-        "@types/bun": "^1.4.3",
-        "@types/react": "^19.3.0",
-        "@types/react-dom": "^19.3.0",
-        "lucide-react": "^1.59.0",
-        "oxfmt": "^0.73.0",
-        "oxlint": "^1.88.0",
-        "react": "^19.3.0",
-        "react-dom": "^19.3.0",
-        "typescript": "^7.0.2",
+        "@types/bun": "catalog:",
+        "lucide-static": "^1.59.0",
+        "typescript": "catalog:",
+      },
+    },
+    "packages/shared": {
+      "name": "@forkable-mcp/shared",
+      "version": "0.0.0",
+      "dependencies": {
+        "zod": "catalog:",
+      },
+      "devDependencies": {
+        "typescript": "catalog:",
       },
     },
   },
+  "catalog": {
+    "@modelcontextprotocol/client": "^2.3.1",
+    "@modelcontextprotocol/ext-apps": "2.0.3",
+    "@openai/mcp-extensions": "0.2.0",
+    "@types/bun": "^1.4.3",
+    "typescript": "^7.0.2",
+    "zod": "^4.6.7",
+  },
   "packages": {
     "@cfworker/json-schema": ["@cfworker/json-schema@4.1.1", "", {}, "sha512-gAmrUZSGtKc3AiBL71iNWxDsyUC5uMaKKGdvzYsBoTW/xi42JQHl7eKV2OYzCUqvc+D2RCcf7EXY2iCyFIk6og=="],
+
+    "@forkable-mcp/app": ["@forkable-mcp/app@workspace:apps/app"],
+
+    "@forkable-mcp/shared": ["@forkable-mcp/shared@workspace:packages/shared"],
 
     "@hono/node-server": ["@hono/node-server@2.1.5", "", { "peerDependencies": { "hono": "^4 || ^5.0.0-0" } }, "sha512-MgP/I06GdvsilDspMk/qmRzpk8LOUStP6jFAbSRi40W09DhoyUn+Mj7eyKICPqeYKybOjVFLVIAQzvu1bfIa7Q=="],
 
@@ -259,6 +310,8 @@
 
     "finalhandler": ["finalhandler@2.1.1", "", { "dependencies": { "debug": "^4.4.0", "encodeurl": "^2.0.0", "escape-html": "^1.0.3", "on-finished": "^2.4.1", "parseurl": "^1.3.3", "statuses": "^2.0.1" } }, "sha512-S8KoZgRZN+a5rNwqTxlZZePjT/4cnm0ROV70LedRHZ0p8u9fRID0hJUZQpkKLzro8LfmC8sx23bY6tVNxv8pQA=="],
 
+    "forkable-mcp": ["forkable-mcp@workspace:apps/mcp"],
+
     "forwarded": ["forwarded@0.2.0", "", {}, "sha512-buRG0fpBtRHSTCOASe6hD258tEubFoRLb4ZNA6NxMVHNw2gOcwHo9wyablzMzOA5z9xA9L1KNjk/Nt6MT9aYow=="],
 
     "fresh": ["fresh@2.0.0", "", {}, "sha512-Rx/WycZ60HOaqLKAi6cHRKKI7zxWbJ31MhntmtwMoaTeF7XFH9hhBp8vITaMidfljRQ6eYWCKkaTK+ykVJHP2A=="],
@@ -300,6 +353,8 @@
     "json-schema-typed": ["json-schema-typed@8.0.2", "", {}, "sha512-fQhoXdcvc3V28x7C7BMs4P5+kNlgUURe2jmUT1T//oBRMDrqy1QPelJimwZGo7Hg9VPV3EQV5Bnq4hbFy2vetA=="],
 
     "lucide-react": ["lucide-react@1.59.0", "", { "peerDependencies": { "@types/react": "*", "react": "^16.5.1 || ^17.0.0 || ^18.0.0 || ^19.0.0" }, "optionalPeers": ["@types/react"] }, "sha512-5qgMyyCPU6OvnKpLS2t693+ZtiqA8oaSweWoUows0BLFKFf6V75m4+CptpmohZHpD5IuOVIBXHBBiv2vpLJmtw=="],
+
+    "lucide-static": ["lucide-static@1.59.0", "", {}, "sha512-MuHZYaXbHgzN2QO6D3OM19bj09A+8GJiFSdXIMlbnLLEGQQ9+NRH2KaCxuivevD3Y23vM74kV17XBifgtqhfEg=="],
 
     "math-intrinsics": ["math-intrinsics@1.1.0", "", {}, "sha512-/IXtbwEk5HTPyEwyKX6hGkYXxM9nbj64B+ilVJnC/R6B0pH5G4V3b0pVbL7DBj4tkhBAppbQUlf6F6Xl9LHu1g=="],
 

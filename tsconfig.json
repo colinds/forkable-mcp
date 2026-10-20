@@ -4,10 +4,12 @@
     "module": "ESNext",
     "moduleResolution": "bundler",
     "paths": {
-      "@/*": ["./src/*"]
+      "@/app/*": ["./apps/app/src/*"],
+      "@/tests/*": ["./tests/*"],
+      "@/server/*": ["./apps/mcp/src/server/*"]
     },
     "lib": ["ES2023", "DOM"],
-    "types": ["bun-types", "node"],
+    "types": ["bun"],
     "strict": true,
     "noUncheckedIndexedAccess": true,
     "noEmit": true,
@@ -18,5 +20,5 @@
     "resolveJsonModule": true,
     "jsx": "react-jsx"
   },
-  "include": ["src/**/*.ts", "tests/**/*.ts", "scripts/**/*.ts", "src/**/*.tsx"]
+  "include": ["scripts/**/*.ts", "tests/**/*.ts"]
 }

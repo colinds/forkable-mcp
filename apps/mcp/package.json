@@ -1,0 +1,64 @@
+{
+  "name": "forkable-mcp",
+  "version": "0.8.0",
+  "description": "Unofficial MCP server for Forkable — order and manage corporate lunches from any MCP client.",
+  "keywords": [
+    "bun",
+    "food",
+    "forkable",
+    "lunch",
+    "mcp",
+    "model-context-protocol",
+    "node",
+    "ordering"
+  ],
+  "homepage": "https://github.com/colinds/forkable-mcp#readme",
+  "bugs": {
+    "url": "https://github.com/colinds/forkable-mcp/issues"
+  },
+  "license": "MIT",
+  "author": "Colin D'Souza",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/colinds/forkable-mcp.git"
+  },
+  "bin": {
+    "forkable-mcp": "dist/index.js"
+  },
+  "files": [
+    "dist",
+    "skills",
+    "README.md",
+    "LICENSE"
+  ],
+  "type": "module",
+  "scripts": {
+    "build": "bun run ../../scripts/build.ts",
+    "prepack": "bun run build",
+    "start": "bun run build && bun run src/index.ts",
+    "auth": "bun run src/index.ts --auth",
+    "dev": "bun run ../../scripts/dev.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/core": "^2.3.1",
+    "@modelcontextprotocol/ext-apps": "catalog:",
+    "@modelcontextprotocol/server": "^2.3.1",
+    "@openai/mcp-extensions": "catalog:",
+    "@steipete/sweet-cookie": "^0.4.4",
+    "cookie": "^2.0.1",
+    "set-cookie-parser": "^3.1.3",
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@forkable-mcp/shared": "workspace:*",
+    "@modelcontextprotocol/client": "catalog:",
+    "@modelcontextprotocol/sdk": "^1.32.1",
+    "@types/bun": "catalog:",
+    "lucide-static": "^1.59.0",
+    "typescript": "catalog:"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

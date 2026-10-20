@@ -17,7 +17,7 @@ jobs:
       - name: Verify tag matches package.json version
         run: |
           TAG_VERSION=${GITHUB_REF#refs/tags/v}
-          PKG_VERSION=$(jq -r '.version' package.json)
+          PKG_VERSION=$(jq -r '.version' apps/mcp/package.json)
           echo "Tag version: $TAG_VERSION   package.json: $PKG_VERSION"
           if [ "$TAG_VERSION" != "$PKG_VERSION" ]; then
             echo "Error: tag ($TAG_VERSION) does not match package.json version ($PKG_VERSION)"
@@ -39,6 +39,7 @@ jobs:
       - run: npm install -g npm@latest
 
       - name: Publish to npm
+        working-directory: apps/mcp
         run: |
           VERSION=$(jq -r '.version' package.json)
           bun pm pack

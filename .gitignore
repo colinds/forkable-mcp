@@ -10,3 +10,7 @@ private/
 
 test-results/
 playwright-report/
+
+apps/mcp/README.md
+apps/mcp/LICENSE
+apps/mcp/skills/

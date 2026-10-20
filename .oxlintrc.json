@@ -14,7 +14,7 @@
   "ignorePatterns": ["node_modules", "exploration", "dist"],
   "overrides": [
     {
-      "files": ["src/app/**"],
+      "files": ["apps/app/src/**"],
       "rules": {
         "no-restricted-imports": [
           "error",
@@ -27,23 +27,31 @@
       }
     },
     {
-      "files": ["src/server/**"],
+      "files": ["apps/mcp/src/server/**"],
       "rules": {
         "no-restricted-imports": [
           "error",
           {
-            "patterns": ["@/app/**", "**/app/**"]
+            "patterns": ["@/app/**", "**/app/**", "@forkable-mcp/app/**"]
           }
         ]
       }
     },
     {
-      "files": ["src/shared/**"],
+      "files": ["packages/shared/src/**"],
       "rules": {
         "no-restricted-imports": [
           "error",
           {
-            "patterns": ["node:*", "bun", "@/server/**", "**/server/**", "@/app/**", "**/app/**"]
+            "patterns": [
+              "node:*",
+              "bun",
+              "@/server/**",
+              "**/server/**",
+              "@/app/**",
+              "**/app/**",
+              "@forkable-mcp/app/**"
+            ]
           }
         ]
       }

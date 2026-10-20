@@ -1,9 +1,24 @@
-import { mkdir, copyFile } from "node:fs/promises";
+import { mkdir, copyFile, cp, rm } from "node:fs/promises";
+import { fileURLToPath } from "node:url";
+import pkg from "../apps/mcp/package.json" with { type: "json" };
 
-await mkdir("dist", { recursive: true });
+const root = new URL("../", import.meta.url);
+const dist = new URL("apps/mcp/dist/", root);
+const skills = new URL("../skills/", dist);
+await mkdir(dist, { recursive: true });
+await rm(skills, { recursive: true, force: true });
 await Promise.all([
-  copyFile("node_modules/@openai/mcp-extensions/LICENSE", "dist/mcp-extensions-LICENSE"),
-  copyFile("node_modules/lucide-react/LICENSE", "dist/lucide-LICENSE"),
+  copyFile(
+    new URL("apps/mcp/node_modules/@openai/mcp-extensions/LICENSE", root),
+    new URL("mcp-extensions-LICENSE", dist),
+  ),
+  copyFile(
+    new URL("apps/mcp/node_modules/lucide-static/LICENSE", root),
+    new URL("lucide-LICENSE", dist),
+  ),
+  copyFile(new URL("README.md", root), new URL("../README.md", dist)),
+  copyFile(new URL("LICENSE", root), new URL("../LICENSE", dist)),
+  cp(new URL("skills/", root), skills, { recursive: true }),
 ]);
 
 const development = process.env.NODE_ENV === "development";
@@ -11,23 +26,23 @@ const sourcemap = development ? "inline" : "none";
 
 const [app, server] = await Promise.all([
   Bun.build({
-    entrypoints: ["src/app/index.html"],
+    entrypoints: [fileURLToPath(new URL("apps/app/src/index.html", root))],
     compile: true,
     target: "browser",
     minify: !development,
     sourcemap,
     define: { "process.env.NODE_ENV": JSON.stringify(development ? "development" : "production") },
     naming: "app.[ext]",
-    outdir: "dist",
+    outdir: fileURLToPath(dist),
   }),
   Bun.build({
-    entrypoints: ["src/index.ts"],
+    entrypoints: [fileURLToPath(new URL("apps/mcp/src/index.ts", root))],
     target: "node",
     sourcemap,
     define: { APP_HTML_PATH: JSON.stringify("./app.html") },
     format: "esm",
-    packages: "external",
-    outdir: "dist",
+    external: Object.keys(pkg.dependencies),
+    outdir: fileURLToPath(dist),
   }),
 ]);
 

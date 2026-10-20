@@ -9,18 +9,21 @@ This is a Bun + TypeScript MCP server. The MCP client spawns it over stdio and o
 There is no HTTP server.
 
 ```text
-src/
-  index.ts        CLI entry point
-  app/            React components, hooks, UI state, and host styling
-  server/         Authentication, API access, and write gate
-    tools/        Tool registration by domain; index.ts only composes registrations
-    forms/        Native meal-option forms and validated answer translation
-    order/        API loading, wire types, ownership, selections, and presentation
-  shared/
+apps/
+  mcp/            The published forkable-mcp package
+    src/
+      index.ts    CLI entry point
+      server/     Authentication, API access, tools, forms, and write gate
+    tests/        Server and CLI tests
+  app/
+    src/          React components, hooks, pages, and host styling
+    tests/        UI unit tests and browser fixtures
+packages/shared/
+  src/
     contracts/    Public MCP input/output schemas and inferred types
     dates.ts      Calendar helpers shared by app and server
     images.ts     Allowed meal-image origins and URL validation
-tests/            Bun tests
+tests/fixtures/   Fixtures shared by server and app tests
 scripts/build.ts  bundles the server and self-contained UI
 scripts/dev.ts    watches server code and rebuilds UI changes
 scripts/smoke.ts  packed-install smoke test
@@ -32,6 +35,12 @@ The only durable runtime state is `~/.forkable-mcp/session.json` (or
 Keep one current MCP contract. Do not add legacy argument aliases, confirmation formats, session
 migrations, or response shims without a demonstrated need; agents can re-read tool schemas and
 adapt.
+
+The root contains shared tooling; `apps/mcp` is the only published workspace. `apps/app` and
+`packages/shared` are private. Declare dependencies in the workspace that imports them, using the
+root catalog only for external versions shared across workspaces. React and TanStack belong to the app;
+the server uses `lucide-static` only at build time for native-form icons. Shared source is bundled
+into the published server; private workspace dependencies must never escape into its runtime.
 
 ## Authentication and session state
 
@@ -321,8 +330,8 @@ Exact-meal launches require a delivery plus its menu/item pair. `bun run start` 
 before starting stdio; `bun run dev` rebuilds UI changes while watching the server. Reopen the
 MCP view after rebuilding. Keep build output off protocol stdout.
 
-Keep app and server dependencies directed into `shared`, never into each other. Shared modules
-must be browser-safe. Define public tool schemas once in `shared/contracts`, infer their types,
+Keep app and server dependencies directed into `@forkable-mcp/shared`, never into each other. Shared
+modules must be browser-safe. Define public tool schemas once in `packages/shared/src/contracts`, infer their types,
 and use them for server registration and frontend response validation. Keep raw Forkable API
 models on the server and UI state in the app. The linter enforces import boundaries.
 
