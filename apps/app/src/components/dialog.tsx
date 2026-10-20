@@ -63,7 +63,8 @@ export function Dialog({
           first.focus();
         }
       }}
-      onClose={() => {
+      onClose={(event) => {
+        if (event.target !== event.currentTarget) return;
         const dialog = ref.current;
         if (!dialog?.isConnected || dialog.open) return;
         if (busy || restoreAfterClose.current) {
@@ -72,6 +73,7 @@ export function Dialog({
         } else if (onClose() === false) dialog.showModal();
       }}
       onCancel={(event) => {
+        if (event.target !== event.currentTarget) return;
         restoreAfterClose.current = busy;
         event.preventDefault();
         if (!busy) onClose();

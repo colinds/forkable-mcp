@@ -69,6 +69,8 @@ for (const displayMode of ["inline", "fullscreen"] as const) {
       .getByRole("button", { name: /^View Pasta/ })
       .click();
     const skip = ui.getByRole("button", { name: "Skip meal", exact: true });
+    await ui.getByLabel("Kimchi").check();
+    await ui.getByLabel("Notes", { exact: false }).fill("Keep these edits");
     const removals = () =>
       page.evaluate(() =>
         (
@@ -79,11 +81,14 @@ for (const displayMode of ["inline", "fullscreen"] as const) {
     const dialog = ui.getByRole("dialog", { name: "Skip Pasta?" });
     await expect(dialog).toBeVisible();
     expect(await removals()).toHaveLength(0);
-    await dialog.getByRole("button", { name: "Cancel" }).click();
+    if (displayMode === "fullscreen") await page.keyboard.press("Escape");
+    else await dialog.getByRole("button", { name: "Cancel" }).click();
     await expect(dialog).toHaveCount(0);
     if (displayMode === "fullscreen")
       await expect(ui.locator("html")).toHaveCSS("overflow", "hidden");
     await expect(skip).toBeFocused();
+    await expect(ui.getByLabel("Kimchi")).toBeChecked();
+    await expect(ui.getByLabel("Notes", { exact: false })).toHaveValue("Keep these edits");
     expect(await removals()).toHaveLength(0);
     await skip.click();
     expect(
