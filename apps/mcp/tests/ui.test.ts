@@ -90,3 +90,28 @@ test("publishes sidebar and thread entrypoints and constrained UI resource over 
     await server.close();
   }
 });
+
+for (const target of [
+  undefined,
+  "codex://plugins/forkable-mcp@local/app/open_forkable",
+  "javascript:alert(1)",
+]) {
+  test(`launch result exposes only a valid configured app target (${target ? new URL(target).protocol : "unset"})`, async () => {
+    const server = new McpServer({ name: "links", version: "0" });
+    registerMealBrowser(server, async () => "<!doctype html><html>Forkable</html>", target ?? "");
+    const client = new Client({ name: "links", version: "0" });
+    const [ct, st] = InMemoryTransport.createLinkedPair();
+    try {
+      await Promise.all([server.connect(st), client.connect(ct)]);
+      await client.listTools();
+      const result = await client.callTool({ name: "open_forkable", arguments: {} });
+      expect(result.isError).not.toBe(true);
+      expect(result.structuredContent).toEqual(
+        target?.startsWith("codex:") ? { appUrl: target } : {},
+      );
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+}

@@ -1,3 +1,4 @@
+import { useViewLink } from "@/app/hooks/use-view-link.ts";
 import { useEditorContext } from "@/app/lib/editor-context.ts";
 import { useMealEditor } from "@/app/hooks/use-meal-editor.ts";
 import { useModelContext } from "@/app/hooks/use-model-context.ts";
@@ -14,8 +15,9 @@ export function MealEditorOptions() {
   const { data: meal } = useSuspenseQuery(queries.detail(params));
   const editor = useMealEditor(browser, meal);
   const { busy } = editor.state;
+  const viewUrl = useViewLink(browser.state);
   const contextFailed = useModelContext(
-    { ...editor.state, presentation },
+    { ...editor.state, presentation, url: viewUrl },
     inline ? { ...view, ordered: [] } : view,
     browser.state.deliveriesLoaded && !busy ? updateContext : undefined,
   );

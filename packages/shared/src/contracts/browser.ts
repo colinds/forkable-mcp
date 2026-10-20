@@ -89,3 +89,22 @@ export const openBrowserInputSchema = browserInputSchema
         });
     }
   });
+
+/** Deployment URL for an installed Forkable plugin, without a particular view. */
+export const appUrlSchema = z
+  .string()
+  .url()
+  .refine((value) => {
+    if (!URL.canParse(value)) return false;
+    const url = new URL(value);
+    if (url.username || url.password || url.search || url.hash) return false;
+    if ((url.protocol === "codex:" || url.protocol === "chatgpt:") && url.hostname === "plugins")
+      return /^\/[^/]+\/app\/open_forkable$/.test(url.pathname);
+    return (
+      url.protocol === "https:" &&
+      url.hostname === "chatgpt.com" &&
+      /^\/plugins\/[^/]+\/app\/open_forkable$/.test(url.pathname)
+    );
+  }, "Use a Forkable plugin app URL without query parameters or a fragment.");
+
+export const browserLaunchResultSchema = z.object({ appUrl: appUrlSchema.optional() });

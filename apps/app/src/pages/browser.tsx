@@ -1,3 +1,5 @@
+import { useViewLink } from "@/app/hooks/use-view-link.ts";
+import { ViewLink } from "@/app/components/view-link.tsx";
 import { useDeepLink } from "@/app/hooks/use-deep-link.ts";
 import { BrowserToolbar } from "@/app/components/browser-toolbar.tsx";
 import { ArrowLeft } from "lucide-react";
@@ -46,8 +48,9 @@ export function MealBrowserPage() {
       presentation,
     ],
   );
+  const viewUrl = useViewLink(state);
   const contextFailed = useModelContext(
-    { ...state, presentation, source: "", choices: {}, instructions: "" },
+    { ...state, presentation, url: viewUrl, source: "", choices: {}, instructions: "" },
     inlineEditor ? { ...view, ordered: [] } : view,
     state.deliveriesLoaded && !state.busy && !editing ? updateContext : undefined,
   );
@@ -99,6 +102,7 @@ export function MealBrowserPage() {
             busy={busy}
             onRefresh={browser.refresh}
           >
+            <ViewLink />
             {presentation === "meals" && (
               <>
                 {browser.launch.view === "delivery" && (

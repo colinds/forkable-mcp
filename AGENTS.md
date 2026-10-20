@@ -303,6 +303,7 @@ Other wire constraints:
 | `FORKABLE_CSRF`                        | Optional initial CSRF token.                  |
 | `FORKABLE_MAX_TOTAL`                   | Optional per-meal preview ceiling in dollars. |
 | `FORKABLE_MCP_HOME`                    | Session-store directory.                      |
+| `FORKABLE_APP_URL`                     | Optional installed-plugin app entrypoint URL.   |
 
 ## Development
 
@@ -336,6 +337,9 @@ and use them for server registration and frontend response validation. Keep raw 
 models on the server and UI state in the app. The linter enforces import boundaries.
 
 Use the standard MCP Apps bridge and host styles. OpenAI metadata is an optional layer.
+OpenAI deep links reuse the existing router and its public view state; drafts, confirmations, and
+notices are excluded. Only show complete view URLs when an installed-plugin target is configured.
+Opening a link never submits a meal change or discards an open meal form.
 Only `open_forkable` advertises a UI resource. Data tools remain callable from the app without
 launching another view; resolve chat reads before opening the final requested view.
 `set_meal` and `remove_meal` are app-visible write tools; both use the existing confirmation gate.

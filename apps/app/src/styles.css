@@ -774,3 +774,13 @@ html[data-display-mode="inline"] #app {
     padding-right: 54px;
   }
 }
+
+.meal-navigation {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.meal-navigation .detail-back {
+  order: -1;
+}

@@ -11,6 +11,7 @@ export type UpdateContext = (context: ModelContext) => Promise<unknown>;
 export function browserContext(
   view: {
     presentation?: BrowserView;
+    url?: string;
     delivery?: Delivery;
     menus?: Menu[];
     detail?: Detail;
@@ -42,6 +43,7 @@ export function browserContext(
     }));
   const context = {
     app: "Forkable",
+    ...(view.url ? { url: view.url } : {}),
     guidance:
       "Food requests refer to the available Forkable menu. Browsing is not authorization to place or change an order. " +
       CURRENT_VIEW_GUIDANCE,

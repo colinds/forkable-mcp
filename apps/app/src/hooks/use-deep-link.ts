@@ -1,7 +1,6 @@
 import { useEffect, useEffectEvent, useRef, useState } from "react";
 import { useRouter } from "@tanstack/react-router";
 import { useMealApp } from "@/app/lib/app-context.ts";
-import { deepLinkInput } from "@/app/lib/deep-links.ts";
 import { navigateMealView } from "@/app/lib/navigate-meal-view.ts";
 import type { MealBrowserController } from "./use-meal-browser.ts";
 
@@ -24,7 +23,7 @@ export function useDeepLink(browser: MealBrowserController) {
     try {
       guard(revision);
       setError(undefined);
-      await navigateMealView(router, deepLinkInput(url), () => guard(revision));
+      await navigateMealView(router, url, () => guard(revision));
     } catch (failure) {
       if (isCurrent(revision))
         setError(

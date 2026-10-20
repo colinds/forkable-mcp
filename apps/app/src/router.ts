@@ -1,3 +1,4 @@
+import { deepLinkInput } from "@/app/lib/deep-links.ts";
 import {
   createRootRouteWithContext,
   createRoute,
@@ -22,6 +23,7 @@ interface RouterContext {
   queryClient: QueryClient;
   queries: MealQueries;
   initial?: InitialView;
+  deepLink?: string;
 }
 
 const root = createRootRouteWithContext<RouterContext>()({
@@ -42,6 +44,10 @@ const root = createRootRouteWithContext<RouterContext>()({
       deps.deliveryId == null
         ? deliveries[0]
         : deliveries.find((d) => d.deliveryId === deps.deliveryId);
+    if (deps.deliveryId != null && !selected)
+      throw new Error(
+        "This delivery is not in the requested date range. Refresh to see current deliveries.",
+      );
     if (initialLoad && selected)
       await context.queryClient.ensureQueryData(context.queries.menus(selected));
   },
@@ -70,6 +76,18 @@ const meal = createRoute({
       throw new Error(
         "This delivery is not in the requested date range. Refresh to see current deliveries.",
       );
+    const { sourcePieceId } = navigationSchema.parse(location.search);
+    if (sourcePieceId !== undefined) {
+      const source = delivery.meals.filter(
+        (meal) => String(meal.pieceId) === String(sourcePieceId),
+      );
+      if (
+        source.length !== 1 ||
+        source[0]!.menuId !== params.menuId ||
+        source[0]!.itemId !== params.itemId
+      )
+        throw new Error("This selected meal is no longer available on the delivery.");
+    }
     if (isPastDelivery(delivery.date))
       throw redirect({
         to: "/",
@@ -99,7 +117,7 @@ export function createMealRouter(context: RouterContext) {
     input?.deliveryId != null && input.menuId != null && input.itemId != null
       ? `/delivery/${input.deliveryId}/menu/${input.menuId}/item/${input.itemId}`
       : "/";
-  return createRouter({
+  const router = createRouter({
     routeTree,
     context,
     history: createMemoryHistory({
@@ -110,6 +128,14 @@ export function createMealRouter(context: RouterContext) {
     defaultStaleTime: Infinity,
     defaultPreload: false,
   });
+  if (context.deepLink && context.deepLink !== "/") {
+    const target = deepLinkInput(router, context.deepLink);
+    router.update({
+      context,
+      history: createMemoryHistory({ initialEntries: [router.buildLocation(target).href] }),
+    });
+  }
+  return router;
 }
 export type MealRouter = ReturnType<typeof createMealRouter>;
 declare module "@tanstack/react-router" {

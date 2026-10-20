@@ -9,7 +9,10 @@ import { MealApp } from "./app.tsx";
 import { observeAppSize } from "@/app/lib/host-size.ts";
 import { applyHostContext } from "@/app/lib/host-theme.ts";
 import { type InitialView } from "@/app/lib/initial-view.ts";
-import { browserInputSchema } from "@forkable-mcp/shared/contracts/browser.ts";
+import {
+  browserInputSchema,
+  browserLaunchResultSchema,
+} from "@forkable-mcp/shared/contracts/browser.ts";
 import { createContextUpdater } from "@/app/lib/model-context.ts";
 import type { CallTool } from "@/app/lib/tools.ts";
 const app = new App(
@@ -56,6 +59,7 @@ function renderView() {
         key={revision}
         host={{ callTool: call, createDraft: renderedDraftSupport ? writeDraft : undefined }}
         initial={initial}
+        appUrl={browserLaunchResultSchema.safeParse(initial.result.structuredContent).data?.appUrl}
         deepLink={link ? { url: link.url, revision: linkRevision } : undefined}
         displayMode={app.getHostContext()?.displayMode}
         expand={

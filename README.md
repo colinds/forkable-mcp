@@ -61,7 +61,8 @@ Restart or reconnect your client, then ask something like:
 ## Meal browser
 
 Browse and choose meals visually in clients that support MCP Apps. Open Forkable from the sidebar,
-or ask to see your meals.
+or ask to see your meals. Installed OpenAI plugins can set `FORKABLE_APP_URL` to their app
+entrypoint URL to enable links to the current view.
 
 ## Skills
 
@@ -202,6 +203,7 @@ environment.
 | `FORKABLE_CSRF`      | Sets the initial CSRF token; normally unnecessary              |
 | `FORKABLE_MAX_TOTAL` | Local per-meal spending limit in dollars                       |
 | `FORKABLE_MCP_HOME`  | Changes where the session is stored                            |
+| `FORKABLE_APP_URL`   | Optional installed-plugin app URL for view links               |
 
 `FORKABLE_MAX_TOTAL` is a local limit, not a Forkable allowance or billing rule. Billing information
 is shown as Forkable reports it.

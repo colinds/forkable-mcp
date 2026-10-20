@@ -1,10 +1,11 @@
-import { deepLinkInput, deepLinkPath } from "@/app/lib/deep-links.ts";
+import { linkRouter, viewPath } from "./view-links.ts";
+import { deepLinkInput, viewTarget, viewLink } from "@/app/lib/deep-links.ts";
 import { menuFiltersSchema } from "@forkable-mcp/shared/contracts/menu-filters.ts";
 import { selectedMealTotal } from "@forkable-mcp/shared/meal-options.ts";
 import { createMealReference } from "@forkable-mcp/shared/meal-reference.ts";
 import { createDraftWriter, mealDraft, supportsEditableDrafts } from "@/app/lib/chat-draft.ts";
 import { initialRange, initialLaunch } from "@/app/lib/initial-view.ts";
-import { openBrowserInputSchema } from "@forkable-mcp/shared/contracts/browser.ts";
+import { openBrowserInputSchema, appUrlSchema } from "@forkable-mcp/shared/contracts/browser.ts";
 import { browserContext, createContextUpdater } from "@/app/lib/model-context.ts";
 import {
   defaultFilters,
@@ -639,7 +640,7 @@ describe("deep links", () => {
         sort: "price-low",
       },
     });
-    expect(deepLinkInput(deepLinkPath(input))).toEqual(input);
+    expect(deepLinkInput(linkRouter(), viewPath(input))).toEqual(viewTarget(input));
   });
   test("rejects external targets, fragments and invalid meal identities", () => {
     for (const path of [
@@ -648,9 +649,29 @@ describe("deep links", () => {
       "/unknown",
       "/#fragment",
       "/?deliveryId=-1",
-      "/?itemId=7",
+      "/delivery/1/menu/10",
+      "/delivery/1/menu/10/item/-7",
       "/?from=2026-10-06&to=2026-10-05",
     ])
-      expect(() => deepLinkInput(path)).toThrow();
+      expect(() => deepLinkInput(linkRouter(), path)).toThrow();
   });
+});
+
+test("view links use configured plugin URLs and reject unsafe or incomplete targets", () => {
+  const path = viewPath({ deliveryId: 1, menuId: 20, itemId: 7, sourcePieceId: "b" });
+  for (const base of [
+    "codex://plugins/forkable-mcp@local/app/open_forkable",
+    "chatgpt://plugins/forkable-mcp/app/open_forkable",
+    "https://chatgpt.com/plugins/forkable-mcp/app/open_forkable",
+  ])
+    expect(new URL(viewLink(base, path)).searchParams.get("path")).toBe(path);
+  for (const base of [
+    "javascript:alert(1)",
+    "https://evil.example/plugins/id/app/open_forkable",
+    "codex://plugins/id/app/other",
+    "codex://plugins/id/app/open_forkable?path=/",
+    "https://user:secret@chatgpt.com/plugins/id/app/open_forkable",
+  ])
+    expect(appUrlSchema.safeParse(base).success).toBe(false);
+  expect(() => viewPath({ sourcePieceId: "b" })).toThrow();
 });

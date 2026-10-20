@@ -1,3 +1,4 @@
+import { ViewLink } from "@/app/components/view-link.tsx";
 import { ArrowLeft, X } from "lucide-react";
 import { IconButton } from "@/app/components/icon-button.tsx";
 import { Button } from "@/app/components/button.tsx";
@@ -11,12 +12,18 @@ export function MealNavigation({
   disabled?: boolean;
   onBack: () => void | boolean;
 }) {
-  return backLabel ? (
+  const back = backLabel ? (
     <Button className="detail-back" disabled={disabled} onClick={onBack}>
       <ArrowLeft size={18} aria-hidden="true" />
       {backLabel}
     </Button>
   ) : (
     <IconButton icon={X} label="Close" disabled={disabled} onClick={onBack} />
+  );
+  return (
+    <div className="meal-navigation">
+      <ViewLink />
+      {back}
+    </div>
   );
 }

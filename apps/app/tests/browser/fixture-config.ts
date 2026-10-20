@@ -3,6 +3,7 @@ import { browserInputSchema } from "@forkable-mcp/shared/contracts/browser.ts";
 
 const fixtureConfigSchema = z.object({
   deepLink: z.string().optional(),
+  appUrl: z.string().optional(),
   launch: z
     .object({
       name: z.enum([

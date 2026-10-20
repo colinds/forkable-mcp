@@ -11,6 +11,7 @@ import type { OpenLink } from "./tools.ts";
 export interface MealAppProps {
   host: MealBrowserHost;
   deepLink?: DeepLink;
+  appUrl?: string;
   initial?: InitialView;
   displayMode?: McpUiDisplayMode;
   expand?: () => Promise<void>;

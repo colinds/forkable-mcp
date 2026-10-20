@@ -1,4 +1,3 @@
-import { deepLinkInput } from "@/app/lib/deep-links.ts";
 import { useState } from "react";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { RouterProvider } from "@tanstack/react-router";
@@ -8,23 +7,24 @@ import { createMealRouter } from "./router.ts";
 
 export function MealApp(props: MealAppProps) {
   const [services] = useState(() => {
-    let initial = props.initial;
-    let initialLinkError: string | undefined;
-    if (props.deepLink && props.deepLink.url !== "/") {
-      try {
-        initial = { input: deepLinkInput(props.deepLink.url), result: { content: [] } };
-      } catch {
-        initialLinkError = "This Forkable link could not be opened.";
-      }
-    }
+    const initial = props.deepLink && props.deepLink.url !== "/" ? undefined : props.initial;
     const queryClient = createQueryClient();
     const queries = createMealQueries(props.host.callTool, initial);
+    const context = { queryClient, queries, initial };
+    let router;
+    let initialLinkError: string | undefined;
+    try {
+      router = createMealRouter({ ...context, deepLink: props.deepLink?.url });
+    } catch {
+      initialLinkError = "This Forkable link could not be opened.";
+      router = createMealRouter(context);
+    }
     return {
       queryClient,
       queries,
       initialLinkRevision: props.deepLink?.revision,
       initialLinkError,
-      router: createMealRouter({ queryClient, queries, initial }),
+      router,
     };
   });
   return (

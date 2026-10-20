@@ -8,6 +8,8 @@ import {
 } from "@modelcontextprotocol/ext-apps/server";
 import {
   CURRENT_VIEW_GUIDANCE,
+  appUrlSchema,
+  browserLaunchResultSchema,
   openBrowserInputSchema,
 } from "@forkable-mcp/shared/contracts/browser.ts";
 import { FORK_ICONS } from "./ui-icon.ts";
@@ -47,7 +49,11 @@ export function registerMealBrowser(
       ),
       "utf8",
     ),
+  configuredAppUrl = process.env.FORKABLE_APP_URL,
 ): void {
+  const appUrl = appUrlSchema.safeParse(configuredAppUrl).data;
+  if (configuredAppUrl && !appUrl)
+    console.warn("[forkable-mcp] Ignoring invalid FORKABLE_APP_URL.");
   const openTool = {
     title: "Forkable",
     icons: FORK_ICONS,
@@ -60,6 +66,7 @@ export function registerMealBrowser(
       "Search and filters apply to one delivery. Opening the app does not place an order; " +
       "this tool returns launch instructions, not meal data.",
     inputSchema: openBrowserInputSchema,
+    outputSchema: browserLaunchResultSchema,
     annotations: { readOnlyHint: true, openWorldHint: false },
     _meta: {
       ...MEAL_APP_META,
@@ -75,7 +82,7 @@ export function registerMealBrowser(
         text: "Forkable view ready. The app loads the requested delivery and filters; this launch result contains no meal data.",
       },
     ],
-    structuredContent: {},
+    structuredContent: appUrl ? { appUrl } : {},
   }));
 
   registerAppResource(server, "Forkable meal browser", APP_URI, {}, async () => ({

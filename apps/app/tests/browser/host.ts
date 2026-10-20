@@ -133,6 +133,10 @@ bridge.oninitialized = async () => {
     input = { deliveryId: 1 };
     result = await respond({ name: "get_delivery_status", arguments: input });
   }
+  if (config.appUrl)
+    result.structuredContent = Object.assign({}, result.structuredContent, {
+      appUrl: config.appUrl,
+    });
   await bridge.sendToolInput({ arguments: input });
   if (config.launchResponse === "cancelled") {
     await bridge.sendToolCancelled({ reason: "User cancelled" });
