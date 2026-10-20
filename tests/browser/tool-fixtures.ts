@@ -316,6 +316,9 @@ export function createToolFixtures(config: ResolvedFixtureConfig) {
     respond,
     calls,
     armRefreshFailure,
+    changeMeal: () => {
+      changed = true;
+    },
     releaseDetail: (index: number, failed = false) => pendingDetails[index]?.(failed),
     releaseAux: () => pendingAux.splice(0).forEach((release) => release()),
   };

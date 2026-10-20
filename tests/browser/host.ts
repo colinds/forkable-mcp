@@ -14,14 +14,15 @@ function appearance(theme: "light" | "dark") {
   document.body.style.color = variables["--color-text-primary"] ?? "inherit";
   return { theme, styles: { variables: variables as McpUiStyles } };
 }
-const { respond, calls, releaseAux, releaseDetail, armRefreshFailure } = createToolFixtures(config);
+const { respond, calls, releaseAux, releaseDetail, armRefreshFailure, changeMeal } =
+  createToolFixtures(config);
 const contextUpdates: unknown[] = [];
 const draftMessages: unknown[] = [];
 const composer = { text: "My existing question", sent: false };
 Object.assign(window, { draftMessages, composer });
 Object.assign(window, { calls, contextUpdates });
 Object.assign(window, { releaseAux, armRefreshFailure });
-Object.assign(window, { releaseDetail });
+Object.assign(window, { releaseDetail, changeMeal });
 const frame = document.querySelector<HTMLIFrameElement>("iframe")!;
 const bridge = new AppBridge(
   null,

@@ -15,7 +15,7 @@ import { fulfillmentLabel, arrivalTime } from "@/app/lib/delivery-labels.ts";
 import { describe, expect, test } from "bun:test";
 import { Client } from "@modelcontextprotocol/client";
 import { McpServer, InMemoryTransport } from "@modelcontextprotocol/server";
-import { registerMealBrowser, APP_URI } from "@/server/ui-server.ts";
+import { registerMealBrowser, APP_URI, MEAL_BROWSER_INSTRUCTIONS } from "@/server/ui-server.ts";
 import { Confirmation, data, selectionArgs, type CallTool } from "@/app/lib/tools.ts";
 import { imageUrl } from "@/shared/images.ts";
 import { menusSchema, type Delivery, type Detail } from "@/shared/contracts/meals.ts";
@@ -52,13 +52,34 @@ const detail: Detail = {
 };
 describe("meal browser", () => {
   test("publishes sidebar and thread entrypoints and constrained UI resource over MCP", async () => {
-    const server = new McpServer({ name: "test", version: "0" });
+    const server = new McpServer(
+      { name: "test", version: "0" },
+      { instructions: MEAL_BROWSER_INSTRUCTIONS },
+    );
     registerMealBrowser(server, async () => "<!doctype html><html>Forkable</html>");
     const client = new Client({ name: "test", version: "0" });
     const [ct, st] = InMemoryTransport.createLinkedPair();
     try {
       await Promise.all([server.connect(st), client.connect(ct)]);
       const tool = (await client.listTools()).tools.find((t) => t.name === "open_forkable")!;
+      expect(tool.description).toContain("interactive delivery, meal search");
+      expect(tool.description).toContain("data tools for text-only answers");
+      expect(tool.description).toContain("final display step");
+      expect(tool.description).toContain("one delivery");
+      expect(tool.description).toContain("not meal data");
+      expect(tool.inputSchema.properties?.deliveryId).toMatchObject({
+        description: expect.stringContaining("Always pass the matching delivery"),
+      });
+      expect(tool.inputSchema.properties?.menuId).toMatchObject({
+        description: expect.stringContaining("deliveryId, menuId and itemId together"),
+      });
+      expect(tool.inputSchema.properties?.view).toMatchObject({
+        description: expect.stringContaining("meals: show search/filter results immediately"),
+      });
+      expect(tool.inputSchema.properties?.from).toMatchObject({
+        description: expect.stringContaining("not a meal search across dates"),
+      });
+      expect(client.getInstructions()).toContain("final display step");
       expect(tool["_meta"]?.["openai/ui"]).toEqual({
         entrypoints: [{ type: "global" }, { type: "thread" }],
       });

@@ -9,7 +9,8 @@ import {
   type InitialView,
 } from "../lib/initial-view.ts";
 import { defaultFilters, type MenuFilters } from "../lib/menu-filters.ts";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useEffectEvent, useRef, useState } from "react";
+import { useOnReturn } from "./use-on-return.ts";
 import {
   Confirmation,
   writeResult,
@@ -180,6 +181,8 @@ export function useMealBrowser(
 ): MealBrowserController {
   const [state, setState] = useState(initialState);
   const running = useRef(false);
+  const [refreshRequested, setRefreshRequested] = useState(false);
+  const refreshing = useRef(false);
   const detailRequest = useRef<MealPreview | undefined>(undefined);
   const loadGeneration = useRef(0);
   const [range] = useState(() => initialRange(initial));
@@ -304,6 +307,60 @@ export function useMealBrowser(
     }
     await loadMenus(selected);
   }
+
+  const refreshDeliverySummary = useEffectEvent(async () => {
+    const generation = loadGeneration.current;
+    try {
+      const deliveries = sortDeliveries(
+        data(await call("list_deliveries", range), deliveriesSchema).deliveries,
+      );
+      const selected = deliveries.find((item) => item.deliveryId === delivery?.deliveryId);
+      const status = selected
+        ? data(
+            await call("get_delivery_status", {
+              deliveryId: selected.deliveryId,
+              from: selected.date,
+              to: selected.date,
+            }),
+            deliveryStatusSchema,
+          ).status
+        : undefined;
+      setState((current) =>
+        generation !== loadGeneration.current ||
+        current.pendingAction ||
+        current.detail ||
+        current.selectedMeal
+          ? current
+          : {
+              ...current,
+              deliveries,
+              delivery: selected,
+              ...(selected
+                ? { deliveryStatus: status, statusUnavailable: false }
+                : emptyDeliveryData),
+            },
+      );
+    } catch {
+      // Keep the last usable view. The refresh control remains available for an explicit retry.
+    }
+  });
+  useOnReturn(() => setRefreshRequested(true));
+  const canRefresh =
+    state.deliveriesLoaded &&
+    !state.pendingAction &&
+    !state.statusLoading &&
+    !state.detail &&
+    !state.selectedMeal &&
+    !state.needsRefresh;
+
+  useEffect(() => {
+    if (!refreshRequested || !canRefresh || refreshing.current) return;
+    refreshing.current = true;
+    void refreshDeliverySummary().finally(() => {
+      refreshing.current = false;
+      setRefreshRequested(false);
+    });
+  }, [refreshRequested, canRefresh]);
   // The originating tool result seeds the app instead of fetching the same data again.
   useEffect(() => {
     let cancelled = false;
