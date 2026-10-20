@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { KEEP_ICON, SKIP_ICON, MEAL_ICON } from "@/server/forms/icons.ts";
-import { PNG_BASE64, PNG_DATA_URI } from "./fixtures/image.ts";
+import { PNG_BASE64, PNG_DATA_URI } from "@/tests/fixtures/image.ts";
 import { referenceUri } from "@forkable-mcp/shared/meal-reference.ts";
 import { writeResultSchema } from "@forkable-mcp/shared/contracts/writes.ts";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";

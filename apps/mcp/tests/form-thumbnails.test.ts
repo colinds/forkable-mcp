@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { loadMealThumbnail } from "@/server/forms/thumbnail.ts";
-import { PNG_BASE64, PNG_DATA_URI } from "./fixtures/image.ts";
+import { PNG_BASE64, PNG_DATA_URI } from "@/tests/fixtures/image.ts";
 
 const source = "https://cdn.filestackcontent.com/resize=width:640/test-photo";
 test("meal thumbnails embed small images without credentials", async () => {

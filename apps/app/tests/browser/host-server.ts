@@ -10,7 +10,7 @@ export const fixtureServer = Bun.serve({
   fetch(request) {
     const path = new URL(request.url).pathname;
     if (path === "/app")
-      return new Response(Bun.file("dist/app.html"), {
+      return new Response(Bun.file("apps/mcp/dist/app.html"), {
         headers: {
           "Content-Type": "text/html",
           "Content-Security-Policy":

@@ -10,7 +10,7 @@ async function waitForHtml(dir: string, text: string) {
   const deadline = Date.now() + 10000;
   while (Date.now() < deadline) {
     // eslint-disable-next-line no-await-in-loop -- Observe the real compiler's asynchronous rebuild.
-    if ((await Bun.file(join(dir, "dist/app.html")).text()).includes(text)) return;
+    if ((await Bun.file(join(dir, "apps/mcp/dist/app.html")).text()).includes(text)) return;
     // eslint-disable-next-line no-await-in-loop -- Bound polling while the native watcher rebuilds.
     await Bun.sleep(50);
   }
@@ -24,20 +24,32 @@ test.each(["start", "dev"])(
     const client = new Client({ name: "source-start-test", version: "0" });
     try {
       await Promise.all([
-        cp("src", join(dir, "src"), { recursive: true }),
         cp("apps", join(dir, "apps"), {
           recursive: true,
-          filter: (source) => !source.split(/[\\/]/).includes("node_modules"),
+          filter: (source) =>
+            !source.split(/[\\/]/).some((part) => part === "node_modules" || part === "dist"),
         }),
         cp("packages", join(dir, "packages"), {
           recursive: true,
-          filter: (source) => !source.split(/[\\/]/).includes("node_modules"),
+          filter: (source) =>
+            !source.split(/[\\/]/).some((part) => part === "node_modules" || part === "dist"),
         }),
         cp("scripts", join(dir, "scripts"), { recursive: true }),
-        ...["package.json", "tsconfig.json"].map((file) => cp(file, join(dir, file))),
+        cp("skills", join(dir, "skills"), { recursive: true }),
+        ...["package.json", "tsconfig.json", "README.md", "LICENSE"].map((file) =>
+          cp(file, join(dir, file)),
+        ),
         symlink(resolve("node_modules"), join(dir, "node_modules"), "dir"),
       ]);
-      await symlink(resolve("apps/app/node_modules"), join(dir, "apps/app/node_modules"), "dir");
+      await Promise.all(
+        ["app", "mcp"].map((name) =>
+          symlink(
+            resolve(`apps/${name}/node_modules`),
+            join(dir, `apps/${name}/node_modules`),
+            "dir",
+          ),
+        ),
+      );
       const transport = new StdioClientTransport({
         command: "bun",
         args: ["run", mode],
@@ -55,12 +67,12 @@ test.each(["start", "dev"])(
       });
       const resource = await client.readResource({ uri: APP_URI });
       expect(resource.contents[0]?.mimeType).toBe("text/html;profile=mcp-app");
-      const html = Bun.file(join(dir, "dist/app.html"));
+      const html = Bun.file(join(dir, "apps/mcp/dist/app.html"));
       const sourceMap = "sourceMappingURL=data:application/json;base64,";
       const markup = await html.text();
       expect(markup.includes(sourceMap)).toBe(mode === "dev");
       expect(markup.includes("react-dom-client.development")).toBe(mode === "dev");
-      expect((await Bun.file(join(dir, "dist/index.js")).text()).includes(sourceMap)).toBe(
+      expect((await Bun.file(join(dir, "apps/mcp/dist/index.js")).text()).includes(sourceMap)).toBe(
         mode === "dev",
       );
       if (mode === "dev") {

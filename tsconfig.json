@@ -6,7 +6,7 @@
     "paths": {
       "@/app/*": ["./apps/app/src/*"],
       "@/tests/*": ["./tests/*"],
-      "@/*": ["./src/*"]
+      "@/server/*": ["./apps/mcp/src/server/*"]
     },
     "lib": ["ES2023", "DOM"],
     "types": ["bun"],
@@ -20,5 +20,5 @@
     "resolveJsonModule": true,
     "jsx": "react-jsx"
   },
-  "include": ["src/**/*.ts", "tests/**/*.ts", "scripts/**/*.ts"]
+  "include": ["scripts/**/*.ts", "tests/**/*.ts"]
 }

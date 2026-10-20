@@ -9,18 +9,21 @@ This is a Bun + TypeScript MCP server. The MCP client spawns it over stdio and o
 There is no HTTP server.
 
 ```text
-src/
-  index.ts        CLI entry point (the root is the published MCP package)
-  server/         Authentication, API access, tools, forms, and write gate
-apps/app/
-  src/            React components, hooks, pages, and host styling
-  tests/          UI unit tests and browser fixtures
+apps/
+  mcp/            The published forkable-mcp package
+    src/
+      index.ts    CLI entry point
+      server/     Authentication, API access, tools, forms, and write gate
+    tests/        Server and CLI tests
+  app/
+    src/          React components, hooks, pages, and host styling
+    tests/        UI unit tests and browser fixtures
 packages/shared/
   src/
     contracts/    Public MCP input/output schemas and inferred types
     dates.ts      Calendar helpers shared by app and server
     images.ts     Allowed meal-image origins and URL validation
-tests/            Server Bun tests
+tests/fixtures/   Fixtures shared by server and app tests
 scripts/build.ts  bundles the server and self-contained UI
 scripts/dev.ts    watches server code and rebuilds UI changes
 scripts/smoke.ts  packed-install smoke test
@@ -33,8 +36,9 @@ Keep one current MCP contract. Do not add legacy argument aliases, confirmation 
 migrations, or response shims without a demonstrated need; agents can re-read tool schemas and
 adapt.
 
-The app and shared code are private Bun workspaces. Declare dependencies in the workspace that
-imports them, using the root catalog only for external versions shared across workspaces. React and TanStack belong to the app;
+The root contains shared tooling; `apps/mcp` is the only published workspace. `apps/app` and
+`packages/shared` are private. Declare dependencies in the workspace that imports them, using the
+root catalog only for external versions shared across workspaces. React and TanStack belong to the app;
 the server uses `lucide-static` only at build time for native-form icons. Shared source is bundled
 into the published server; private workspace dependencies must never escape into its runtime.
 

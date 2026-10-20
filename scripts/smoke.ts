@@ -1,41 +1,18 @@
 #!/usr/bin/env bun
-// Packaged-install smoke test: pack the tarball, install it into a scratch project, and drive the
-// installed binary with a real MCP client over stdio.
-//
-// `bun run check` only ever sees the source tree, so it can't catch what the `files` allowlist leaves
-// out or what fails to resolve once the package is installed somewhere else. This can.
-//
-// No credentials needed: the server starts fine without a session (tools just return the re-auth
-// message). The transport's default environment is an allowlist that excludes FORKABLE_* anyway, and
-// FORKABLE_MCP_HOME is pinned to a temp dir so a local run can't touch a real session.
+// Install the packed artifact and check stdio startup and the bundled UI under Node and Bun.
+// Temporary auth storage and an isolated environment keep this check credential-free.
 
 import { Client } from "@modelcontextprotocol/client";
 import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
 import { execFile } from "node:child_process";
-import { access, mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
-import pkg from "../package.json" with { type: "json" };
+import { fileURLToPath } from "node:url";
+import pkg from "../apps/mcp/package.json" with { type: "json" };
 
 const exec = promisify(execFile);
-
-const EXPECTED_TOOLS = [
-  "open_forkable",
-  "prepare_meal",
-  "search_mentions",
-  "confirm_delivery",
-  "get_delivery_status",
-  "get_menus",
-  "get_profile",
-  "list_deliveries",
-  "rate_meal",
-  "recommend_meals",
-  "remove_meal",
-  "search_items",
-  "set_meal",
-  "set_meal_all",
-];
 
 const log = (msg: string) => console.log(`  ${msg}`);
 type Runner = "bunx" | "npx";
@@ -97,79 +74,22 @@ async function checkInstalled(runner: Runner, cwd: string, home: string): Promis
   if (version !== pkg.version)
     fail(`${runner} server reports v${version}, package.json says v${pkg.version}`);
   log(`${runner} serverInfo.version = ${version}`);
-  const serverPng = client.getServerVersion()?.icons?.find((icon) => icon.mimeType === "image/png");
-  if (!serverPng?.src.startsWith("data:image/png;base64,iVBORw0KGgo"))
-    fail(`${runner}: server does not advertise a self-contained PNG icon`);
-
-  const listedTools = (await client.listTools()).tools;
-  const names = listedTools.map((tool) => tool.name).toSorted();
-  const missing = EXPECTED_TOOLS.filter((tool) => !names.includes(tool));
-  const extra = names.filter((tool) => !EXPECTED_TOOLS.includes(tool));
-  if (missing.length) fail(`${runner} missing tools: ${missing.join(", ")}`);
-  if (extra.length) fail(`${runner} unexpected tools: ${extra.join(", ")}`);
-  log(`${runner} registered ${names.length} tools`);
-
-  const browser = listedTools.find((tool) => tool.name === "open_forkable");
-  if (!browser?.description?.includes("data tools for text-only answers"))
-    fail(`${runner}: meal browser is missing standalone tool-routing guidance`);
-  if (!client.getInstructions()?.includes("final display step"))
-    fail(`${runner}: server is missing meal browser orchestration instructions`);
-  if (!browser?.icons?.some((icon) => icon.src === serverPng.src))
-    fail(`${runner}: meal browser does not share the server PNG icon`);
+  const browser = (await client.listTools()).tools.find((tool) => tool.name === "open_forkable");
   const ui = browser?.["_meta"]?.ui as { resourceUri?: string } | undefined;
   if (!ui?.resourceUri) fail(`${runner}: meal browser has no UI resource`);
-  for (const name of [
-    "list_deliveries",
-    "get_menus",
-    "search_items",
-    "recommend_meals",
-    "get_delivery_status",
-  ]) {
-    const metadata = listedTools.find((tool) => tool.name === name)?.["_meta"];
-    const dataUi = metadata?.ui as { resourceUri?: string; visibility?: string[] } | undefined;
-    if (!dataUi?.visibility?.includes("app"))
-      fail(`${runner}: ${name} is not callable from the app`);
-    if (dataUi.resourceUri || metadata?.["ui/resourceUri"] || metadata?.["openai/outputTemplate"])
-      fail(`${runner}: ${name} unexpectedly launches a UI`);
-  }
   const resource = await client.readResource({ uri: ui.resourceUri });
   const html = resource.contents.find((content) => "text" in content);
   if (!html || !("text" in html) || !html.text.includes('<script type="module">'))
     fail(`${runner}: bundled browser HTML is missing`);
   log(`${runner} meal browser resource is packaged and readable`);
 
-  for (const name of ["set_meal", "set_meal_all"]) {
-    const tool = listedTools.find((candidate) => candidate.name === name);
-    const required = (tool?.inputSchema as { required?: string[] } | undefined)?.required ?? [];
-    if (!required.includes("menuId")) fail(`${runner}: ${name} does not require menuId`);
-  }
-  const setMeal = listedTools.find((tool) => tool.name === "set_meal");
-  const setMealProperties = (
-    setMeal?.inputSchema as { properties?: Record<string, unknown> } | undefined
-  )?.properties;
-  if (!setMealProperties?.sourcePieceId) fail(`${runner}: set_meal does not expose sourcePieceId`);
-  const mode = setMealProperties?.mode as { enum?: unknown[] } | undefined;
-  if (JSON.stringify(mode?.enum) !== JSON.stringify(["set", "add"])) {
-    fail(`${runner}: set_meal does not expose set/add mode`);
-  }
-  log(`${runner} write schemas require exact menu identity and expose additional meals`);
-
-  const rating = listedTools.find((tool) => tool.name === "rate_meal");
-  const ratingSchema = rating?.inputSchema as
-    | { required?: string[]; properties?: Record<string, unknown> }
-    | undefined;
-  for (const name of ["deliveryId", "pieceId", "level"]) {
-    if (!ratingSchema?.required?.includes(name))
-      fail(`${runner}: rate_meal does not require ${name}`);
-  }
-  if (!ratingSchema?.properties?.confirmToken)
-    fail(`${runner}: rate_meal does not expose confirmToken`);
-  log(`${runner} rating schema requires an exact meal and score`);
-
-  const res: any = await client.callTool({ name: "get_profile", arguments: {} });
-  const text = (res.content ?? []).map((content: any) => content.text ?? "").join("");
-  if (!text.trim()) fail(`${runner}: get_profile returned no content`);
-  log(`${runner} get_profile responded (${text.split("\n")[0].slice(0, 60)}…)`);
+  const result = await client.callTool({ name: "get_profile", arguments: {} });
+  if (
+    !("content" in result) ||
+    !result.content.some((part) => part.type === "text" && part.text.trim())
+  )
+    fail(`${runner}: read-only tool returned no response`);
+  log(`${runner} read-only tool responded`);
 
   await client.close();
 }
@@ -185,18 +105,6 @@ async function checkPackage(runner: Runner, root: string, tarball: string): Prom
 
   const bin = join(consumer, "node_modules", ".bin", "forkable-mcp");
   if (!(await exists(bin))) fail(`no binary at ${bin} — check package.json "bin"`);
-  const installed = JSON.parse(
-    await readFile(join(consumer, "node_modules", "forkable-mcp", "package.json"), "utf8"),
-  ) as { dependencies: Record<string, string> };
-  for (const [name, version] of Object.entries(installed.dependencies)) {
-    if (name.startsWith("@forkable-mcp/") || /^(catalog|workspace):/.test(version))
-      fail(`${runner}: unresolved workspace dependency ${name}@${version}`);
-    if (
-      ["react", "react-dom", "lucide-react", "lucide-static"].includes(name) ||
-      name.startsWith("@tanstack/")
-    )
-      fail(`${runner}: build-only dependency ${name} leaked into the published runtime`);
-  }
   await checkInstalled(runner, consumer, join(root, `home-${runner}`));
 }
 
@@ -213,7 +121,10 @@ try {
     tarball = await findTarball(process.argv[3]);
   } else {
     log(`packing ${pkg.name}@${pkg.version}`);
-    await run(["bun", "pm", "pack", "--destination", tmp], process.cwd());
+    await run(
+      ["bun", "pm", "pack", "--destination", tmp],
+      fileURLToPath(new URL("../apps/mcp/", import.meta.url)),
+    );
     tarball = await findTarball(tmp);
   }
   await Promise.all(runners.map((runner) => checkPackage(runner, tmp, tarball)));

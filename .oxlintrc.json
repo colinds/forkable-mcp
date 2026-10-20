@@ -27,7 +27,7 @@
       }
     },
     {
-      "files": ["src/server/**"],
+      "files": ["apps/mcp/src/server/**"],
       "rules": {
         "no-restricted-imports": [
           "error",
