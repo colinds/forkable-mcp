@@ -9,7 +9,7 @@ export function MealDialog({
 }: {
   children: ReactNode;
   busy: boolean;
-  onClose: () => void;
+  onClose: () => void | boolean;
   returnFocus?: HTMLElement;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
@@ -37,6 +37,7 @@ export function MealDialog({
     <dialog
       ref={ref}
       className="meal-dialog"
+      aria-label="Meal details"
       aria-labelledby="meal-title"
       onKeyDown={(event) => {
         if (event.key !== "Tab") return;
@@ -65,7 +66,7 @@ export function MealDialog({
         if (busy || restoreAfterClose.current) {
           restoreAfterClose.current = false;
           dialog.showModal();
-        } else onClose();
+        } else if (onClose() === false) dialog.showModal();
       }}
       onCancel={(event) => {
         restoreAfterClose.current = busy;

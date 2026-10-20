@@ -1,5 +1,5 @@
-import { type MenuView } from "../../lib/menu-filters.ts";
-import { itemKey } from "../../lib/tools.ts";
+import { type MenuView } from "../../../lib/menu-filters.ts";
+import { itemKey } from "../../../lib/tools.ts";
 import { type Menu } from "@/shared/contracts/meals.ts";
 import { MealCard } from "./card.tsx";
 

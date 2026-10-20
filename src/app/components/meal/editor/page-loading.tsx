@@ -1,10 +1,11 @@
-import { MealOptionsLoading } from "./loading.tsx";
+import { MealOptionsLoading } from "./options-loading.tsx";
+import type { ReactNode } from "react";
 
-export function MealPageLoading() {
+export function MealPageLoading({ navigation }: { navigation?: ReactNode }) {
   return (
     <section className="detail" role="status" aria-label="Loading meal details" aria-busy="true">
-      <div className="detail-header detail-page-header" aria-hidden="true">
-        <div className="skeleton skeleton-back" />
+      <div className="detail-header detail-page-header" aria-hidden={!navigation}>
+        {navigation ?? <div className="skeleton skeleton-back" />}
         <div className="skeleton skeleton-title" />
       </div>
       <div className="detail-summary" aria-hidden="true">

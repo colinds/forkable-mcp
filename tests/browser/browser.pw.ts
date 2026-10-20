@@ -495,6 +495,16 @@ test("historical status launches and refreshes its original range without upcomi
       ).length,
   );
   await ui.getByRole("button", { name: "Refresh", exact: true }).click();
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () =>
+          (window as unknown as { calls: { name: string }[] }).calls.filter(
+            (call) => call.name === "list_deliveries",
+          ).length,
+      ),
+    )
+    .toBe(beforeRefresh + 1);
   await expect(ui.getByRole("button", { name: "Refresh", exact: true })).toBeEnabled();
   await expect(ui.getByRole("region", { name: "Selected meals" })).toContainText(
     "Chicken rice bowl",
@@ -870,13 +880,16 @@ for (const failure of ["list", "search"] as const) {
     await expect(ui.getByLabel("Find a meal")).toHaveValue("tofu");
     await expect(ui.getByRole("button", { name: /View Another bowl/ })).toBeVisible();
     await expect(ui.getByRole("button", { name: /View Spicy tofu/ })).toHaveCount(0);
-    const searches = await page.evaluate(
-      () =>
-        (window as unknown as { calls: { name: string }[] }).calls.filter(
-          (call) => call.name === "search_items",
-        ).length,
-    );
-    expect(searches).toBe(failure === "search" ? 3 : 2);
+    await expect
+      .poll(() =>
+        page.evaluate(
+          () =>
+            (window as unknown as { calls: { name: string }[] }).calls.filter(
+              (call) => call.name === "search_items",
+            ).length,
+        ),
+      )
+      .toBe(failure === "search" ? 3 : 2);
   });
 }
 
@@ -890,7 +903,7 @@ test("compact search stays focused after confirming a meal", async ({ page }) =>
   await ui.getByLabel("Kimchi").check();
   await ui.getByRole("button", { name: "Replace meal" }).click();
   await expect(ui.getByText("Change sent. Delivery refreshed.")).toBeVisible();
-  await expect(ui.getByRole("heading", { name: "Search meals" })).toBeFocused();
+  await expect(ui.getByRole("button", { name: /View Another bowl/ })).toBeFocused();
   await expect(ui.getByLabel("Find a meal")).toHaveValue("tofu");
   await expect(ui.getByRole("region", { name: "Available meals" }).getByRole("button")).toHaveCount(
     1,
@@ -1159,6 +1172,94 @@ test("pending draft clicks coalesce and do not require an order selection", asyn
       () => (window as unknown as { draftMessages: unknown[] }).draftMessages.length,
     ),
   ).toBe(1);
+});
+
+test("duplicate submit clicks send one preview and one confirmation", async ({ page }) => {
+  await page.goto(fixtureUrl({ write: { delayMs: 500 } }));
+  const ui = page.frameLocator("iframe");
+  await ui.getByRole("button", { name: /View Spicy tofu/ }).click();
+  await ui.getByLabel("Meal to replace").selectOption("b");
+  await ui.getByLabel("Kimchi").check();
+  await ui.getByRole("button", { name: "Replace meal" }).evaluate((button) => {
+    (button as HTMLButtonElement).click();
+    (button as HTMLButtonElement).click();
+  });
+  await expect(ui.getByText("Change sent. Delivery refreshed.")).toBeVisible();
+  const writes = await page.evaluate(() =>
+    (
+      window as unknown as { calls: { name: string; arguments?: { confirmToken?: string } }[] }
+    ).calls.filter((call) => call.name === "set_meal"),
+  );
+  expect(writes).toHaveLength(2);
+  expect(writes[0]?.arguments?.confirmToken).toBeUndefined();
+  expect(writes[1]?.arguments?.confirmToken).toBe("fixture-token");
+});
+
+test("an uncertain write still requires refresh after navigating to another delivery", async ({
+  page,
+}) => {
+  await page.goto(fixtureUrl({ deliveryScenario: "dates", write: { outcome: "unknown" } }));
+  const ui = page.frameLocator("iframe");
+  await ui.getByRole("button", { name: /View Spicy tofu/ }).click();
+  await ui.getByLabel("Meal to replace").selectOption("b");
+  await ui.getByLabel("Kimchi").check();
+  await ui.getByRole("button", { name: "Replace meal" }).click();
+  await expect(ui.getByRole("alert")).toContainText("Outcome unknown");
+  await ui.getByRole("button", { name: "Back to meals", exact: true }).click();
+  await ui.getByRole("button", { name: "Tue, Oct 6, Lunch, Office", exact: true }).click();
+  await ui.getByRole("button", { name: /View Spicy tofu/ }).click();
+  await expect(ui.getByRole("button", { name: "Replace meal" })).toBeDisabled();
+  const writes = await page.evaluate(() =>
+    (window as unknown as { calls: { name: string }[] }).calls.filter(
+      (call) => call.name === "set_meal",
+    ),
+  );
+  expect(writes).toHaveLength(2);
+});
+
+test("reopening a meal reuses its cached options but starts a fresh unsaved draft", async ({
+  page,
+}) => {
+  await page.goto("/");
+  const ui = page.frameLocator("iframe");
+  const card = ui.getByRole("button", { name: /View Spicy tofu/ });
+  await card.click();
+  await ui.getByLabel("Meal to replace").selectOption("b");
+  await ui.getByLabel("Kimchi").check();
+  await ui.getByLabel("Notes", { exact: false }).fill("No onions");
+  await ui.getByRole("button", { name: "Back to meals", exact: true }).click();
+  await card.click();
+  await expect(ui.getByLabel("Kimchi")).not.toBeChecked();
+  await expect(ui.getByLabel("Meal to replace")).toHaveValue("");
+  await expect(ui.getByLabel("Notes", { exact: false })).toHaveValue("");
+  const requests = await page.evaluate(() =>
+    (
+      window as unknown as { calls: { name: string; arguments?: { itemId?: number } }[] }
+    ).calls.filter((call) => call.name === "get_menus" && call.arguments?.itemId === 7),
+  );
+  expect(requests).toHaveLength(1);
+});
+
+test("editing a seeded server search switches to local filtering even for the same text", async ({
+  page,
+}) => {
+  await page.goto(
+    fixtureUrl({ launch: { name: "search_items", arguments: { deliveryId: 1, query: "tofu" } } }),
+  );
+  const ui = page.frameLocator("iframe");
+  await expect(ui.getByRole("button", { name: /View Another bowl/ })).toBeVisible();
+  await ui.getByLabel("Find a meal").fill("");
+  await ui.getByLabel("Find a meal").fill("tofu");
+  await expect(ui.getByRole("button", { name: /View Spicy tofu/ })).toBeVisible();
+  await expect(ui.getByRole("button", { name: /View Another bowl/ })).toHaveCount(0);
+  await ui.getByRole("button", { name: "Refresh", exact: true }).click();
+  await expect(ui.getByRole("button", { name: /View Spicy tofu/ })).toBeVisible();
+  const searches = await page.evaluate(() =>
+    (window as unknown as { calls: { name: string }[] }).calls.filter(
+      (call) => call.name === "search_items",
+    ),
+  );
+  expect(searches).toHaveLength(1);
 });
 
 for (const failure of ["rejected", "error"] as const) {
@@ -1595,9 +1696,7 @@ test.describe("touch host", () => {
   });
 });
 
-test("meal selection opens immediately with its preview while options are loading", async ({
-  page,
-}, testInfo) => {
+test("meal route shows a skeleton until its required data is ready", async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 1000, height: 1000 });
   await page.route("https://cdn.filestackcontent.com/**", (route) =>
     route.fulfill({ contentType: "image/svg+xml", body: MEAL_ILLUSTRATION_SVG }),
@@ -1605,18 +1704,25 @@ test("meal selection opens immediately with its preview while options are loadin
   await page.goto(fixtureUrl({ details: "held", appearance: "claude", theme: "dark" }));
   const ui = page.frameLocator("iframe");
   await ui.getByRole("button", { name: "View Spicy tofu bowl from Seoul Kitchen" }).click();
-  const dialog = ui.getByRole("region", { name: "Meal details" });
-  await expect(dialog).toBeVisible();
-  await expect(dialog.getByRole("status")).toHaveAccessibleName("Loading meal options");
-  await expect(dialog.getByRole("status")).toHaveText("");
-  await expect(dialog.getByText("$15.00", { exact: true })).toBeVisible();
-  await expect(dialog.getByRole("img", { name: "Spicy tofu bowl" })).toBeVisible();
-  await expect(dialog.getByRole("button", { name: "Back to meals", exact: true })).toBeEnabled();
-  await expect(dialog.getByRole("button", { name: /Replace meal/ })).toHaveCount(0);
-  await dialog.screenshot({ path: testInfo.outputPath("meal-options-loading.png") });
+  const loading = ui.getByRole("status", { name: "Loading meal details", exact: true });
+  await expect(loading).toBeVisible();
+  await expect(loading.locator(".photo.skeleton")).toBeVisible();
+  await expect(ui.getByRole("button", { name: "Back to meals", exact: true })).toBeEnabled();
+  await expect(ui.getByRole("button", { name: /Replace meal/ })).toHaveCount(0);
+  await ui.locator("#app").screenshot({ path: testInfo.outputPath("meal-options-loading.png") });
+  await expect
+    .poll(() =>
+      page.evaluate(() =>
+        (
+          window as unknown as { calls: { name: string; arguments?: { itemId?: number } }[] }
+        ).calls.some((call) => call.name === "get_menus" && call.arguments?.itemId === 7),
+      ),
+    )
+    .toBe(true);
   await page.evaluate(() =>
     (window as unknown as { releaseDetail: (index: number) => void }).releaseDetail(0),
   );
+  const dialog = ui.getByRole("region", { name: "Meal details" });
   await expect(dialog.getByLabel("Kimchi")).toBeVisible();
   await expect(dialog.getByRole("status")).toHaveCount(0);
   expect(
@@ -1635,12 +1741,12 @@ test("closing a loading meal ignores its late reply and does not replace a newer
   const ui = page.frameLocator("iframe");
   const first = ui.getByRole("button", { name: "View Spicy tofu bowl from Seoul Kitchen" });
   await first.click();
-  await expect(ui.getByRole("dialog", { name: "Spicy tofu bowl" })).toBeVisible();
+  await expect(ui.getByRole("dialog")).toBeVisible();
   await page.keyboard.press("Escape");
   await expect(ui.getByRole("dialog")).toHaveCount(0);
   await expect(first).toBeFocused();
   await ui.getByRole("button", { name: "View Another bowl from Second Restaurant" }).click();
-  const second = ui.getByRole("dialog", { name: "Another bowl" });
+  const second = ui.getByRole("dialog");
   await expect(second).toBeVisible();
   await expect
     .poll(() =>
@@ -1658,7 +1764,7 @@ test("closing a loading meal ignores its late reply and does not replace a newer
       window as unknown as { releaseDetail: (index: number, failed?: boolean) => void }
     ).releaseDetail(0, true),
   );
-  await expect(second.getByRole("status")).toHaveAccessibleName("Loading meal options");
+  await expect(second.getByRole("status")).toHaveAccessibleName("Loading meal details");
   await expect(second.getByRole("alert")).toHaveCount(0);
   await page.evaluate(() =>
     (window as unknown as { releaseDetail: (index: number) => void }).releaseDetail(1),

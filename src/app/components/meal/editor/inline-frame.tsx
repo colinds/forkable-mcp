@@ -1,6 +1,6 @@
 import { useEffect, useRef, type ReactNode } from "react";
 
-export function MealPage({
+export function MealInlineFrame({
   children,
   returnFocus,
 }: {

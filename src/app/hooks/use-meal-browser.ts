@@ -1,38 +1,32 @@
-import { selectedMealTotal } from "@/shared/meal-options.ts";
-import { createMealReference } from "@/shared/meal-reference.ts";
-import type { WriteDraft } from "../lib/chat-draft.ts";
-import {
-  initialData,
-  initialLaunch,
-  initialRange,
-  isPastDelivery,
-  type InitialView,
-} from "../lib/initial-view.ts";
-import { defaultFilters, type MenuFilters } from "../lib/menu-filters.ts";
-import { useCallback, useEffect, useEffectEvent, useRef, useState } from "react";
-import { useOnReturn } from "./use-on-return.ts";
+import { useEffect, useRef, useEffectEvent } from "react";
+import { useMutation, useQuery, useSuspenseQuery, skipToken } from "@tanstack/react-query";
+import { useRouter, useParams, useRouterState, useSearch } from "@tanstack/react-router";
+import type { createMealReference } from "@/shared/meal-reference.ts";
+import type { BrowserView } from "@/shared/contracts/browser.ts";
+import type {
+  Delivery,
+  Detail,
+  Menu,
+  Recommendation,
+  SearchMatch,
+  DeliveryStatus,
+} from "@/shared/contracts/meals.ts";
 import {
   Confirmation,
   writeResult,
-  data,
   resultText,
   selectionArgs,
   type CallTool,
 } from "../lib/tools.ts";
-import {
-  deliveryStatusSchema,
-  type DeliveryStatus,
-  deliveriesSchema,
-  menusSchema,
-  itemDetailSchema,
-  recommendationsSchema,
-  searchResultsSchema,
-  type Delivery,
-  type Detail,
-  type Menu,
-  type Recommendation,
-  type SearchMatch,
-} from "@/shared/contracts/meals.ts";
+import { initialLaunch, isPastDelivery } from "../lib/initial-view.ts";
+import { defaultFilters, type MenuFilters } from "../lib/menu-filters.ts";
+import type { WriteDraft } from "../lib/chat-draft.ts";
+import { useMealApp } from "../lib/app-context.ts";
+import { MEAL_PATH } from "../lib/navigation.ts";
+import { useOnReturn } from "./use-on-return.ts";
+
+import type { MealDraftValues } from "../lib/editor-types.ts";
+
 type PendingAction = "loading" | "saving" | "drafting";
 type MealPreview = Pick<
   Detail,
@@ -52,9 +46,6 @@ interface BrowserState {
   statusLoading: boolean;
   recommendationsLoading: boolean;
   recommendationsUnavailable: boolean;
-  source: string;
-  choices: Record<string, number[]>;
-  instructions: string;
   query: string;
   filters: MenuFilters;
   searchMatches?: SearchMatch[];
@@ -71,533 +62,358 @@ export interface MealBrowserHost {
 
 export interface MealBrowserController {
   launch: ReturnType<typeof initialLaunch>;
+  view: BrowserView;
+  editing: boolean;
   state: BrowserState & { busy: boolean };
-  mealTotal: number | undefined;
   refresh: () => void;
+  setView: (view: BrowserView) => void;
+  browse: () => void;
   choose: (menuId: number, itemId: number, sourcePieceId?: string | number) => void;
-  chooseOption: (
-    modifierId: number,
-    optionId: number,
-    checked: boolean,
-    max: Detail["modifiers"][number]["max"],
-  ) => void;
-  submit: () => void;
-  askAboutMeal?: () => void;
-  back: () => void;
+  submit: (draft: MealDraftValues) => void;
+  askAboutMeal?: (reference: ReturnType<typeof createMealReference>) => void;
+  back: () => boolean;
+  clearFeedback: () => void;
   setFilters: (filters: MenuFilters) => void;
   setQuery: (query: string) => void;
-  setSource: (source: string) => void;
-  setInstructions: (instructions: string) => void;
   setDelivery: (id: number) => void;
 }
 
-export type MealEditorController = Pick<
-  MealBrowserController,
-  | "mealTotal"
-  | "choose"
-  | "chooseOption"
-  | "setSource"
-  | "setInstructions"
-  | "submit"
-  | "back"
-  | "askAboutMeal"
-> & {
-  state: Pick<
-    MealBrowserController["state"],
-    | "delivery"
-    | "detail"
-    | "selectedMeal"
-    | "busy"
-    | "pendingAction"
-    | "notice"
-    | "problem"
-    | "source"
-    | "choices"
-    | "instructions"
-    | "needsRefresh"
-  >;
-};
+export type { MealEditorController } from "./use-meal-editor.ts";
+const noMenus: Menu[] = [];
+const noRecommendations: Recommendation[] = [];
 
-const emptyDeliveryData = {
-  menus: [],
-  recommendations: [],
-  deliveryStatus: undefined,
-  statusUnavailable: false,
-  statusLoading: false,
-  recommendationsLoading: false,
-  recommendationsUnavailable: false,
-} satisfies Partial<BrowserState>;
+export function useMealBrowser(): MealBrowserController {
+  const {
+    host: { callTool: call, createDraft: writeDraft },
+    queries,
+    queryClient,
+  } = useMealApp();
+  const router = useRouter();
+  const navigation = useSearch({ from: "__root__" });
+  const inMealRoute = useRouterState({ select: (state) => state.location.pathname !== "/" });
+  const params = useParams({ from: MEAL_PATH, shouldThrow: false });
+  const target = inMealRoute ? params : undefined;
+  const { launch, seed } = queries;
+  const returnRefreshPending = useRef(false);
 
-function sortDeliveries(deliveries: Delivery[]) {
-  return deliveries.toSorted((a, b) => a.date.localeCompare(b.date) || a.deliveryId - b.deliveryId);
-}
-
-function savedInstructions(detail: Detail, delivery: Delivery, source: string | number) {
-  const meal = delivery.meals.find((candidate) => String(candidate.pieceId) === String(source));
-  return meal?.menuId === detail.menuId && meal.itemId === detail.itemId
-    ? (meal.instructions ?? "")
-    : "";
-}
-
-function detailSelection(detail: Detail, delivery: Delivery, sourcePieceId?: string | number) {
-  const source = sourcePieceId ?? (delivery.meals.length === 1 ? delivery.meals[0]!.pieceId : "");
-  return {
-    detail,
-    source: String(source),
-    choices: {},
-    instructions: savedInstructions(detail, delivery, source),
-  };
-}
-
-const emptySelection = {
-  detail: undefined,
-  selectedMeal: undefined,
-  source: "",
-  choices: {},
-  instructions: "",
-  notice: "",
-};
-const initialState: BrowserState = {
-  ...emptySelection,
-  deliveries: [],
-  deliveriesLoaded: false,
-  menus: [],
-  recommendations: [],
-  query: "",
-  filters: defaultFilters,
-  searchFromServer: false,
-  pendingAction: "loading",
-  statusUnavailable: false,
-  statusLoading: false,
-  recommendationsLoading: false,
-  recommendationsUnavailable: false,
-  problem: false,
-  needsRefresh: false,
-};
-
-export function useMealBrowser(
-  { callTool: call, createDraft: writeDraft }: MealBrowserHost,
-  initial?: InitialView,
-): MealBrowserController {
-  const [state, setState] = useState(initialState);
-  const running = useRef(false);
-  const [refreshRequested, setRefreshRequested] = useState(false);
-  const refreshing = useRef(false);
-  const detailRequest = useRef<MealPreview | undefined>(undefined);
-  const loadGeneration = useRef(0);
-  const [range] = useState(() => initialRange(initial));
-  const [launch] = useState(() => initialLaunch(initial));
-  const confirmation = useRef(new Confirmation());
-  const { delivery, detail } = state;
-  const patch = useCallback(
-    (next: Partial<BrowserState>) => setState((current) => ({ ...current, ...next })),
-    [],
-  );
-  const discardPendingDeliveryReads = useCallback(() => {
-    ++loadGeneration.current;
-  }, []);
-  const invalidate = (next: Partial<BrowserState> = {}) => {
-    confirmation.current.clear();
-    patch({ notice: "", ...next });
-  };
-
-  const run = useCallback(
-    async (task: () => Promise<void>, pendingAction: PendingAction = "loading") => {
-      if (running.current) return;
-      running.current = true;
-      patch({ pendingAction });
-      try {
-        await task();
-      } catch (error) {
-        patch({
-          notice: error instanceof Error ? error.message : "Unable to load Forkable.",
-          problem: true,
-        });
-      } finally {
-        running.current = false;
-        patch({ pendingAction: undefined });
-      }
+  const refreshMutation = useMutation({
+    mutationFn: refreshBrowser,
+    onSuccess: () => {
+      writeMutation.reset();
+      draftMutation.reset();
+      returnToBrowser();
     },
-    [patch],
-  );
-  const loadMenus = useCallback(
-    async (selected?: Delivery, seed?: ReturnType<typeof initialData>) => {
-      const generation = ++loadGeneration.current;
-      const patchCurrent = (next: Partial<BrowserState>) =>
-        setState((current) =>
-          generation === loadGeneration.current ? { ...current, ...next } : current,
-        );
-      patch({
-        ...emptyDeliveryData,
-        statusLoading: !!selected,
-        recommendationsLoading: !!selected,
-      });
-      if (!selected) return;
-
-      const args = { deliveryId: selected.deliveryId };
-      const historical = isPastDelivery(selected.date);
-      const menusSeed = historical ? [] : seed?.menus;
-      const recommendationsSeed = historical ? [] : seed?.recommendations;
-
-      // Auxiliary reads may finish after navigation; only the current delivery can receive them.
-      void (async () => {
-        try {
-          const recommendations =
-            recommendationsSeed ??
-            data(
-              await call("recommend_meals", {
-                ...args,
-                ...(launch.limit != null ? { limit: launch.limit } : {}),
-              }),
-              recommendationsSchema,
-            ).recommendations;
-          patchCurrent({ recommendations });
-        } catch {
-          patchCurrent({ recommendationsUnavailable: true });
-        } finally {
-          patchCurrent({ recommendationsLoading: false });
-        }
-      })();
-      void (async () => {
-        try {
-          const status =
-            seed?.status ??
-            data(
-              await call("get_delivery_status", {
-                ...args,
-                from: selected.date,
-                to: selected.date,
-              }),
-              deliveryStatusSchema,
-            ).status;
-          patchCurrent({ deliveryStatus: status });
-        } catch {
-          patchCurrent({ statusUnavailable: true });
-        } finally {
-          patchCurrent({ statusLoading: false });
-        }
-      })();
-
-      const menus = menusSeed ?? data(await call("get_menus", args), menusSchema).menus;
-      patchCurrent({ menus });
-    },
-    [call, patch, launch.limit],
-  );
-  async function refresh() {
-    ++loadGeneration.current;
-    invalidate({
-      ...emptySelection,
-      deliveries: [],
-      deliveriesLoaded: false,
-      delivery: undefined,
-      ...emptyDeliveryData,
-      searchMatches: undefined,
-    });
-    const deliveries = sortDeliveries(
-      data(await call("list_deliveries", range), deliveriesSchema).deliveries,
-    );
-    const selected = deliveries.find((d) => d.deliveryId === delivery?.deliveryId) ?? deliveries[0];
-    patch({ deliveries, deliveriesLoaded: true, delivery: selected, needsRefresh: false });
-    if (selected && state.query.trim() && state.searchFromServer) {
-      const { items } = data(
-        await call("search_items", { deliveryId: selected.deliveryId, query: state.query }),
-        searchResultsSchema,
-      );
-      patch({ searchMatches: items });
-    }
-    await loadMenus(selected);
-  }
-
-  const refreshDeliverySummary = useEffectEvent(async () => {
-    const generation = loadGeneration.current;
-    try {
-      const deliveries = sortDeliveries(
-        data(await call("list_deliveries", range), deliveriesSchema).deliveries,
-      );
-      const selected = deliveries.find((item) => item.deliveryId === delivery?.deliveryId);
-      const status = selected
-        ? data(
-            await call("get_delivery_status", {
-              deliveryId: selected.deliveryId,
-              from: selected.date,
-              to: selected.date,
-            }),
-            deliveryStatusSchema,
-          ).status
-        : undefined;
-      setState((current) =>
-        generation !== loadGeneration.current ||
-        current.pendingAction ||
-        current.detail ||
-        current.selectedMeal
-          ? current
-          : {
-              ...current,
-              deliveries,
-              delivery: selected,
-              ...(selected
-                ? { deliveryStatus: status, statusUnavailable: false }
-                : emptyDeliveryData),
-            },
-      );
-    } catch {
-      // Keep the last usable view. The refresh control remains available for an explicit retry.
-    }
   });
-  useOnReturn(() => setRefreshRequested(true));
-  const canRefresh =
-    state.deliveriesLoaded &&
-    !state.pendingAction &&
-    !state.statusLoading &&
-    !state.detail &&
-    !state.selectedMeal &&
-    !state.needsRefresh;
-
-  useEffect(() => {
-    if (!refreshRequested || !canRefresh || refreshing.current) return;
-    refreshing.current = true;
-    void refreshDeliverySummary().finally(() => {
-      refreshing.current = false;
-      setRefreshRequested(false);
-    });
-  }, [refreshRequested, canRefresh]);
-  // The originating tool result seeds the app instead of fetching the same data again.
-  useEffect(() => {
-    let cancelled = false;
-    running.current = true;
-    void (async () => {
-      try {
-        if (initial?.result.isError)
-          throw new Error(resultText(initial.result) || "Forkable could not load this view.");
-        const seed = initialData(initial);
-        const input = initial?.input ?? {};
-        const listed =
-          seed.deliveries ??
-          data(await call("list_deliveries", range), deliveriesSchema).deliveries;
-        if (cancelled) return;
-        const deliveries = sortDeliveries(listed);
-        const wanted = input.deliveryId ?? seed.status?.deliveryId;
-        const selected =
-          wanted == null ? deliveries[0] : deliveries.find((d) => d.deliveryId === wanted);
-        if (wanted != null && !selected)
-          throw new Error(
-            "This delivery is not in the requested date range. Refresh to see current deliveries.",
-          );
-        patch({
-          deliveries,
-          deliveriesLoaded: true,
-          delivery: selected,
-          query: input.query ?? "",
-          filters: launch.filters,
-          searchMatches: seed.searchItems,
-          searchFromServer: seed.searchItems !== undefined,
-        });
-        await loadMenus(selected, seed);
-        if (cancelled) return;
-        if (selected && !isPastDelivery(selected.date)) {
-          let item = seed.item;
-          if (!item && input.itemId != null) {
-            if (input.menuId == null)
-              throw new Error("A menu ID is required to show an exact meal.");
-            item = data(
-              await call("get_menus", {
-                deliveryId: selected.deliveryId,
-                menuId: input.menuId,
-                itemId: input.itemId,
-              }),
-              itemDetailSchema,
-            ).item;
+  const deliveriesQuery = useSuspenseQuery(queries.deliveries());
+  const deliveries = deliveriesQuery.data;
+  const wanted = target?.deliveryId ?? navigation.deliveryId ?? seed.status?.deliveryId;
+  const delivery =
+    wanted == null ? deliveries[0] : deliveries.find((item) => item.deliveryId === wanted);
+  const menusQuery = useQuery(
+    delivery ? queries.menus(delivery) : { queryKey: ["menus"], queryFn: skipToken },
+  );
+  const recommendationsQuery = useQuery(
+    delivery
+      ? queries.recommendations(delivery, launch.limit)
+      : { queryKey: ["recommendations"], queryFn: skipToken },
+  );
+  const statusQuery = useQuery(
+    delivery ? queries.status(delivery) : { queryKey: ["status"], queryFn: skipToken },
+  );
+  const detailQuery = useQuery(
+    target && delivery && !isPastDelivery(delivery.date)
+      ? queries.detail(target)
+      : { queryKey: ["meal"], queryFn: skipToken },
+  );
+  const serverSearch = navigation.serverSearch === true;
+  const searchQuery = useQuery(
+    serverSearch && delivery
+      ? queries.search(delivery.deliveryId, navigation.query ?? "")
+      : { queryKey: ["search"], queryFn: skipToken },
+  );
+  const menus = menusQuery.data ?? noMenus;
+  const detail = target ? detailQuery.data : undefined;
+  const listedItem = target
+    ? menus
+        .find((menu) => menu.menuId === target.menuId)
+        ?.items.find((item) => item.itemId === target.itemId)
+    : undefined;
+  const selectedMeal: MealPreview | undefined = target
+    ? (detail ??
+      (listedItem
+        ? {
+            menuId: target.menuId,
+            itemId: target.itemId,
+            name: listedItem.name,
+            imageUrl: listedItem.imageUrl,
+            price: listedItem.price,
+            description: listedItem.description ?? null,
           }
-          if (cancelled) return;
-          if (item) patch(detailSelection(item, selected));
-        }
-      } catch (error) {
-        if (!cancelled)
-          patch({
-            notice: error instanceof Error ? error.message : "Unable to load Forkable.",
-            problem: true,
-          });
-      } finally {
-        if (!cancelled) {
-          running.current = false;
-          patch({ pendingAction: undefined });
-        }
-      }
-    })();
-    return () => {
-      cancelled = true;
-      detailRequest.current = undefined;
-      discardPendingDeliveryReads();
-    };
-  }, [call, initial, range, loadMenus, patch, discardPendingDeliveryReads, launch.filters]);
-
-  async function choose(menuId: number, itemId: number, sourcePieceId?: string | number) {
-    if (!delivery || isPastDelivery(delivery.date) || running.current || detailRequest.current)
-      return;
-    const listed = state.menus
-      .find((menu) => menu.menuId === menuId)
-      ?.items.find((meal) => meal.itemId === itemId);
-    const selected = delivery.meals.find(
-      (meal) => meal.menuId === menuId && meal.itemId === itemId,
-    );
-    const preview: MealPreview = {
-      menuId,
-      itemId,
-      name: listed?.name ?? selected?.name ?? "Meal details",
-      price: listed?.price ?? null,
-      imageUrl: listed?.imageUrl ?? null,
-      description: listed?.description ?? null,
-    };
-    detailRequest.current = preview;
-    invalidate({
-      ...emptySelection,
-      selectedMeal: preview,
-      source: sourcePieceId == null ? "" : String(sourcePieceId),
-      pendingAction: "loading",
-      problem: false,
-    });
-    try {
-      const loaded = data(
-        await call("get_menus", { deliveryId: delivery.deliveryId, menuId, itemId }),
-        itemDetailSchema,
-      ).item;
-      if (detailRequest.current === preview)
-        patch(detailSelection(loaded, delivery, sourcePieceId));
-    } catch (error) {
-      if (detailRequest.current === preview)
-        patch({
-          notice: error instanceof Error ? error.message : "Unable to load meal options.",
+        : undefined))
+    : undefined;
+  const writeMutation = useMutation({
+    mutationFn: async (submission: {
+      delivery: Delivery;
+      detail: Detail;
+      draft: MealDraftValues;
+    }) => {
+      const { delivery: selectedDelivery, detail: selectedDetail, draft } = submission;
+      const args = selectionArgs(
+        selectedDelivery,
+        selectedDetail,
+        draft.source,
+        draft.choices,
+        draft.instructions,
+      );
+      const confirmation = new Confirmation();
+      const preview = await confirmation.preview(call, args);
+      if (!confirmation.pending)
+        return {
+          notice:
+            resultText(preview) || "Unable to save this meal. Check your selection and try again.",
           problem: true,
+          needsRefresh: false,
+        };
+      let sent = false;
+      try {
+        const result = await confirmation.confirm((name, input) => {
+          sent = true;
+          return call(name, input);
         });
-    } finally {
-      if (detailRequest.current === preview) {
-        detailRequest.current = undefined;
-        patch({ pendingAction: undefined });
-      }
-    }
-  }
-  function chooseOption(
-    modifierId: number,
-    optionId: number,
-    checked: boolean,
-    max: Detail["modifiers"][number]["max"],
-  ) {
-    const picked = state.choices[modifierId] ?? [];
-    let options = picked.filter((id) => id !== optionId);
-    if (checked) options = max === 1 ? [optionId] : [...picked, optionId];
-    invalidate({ choices: { ...state.choices, [modifierId]: options } });
-  }
-  async function askAboutMeal() {
-    if (!writeDraft || !delivery || !detail) return;
-    patch({ notice: "", problem: false });
-    await writeDraft(
-      createMealReference({
-        delivery,
-        detail,
-        restaurant: state.menus.find((menu) => menu.menuId === detail.menuId)?.name,
-        choices: state.choices,
-        instructions: state.instructions,
-        source: state.source,
-      }),
-    );
-    patch({
-      notice: "Added to your draft. Edit it in chat, then send when ready.",
-      problem: false,
-    });
-  }
-
-  async function submit() {
-    invalidate();
-    if (!delivery || !detail) throw new Error("Choose a delivery and meal first.");
-    const args = selectionArgs(delivery, detail, state.source, state.choices, state.instructions);
-    const result = await confirmation.current.preview(call, args);
-    if (!confirmation.current.pending) {
-      patch({
-        notice:
-          resultText(result) || "Unable to save this meal. Check your selection and try again.",
-        problem: true,
-      });
-      return;
-    }
-    await confirm();
-  }
-  async function confirm() {
-    let sent = false;
-    try {
-      const result = await confirmation.current.confirm((name, args) => {
-        sent = true;
-        ++loadGeneration.current;
-        patch({ statusLoading: false, recommendationsLoading: false });
-        return call(name, args);
-      });
-      const outcome = writeResult(result);
-      if (outcome?.mode === "executed") {
+        const outcome = writeResult(result);
+        if (outcome?.mode !== "executed")
+          return {
+            notice:
+              resultText(result) || "The change was not confirmed. Refresh before trying again.",
+            problem: true,
+            needsRefresh: !outcome || outcome.mode === "outcome_unknown",
+          };
         try {
-          await refresh();
-          patch({ notice: "Change sent. Delivery refreshed.", problem: false });
+          await refreshBrowser();
+          returnToBrowser();
+          return {
+            notice: "Change sent. Delivery refreshed.",
+            problem: false,
+            needsRefresh: false,
+          };
         } catch {
-          patch({
-            ...emptySelection,
-            menus: [],
-            needsRefresh: true,
+          returnToBrowser();
+          return {
             notice:
               "Change sent, but delivery refresh failed. Refresh to check its current state; do not submit again.",
             problem: true,
-          });
+            needsRefresh: true,
+          };
         }
-      } else
-        patch({
-          needsRefresh: !outcome || outcome.mode === "outcome_unknown",
+      } catch (error) {
+        if (!sent) throw error;
+        return {
           notice:
-            resultText(result) || "The change was not confirmed. Refresh before trying again.",
+            "Confirmation could not be verified. Its outcome may be unknown. Refresh the delivery before trying again.",
           problem: true,
-        });
-    } catch (error) {
-      patch({ needsRefresh: sent || state.needsRefresh });
-      if (!sent) throw error;
-      throw new Error(
-        "Confirmation could not be verified. Its outcome may be unknown. Refresh the delivery before trying again.",
-        { cause: error },
-      );
+          needsRefresh: true,
+        };
+      }
+    },
+  });
+  const draftMutation = useMutation({
+    mutationFn: async (reference: ReturnType<typeof createMealReference>) => {
+      if (!writeDraft) throw new Error("Chat drafts are unavailable in this host.");
+      await writeDraft(reference);
+    },
+  });
+  const needsRefresh = writeMutation.data?.needsRefresh ?? false;
+  const changing = writeMutation.isPending || refreshMutation.isPending || draftMutation.isPending;
+  const menuLoading = !!delivery && menusQuery.isPending;
+  const detailLoading =
+    !!target && !!delivery && !isPastDelivery(delivery.date) && !detail && detailQuery.isPending;
+  let pendingAction: PendingAction | undefined;
+  if (writeMutation.isPending) pendingAction = "saving";
+  else if (draftMutation.isPending) pendingAction = "drafting";
+  else if (refreshMutation.isPending || deliveriesQuery.isLoading || menuLoading || detailLoading)
+    pendingAction = "loading";
+  const busy = pendingAction !== undefined;
+  const readError = target
+    ? (detailQuery.error ?? menusQuery.error ?? deliveriesQuery.error)
+    : (searchQuery.error ?? menusQuery.error ?? deliveriesQuery.error);
+  const missingDelivery = deliveriesQuery.isSuccess && wanted != null && !delivery;
+  const error = writeMutation.error ?? draftMutation.error ?? refreshMutation.error ?? readError;
+  const fallbackNotice = missingDelivery
+    ? "This delivery is not in the requested date range. Refresh to see current deliveries."
+    : "";
+  const notice =
+    writeMutation.data?.notice ??
+    error?.message ??
+    (draftMutation.isSuccess
+      ? "Added to your draft. Edit it in chat, then send when ready."
+      : fallbackNotice);
+
+  function returnToBrowser() {
+    void router.navigate({
+      to: "/",
+      search: (previous) => ({ ...previous, sourcePieceId: undefined }),
+      replace: true,
+    });
+  }
+  async function refreshBrowser() {
+    await queryClient.cancelQueries();
+    await queryClient.invalidateQueries({ refetchType: "none" });
+    const listed = await queryClient.fetchQuery(queries.deliveries());
+    const selected = listed.find((item) => item.deliveryId === delivery?.deliveryId) ?? listed[0];
+    if (selected && serverSearch)
+      await queryClient.fetchQuery(queries.search(selected.deliveryId, navigation.query ?? ""));
+    if (selected) {
+      await queryClient.fetchQuery(queries.menus(selected));
+      void queryClient.fetchQuery(queries.status(selected)).catch(() => {});
+      void queryClient.fetchQuery(queries.recommendations(selected, launch.limit)).catch(() => {});
     }
+    if (selected?.deliveryId !== navigation.deliveryId)
+      await router.navigate({
+        to: "/",
+        search: (previous) => ({
+          ...previous,
+          deliveryId: selected?.deliveryId,
+          sourcePieceId: undefined,
+        }),
+        replace: true,
+      });
+  }
+  const canRefreshOnReturn =
+    deliveriesQuery.isSuccess && !busy && !inMealRoute && !statusQuery.isPending && !needsRefresh;
+  function refreshOnReturn() {
+    returnRefreshPending.current = true;
+    if (!canRefreshOnReturn) return;
+    returnRefreshPending.current = false;
+    void queryClient.invalidateQueries(
+      {
+        predicate: (query) => query.queryKey[0] === "deliveries" || query.queryKey[0] === "status",
+      },
+      { cancelRefetch: false },
+    );
+  }
+  const refreshWhenIdle = useEffectEvent(refreshOnReturn);
+  useOnReturn(refreshOnReturn);
+  useEffect(() => {
+    if (canRefreshOnReturn && returnRefreshPending.current) refreshWhenIdle();
+  }, [canRefreshOnReturn]);
+
+  function clearFeedback() {
+    if (!needsRefresh && !writeMutation.isIdle) writeMutation.reset();
+    if (!draftMutation.isIdle) draftMutation.reset();
+  }
+  function choose(menuId: number, itemId: number, sourcePieceId?: string | number) {
+    if (!delivery || isPastDelivery(delivery.date) || queryClient.isMutating() > 0) return;
+    if (target?.menuId === menuId && target.itemId === itemId) {
+      void detailQuery.refetch();
+      return;
+    }
+    if (!needsRefresh) writeMutation.reset();
+    draftMutation.reset();
+    void router.navigate({
+      to: MEAL_PATH,
+      params: { deliveryId: delivery.deliveryId, menuId, itemId },
+      search: (previous) => ({ ...previous, sourcePieceId }),
+    });
   }
   return {
     launch,
-    state: { ...state, busy: state.pendingAction !== undefined },
-    mealTotal: detail ? selectedMealTotal(detail, state.choices) : undefined,
-    refresh: () => void run(refresh),
+    view: navigation.view ?? launch.view,
+    editing: inMealRoute,
+    state: {
+      deliveries,
+      deliveriesLoaded: true,
+      delivery,
+      menus,
+      recommendations: recommendationsQuery.data ?? noRecommendations,
+      detail,
+      selectedMeal,
+      deliveryStatus: statusQuery.data,
+      statusUnavailable: statusQuery.isError,
+      statusLoading: !!delivery && statusQuery.isPending,
+      recommendationsLoading: !!delivery && recommendationsQuery.isPending,
+      recommendationsUnavailable: recommendationsQuery.isError,
+      query: navigation.query ?? "",
+      filters: navigation.filters ?? defaultFilters,
+      searchMatches: serverSearch ? searchQuery.data : undefined,
+      searchFromServer: serverSearch,
+      busy,
+      pendingAction,
+      notice,
+      problem: !!error || missingDelivery || !!writeMutation.data?.problem,
+      needsRefresh,
+    },
+    refresh: () => {
+      if (queryClient.isMutating() === 0) refreshMutation.mutate();
+    },
     choose,
-    chooseOption,
-    askAboutMeal: writeDraft ? () => void run(askAboutMeal, "drafting") : undefined,
-    submit: () => {
-      if (!state.needsRefresh) void run(submit, "saving");
+    submit: (draft) => {
+      if (busy || queryClient.isMutating() > 0 || needsRefresh || !delivery || !detail) return;
+      // Validation is part of the mutation so the same error state covers form and server failures.
+      writeMutation.mutate({ delivery, detail, draft });
     },
+    askAboutMeal: writeDraft
+      ? (reference) => {
+          if (busy || queryClient.isMutating() > 0) return;
+          draftMutation.mutate(reference);
+        }
+      : undefined,
     back: () => {
-      detailRequest.current = undefined;
-      invalidate({ ...emptySelection, pendingAction: undefined });
+      if (queryClient.isMutating() > 0) return false;
+      draftMutation.reset();
+      if (!needsRefresh) writeMutation.reset();
+      returnToBrowser();
+      return true;
     },
-    setFilters: (filters: MenuFilters) => patch({ filters }),
-    setQuery: (query: string) =>
-      patch({ query, searchMatches: undefined, searchFromServer: false }),
-    setSource: (source: string) => {
-      let instructions = state.instructions;
-      if (detail && delivery && instructions === savedInstructions(detail, delivery, state.source))
-        instructions = savedInstructions(detail, delivery, source);
-      invalidate({ source, instructions });
+    clearFeedback,
+    setFilters: (filters) => {
+      void router.navigate({
+        to: "/",
+        search: (previous) => ({ ...previous, filters }),
+        replace: true,
+      });
     },
-    setInstructions: (instructions: string) => invalidate({ instructions }),
-    setDelivery: (id: number) =>
-      void run(async () => {
-        const selected = state.deliveries.find((d) => d.deliveryId === id);
-        invalidate({
-          ...emptySelection,
-          delivery: selected,
+    setQuery: (query) => {
+      void router.navigate({
+        to: "/",
+        search: (previous) => ({ ...previous, query, serverSearch: false }),
+        replace: true,
+      });
+    },
+    setView: (view) => {
+      void router.navigate({
+        to: "/",
+        search: (previous) => ({ ...previous, view }),
+        replace: true,
+      });
+    },
+    browse: () => {
+      void router.navigate({
+        to: "/",
+        search: (previous) => ({
+          ...previous,
           query: "",
-          searchMatches: undefined,
-          searchFromServer: false,
+          serverSearch: false,
           filters: defaultFilters,
-        });
-        await loadMenus(selected);
-      }),
+          view: "browse",
+          sourcePieceId: undefined,
+        }),
+      });
+    },
+    setDelivery: (deliveryId) => {
+      if (changing) return;
+      if (!needsRefresh) writeMutation.reset();
+      draftMutation.reset();
+      void router.navigate({
+        to: "/",
+        search: (previous) => ({
+          ...previous,
+          deliveryId,
+          query: "",
+          serverSearch: false,
+          filters: defaultFilters,
+          sourcePieceId: undefined,
+        }),
+      });
+    },
   };
 }
