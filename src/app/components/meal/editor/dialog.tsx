@@ -20,7 +20,7 @@ export function MealDialog({
     const overflow = document.documentElement.style.overflow;
     document.documentElement.style.overflow = "hidden";
     dialog.showModal();
-    dialog.querySelector<HTMLElement>("h2")?.focus();
+    dialog.querySelector<HTMLElement>("h2")?.focus({ preventScroll: true });
     return () => {
       dialog.close();
       document.documentElement.style.overflow = overflow;

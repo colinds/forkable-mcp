@@ -75,6 +75,7 @@ const meal = createRoute({
       });
   },
   component: MealEditorPage,
+  pendingMs: 150,
   remountDeps: ({ params, search }) => ({ ...params, sourcePieceId: search.sourcePieceId }),
   pendingComponent: MealPending,
   errorComponent: MealRouteError,

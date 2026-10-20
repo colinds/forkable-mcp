@@ -8,6 +8,7 @@ export function SelectedMeals({
   busy,
   status,
   choose,
+  prefetchMeal,
   onBrowseMeals,
 }: {
   delivery: Delivery;
@@ -15,6 +16,7 @@ export function SelectedMeals({
   busy: boolean;
   status?: DeliveryStatus;
   choose: (menuId: number, itemId: number, sourcePieceId?: string | number) => void;
+  prefetchMeal: (menuId: number, itemId: number) => Promise<void>;
   onBrowseMeals?: () => void;
 }) {
   return (
@@ -51,6 +53,7 @@ export function SelectedMeals({
               onChoose={
                 item && menu ? () => choose(menu.menuId, item.itemId, meal.pieceId) : undefined
               }
+              onPrefetch={item && menu ? () => prefetchMeal(menu.menuId, item.itemId) : undefined}
             />
           );
         })}

@@ -13,6 +13,7 @@ interface MealCardProps {
   horizontal?: boolean;
   disabled?: boolean;
   onChoose?: () => void;
+  onPrefetch?: () => Promise<void>;
 }
 export function MealCard({
   name,
@@ -25,6 +26,7 @@ export function MealCard({
   horizontal,
   disabled,
   onChoose,
+  onPrefetch,
 }: MealCardProps) {
   const content = (
     <>
@@ -48,6 +50,8 @@ export function MealCard({
       disabled={disabled}
       aria-label={`View ${name}${restaurant ? ` from ${restaurant}` : ""}`}
       onClick={onChoose}
+      onPointerEnter={onPrefetch}
+      onFocus={onPrefetch}
     >
       {content}
     </button>

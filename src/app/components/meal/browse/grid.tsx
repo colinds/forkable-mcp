@@ -11,6 +11,7 @@ export function MealCards({
   busy,
   loading,
   choose,
+  prefetchMeal,
 }: {
   menus: Menu[];
   view: MenuView;
@@ -18,6 +19,7 @@ export function MealCards({
   busy: boolean;
   loading: boolean;
   choose: (menuId: number, itemId: number) => void;
+  prefetchMeal: (menuId: number, itemId: number) => Promise<void>;
 }) {
   const { items, restaurants, layout } = view;
   if (loading && !items.length) return <MealCardsLoading />;
@@ -39,6 +41,7 @@ export function MealCards({
             caption={rank ? `Recommended · #${rank}` : undefined}
             disabled={busy}
             onChoose={() => choose(menu.menuId, item.itemId)}
+            onPrefetch={() => prefetchMeal(menu.menuId, item.itemId)}
           />
         ))}
       </div>

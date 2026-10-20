@@ -65,6 +65,7 @@ export interface MealBrowserController {
   setView: (view: BrowserView) => void;
   browse: () => void;
   choose: (menuId: number, itemId: number, sourcePieceId?: string | number) => void;
+  prefetchMeal: (menuId: number, itemId: number) => Promise<void>;
   submit: (draft: MealDraftValues) => void;
   askAboutMeal?: (reference: ReturnType<typeof createMealReference>) => void;
   back: () => boolean;
@@ -249,6 +250,7 @@ export function useMealBrowser(): MealBrowserController {
       to: "/",
       search: (previous) => ({ ...previous, sourcePieceId: undefined }),
       replace: true,
+      resetScroll: false,
     });
   }
   async function refreshBrowser() {
@@ -308,6 +310,7 @@ export function useMealBrowser(): MealBrowserController {
     void router.navigate({
       to: MEAL_PATH,
       params: { deliveryId: delivery.deliveryId, menuId, itemId },
+      resetScroll: false,
       search: (previous) => ({ ...previous, sourcePieceId }),
     });
   }
@@ -346,6 +349,12 @@ export function useMealBrowser(): MealBrowserController {
       if (queryClient.isMutating() === 0) refreshMutation.mutate();
     },
     choose,
+    prefetchMeal: async (menuId, itemId) => {
+      if (!delivery || isPastDelivery(delivery.date) || queryClient.isMutating() > 0) return;
+      const query = queries.detail({ deliveryId: delivery.deliveryId, menuId, itemId });
+      if (queryClient.getQueryState(query.queryKey)?.status === "error") return;
+      await queryClient.prefetchQuery(query);
+    },
     submit: (draft) => {
       if (busy || queryClient.isMutating() > 0 || needsRefresh || !delivery || !detail) return;
       // Validation is part of the mutation so the same error state covers form and server failures.
