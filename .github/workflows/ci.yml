@@ -39,7 +39,7 @@ jobs:
       - run: bun pm pack --destination ../../artifacts
         working-directory: apps/mcp
       - run: bun build scripts/smoke.ts --target=node --format=esm --outfile=artifacts/smoke.mjs
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: package
           path: artifacts
@@ -67,7 +67,7 @@ jobs:
         if: matrix.runner == 'npx'
         with:
           node-version: "22"
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: package
           path: artifacts

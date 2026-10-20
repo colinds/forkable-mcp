@@ -590,11 +590,12 @@ test("inline results sort globally while the full browser keeps restaurant group
   expect(results.ordered.map((row) => row.item.price)).toEqual([10, 20, 30]);
 });
 
+const result = (structuredContent: Record<string, unknown>, input = {}) => ({
+  input,
+  result: { structuredContent },
+});
+
 test("launch intent selects a presentation independently of host display mode", () => {
-  const result = (structuredContent: Record<string, unknown>, input = {}) => ({
-    input,
-    result: { structuredContent },
-  });
   expect(initialLaunch(result({})).view).toBe("browse");
   expect(initialLaunch(result({}, { deliveryId: 1 })).view).toBe("delivery");
   expect(

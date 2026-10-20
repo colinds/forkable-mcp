@@ -76,13 +76,11 @@ describe("browser cookie import", () => {
   });
 
   test("requires a nonempty session cookie", async () => {
-    const read = async (): Promise<GetCookiesResult> => ({
-      cookies: [cookie("_easyorder_session", "", "Default"), cookie("other", "value", "Default")],
-      warnings: ["Chrome cookies database not found."],
-    });
-
-    await expect(readForkableCookieHeaders({}, read)).rejects.toThrow(
-      /No logged-in Forkable session.*Chrome cookies database not found/,
-    );
+    await expect(
+      readForkableCookieHeaders({}, async (): Promise<GetCookiesResult> => ({
+        cookies: [cookie("_easyorder_session", "", "Default"), cookie("other", "value", "Default")],
+        warnings: ["Chrome cookies database not found."],
+      })),
+    ).rejects.toThrow(/No logged-in Forkable session.*Chrome cookies database not found/);
   });
 });

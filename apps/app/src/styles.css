@@ -443,21 +443,11 @@ legend {
   outline: 2px solid var(--ring);
   outline-offset: 3px;
 }
-.selected-card:has(.selected-card-actions) .card-body > :last-child {
-  box-sizing: border-box;
-  padding-right: 8.5em;
-  min-height: 2.5em;
-}
-.selected-card:has(.selected-card-actions) .card-body > .meal-ingredients {
-  width: calc(100% - 8.5em);
-  padding-right: 0;
-}
-.selected-card-actions {
-  position: absolute;
-  bottom: 12px;
-  right: 12px;
-}
-.selected-action {
+.selected-actions {
+  display: flex;
+  align-items: stretch;
+  justify-content: flex-start;
+  gap: 8px;
   margin-top: 12px;
 }
 .confirmation-actions {
@@ -639,9 +629,9 @@ html[data-display-mode="inline"] #app:has(.meal-page) {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 10px;
-  min-height: 44px;
-  padding: 10px 16px;
+  gap: 6px;
+  min-height: 28px;
+  padding: 0 8px;
   flex-shrink: 0;
   text-decoration: none;
 }
@@ -787,6 +777,10 @@ html[data-display-mode="inline"] #app {
   .tracking-action {
     flex: 1 0 100%;
     width: 100%;
+  }
+  .selected-actions > .btn {
+    flex: 1 1 0;
+    min-width: 0;
   }
   .delivery-summary > .tracking-action {
     margin-left: 0;

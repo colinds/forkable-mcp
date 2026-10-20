@@ -31,7 +31,10 @@ const [app, server] = await Promise.all([
     target: "browser",
     minify: !development,
     sourcemap,
-    define: { "process.env.NODE_ENV": JSON.stringify(development ? "development" : "production") },
+    define: {
+      APP_VERSION: JSON.stringify(pkg.version),
+      "process.env.NODE_ENV": JSON.stringify(development ? "development" : "production"),
+    },
     naming: "app.[ext]",
     outdir: fileURLToPath(dist),
   }),

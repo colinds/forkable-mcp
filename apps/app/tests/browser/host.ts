@@ -119,6 +119,7 @@ bridge.onrequestdisplaymode = async ({ mode }) => {
   return { mode };
 };
 bridge.oninitialized = async () => {
+  Object.assign(window, { appVersion: bridge.getAppVersion()?.version });
   let input: Record<string, unknown> = {};
   let result: Awaited<ReturnType<typeof respond>> = { content: [], structuredContent: {} };
   if (config.launch) {

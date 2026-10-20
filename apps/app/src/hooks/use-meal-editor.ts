@@ -13,8 +13,11 @@ export function useMealEditor(browser: MealBrowserController, detail: Detail) {
   const { delivery } = browser.state;
   const { sourcePieceId } = useSearch({ from: "__root__" });
   const { draft: edited, setDraft: setEdited } = useMealDraft();
+  const requestedSource = delivery?.meals.find(
+    (meal) => String(meal.pieceId) === String(sourcePieceId),
+  );
   const defaultSource =
-    sourcePieceId ?? (delivery?.meals.length === 1 ? delivery.meals[0]!.pieceId : "");
+    requestedSource?.pieceId ?? (delivery?.meals.length === 1 ? delivery.meals[0]!.pieceId : "");
   function notesFor(pieceId: string | number) {
     const meal = delivery?.meals.find((candidate) => String(candidate.pieceId) === String(pieceId));
     return detail && meal?.menuId === detail.menuId && meal.itemId === detail.itemId

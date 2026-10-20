@@ -34,15 +34,17 @@ jobs:
 
       - run: bun install --frozen-lockfile
       - run: bun run check
+      - run: bun pm pack
+        working-directory: apps/mcp
       # Last gate before an irreversible publish: prove the tarball actually installs and runs.
-      - run: bun run smoke
+      - run: bun run smoke bunx apps/mcp
+      - run: bun run smoke npx apps/mcp
       - run: npm install -g npm@latest
 
       - name: Publish to npm
         working-directory: apps/mcp
         run: |
           VERSION=$(jq -r '.version' package.json)
-          bun pm pack
           npm publish "forkable-mcp-${VERSION}.tgz" --provenance --access public
 
       - name: Create GitHub release

@@ -67,7 +67,7 @@ export interface MealBrowserController {
   editing: boolean;
   state: BrowserState & { busy: boolean };
   refresh: () => void;
-  setView: (view: BrowserView) => void;
+  setView: (view: BrowserView, sourcePieceId?: string | number) => void;
   browse: () => void;
   choose: (menuId: number, itemId: number, sourcePieceId?: string | number) => void;
   prefetchMeal: (menuId: number, itemId: number) => Promise<void>;
@@ -176,11 +176,11 @@ export function useMealBrowser(): MealBrowserController {
               args: { deliveryId: submission.deliveryId, pieceId: submission.pieceId },
             };
       const confirmation = new Confirmation();
-      const preview = await confirmation.preview(call, change);
+      const previewResult = await confirmation.preview(call, change);
       if (!confirmation.pending)
         return {
           notice:
-            resultText(preview) ||
+            resultText(previewResult) ||
             "Unable to update this meal. Check your selection and try again.",
           problem: true,
           needsRefresh: false,
@@ -328,7 +328,10 @@ export function useMealBrowser(): MealBrowserController {
       to: MEAL_PATH,
       params: { deliveryId: delivery.deliveryId, menuId, itemId },
       resetScroll: false,
-      search: (previous) => ({ ...previous, sourcePieceId }),
+      search: (previous) => ({
+        ...previous,
+        sourcePieceId: sourcePieceId ?? navigation.sourcePieceId,
+      }),
     });
   }
   return {
@@ -429,11 +432,12 @@ export function useMealBrowser(): MealBrowserController {
         replace: true,
       });
     },
-    setView: (view) => {
+    setView: (view, sourcePieceId) => {
       void router.navigate({
         to: "/",
-        search: (previous) => ({ ...previous, view }),
+        search: (previous) => ({ ...previous, view, sourcePieceId }),
         replace: true,
+        resetScroll: false,
       });
     },
     browse: () => {

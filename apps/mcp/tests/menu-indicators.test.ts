@@ -14,6 +14,14 @@ const delivery: Delivery = {
 const query = async <T>(root: string): Promise<T> =>
   (root === "ingredients" ? [] : { 2: { "2026-10-22": { am: 10, pm: 9 } } }) as T;
 
+const failed = async <T>(): Promise<T> => {
+  throw new Error("Read unavailable");
+};
+
+const reauth = async <T>(): Promise<T> => {
+  throw new ReauthRequiredError("expired");
+};
+
 test("ingredient categories use the server mapping, keep display order and exclude hidden tags", () => {
   expect(
     ingredientCategories(
@@ -93,15 +101,9 @@ test("order over-capacity signals and demo-club exception are respected", async 
 test("unreported capacity and optional read failures remain unknown", async () => {
   const unknownMenus = [{ ...menus[0]!, venue: { id: 2 } }];
   expect((await loadMenuIndicators({ query }, delivery, unknownMenus)).capacity.has(1)).toBe(false);
-  const failed = async <T>(): Promise<T> => {
-    throw new Error("Read unavailable");
-  };
   const indicators = await loadMenuIndicators({ query: failed }, delivery, menus);
   expect(indicators.capacity.size).toBe(0);
   expect(indicators.groups).toBeUndefined();
-  const reauth = async <T>(): Promise<T> => {
-    throw new ReauthRequiredError("expired");
-  };
   await expect(loadMenuIndicators({ query: reauth }, delivery, menus)).rejects.toBeInstanceOf(
     ReauthRequiredError,
   );
