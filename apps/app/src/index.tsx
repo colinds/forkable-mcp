@@ -1,3 +1,4 @@
+import { OpenAIDeepLinkHostStateSchema, OPENAI_DEEP_LINK_KEY } from "@openai/mcp-extensions/app";
 import { createDraftWriter, supportsEditableDrafts } from "@/app/lib/chat-draft.ts";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
@@ -16,6 +17,7 @@ const app = new App(
   { availableDisplayModes: ["inline", "fullscreen"] },
   { autoResize: false },
 );
+let linkRevision = 0;
 const call: CallTool = (name, args) => {
   if (recovering) recoveryReadStarted = true;
   return app.callServerTool({ name, arguments: args });
@@ -43,6 +45,9 @@ function offerRecovery(message: string) {
 }
 function renderView() {
   if (!connected || !initial) return;
+  const link = OpenAIDeepLinkHostStateSchema.safeParse(
+    app.getHostContext()?.[OPENAI_DEEP_LINK_KEY],
+  ).data;
   renderedDisplayMode = app.getHostContext()?.displayMode;
   renderedDraftSupport = supportsEditableDrafts(app);
   root.render(
@@ -51,6 +56,7 @@ function renderView() {
         key={revision}
         host={{ callTool: call, createDraft: renderedDraftSupport ? writeDraft : undefined }}
         initial={initial}
+        deepLink={link ? { url: link.url, revision: linkRevision } : undefined}
         displayMode={app.getHostContext()?.displayMode}
         expand={
           app.getHostContext()?.availableDisplayModes?.includes("fullscreen")
@@ -73,10 +79,13 @@ function renderView() {
     </StrictMode>,
   );
 }
-app.addEventListener("hostcontextchanged", () => {
+app.addEventListener("hostcontextchanged", (context) => {
+  const linked = Object.hasOwn(context, OPENAI_DEEP_LINK_KEY);
+  if (linked) linkRevision++;
   applyHostContext(app.getHostContext());
   sizing?.update();
   if (
+    linked ||
     app.getHostContext()?.displayMode !== renderedDisplayMode ||
     supportsEditableDrafts(app) !== renderedDraftSupport
   )

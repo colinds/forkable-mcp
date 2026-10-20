@@ -1,3 +1,4 @@
+import { useDeepLink } from "@/app/hooks/use-deep-link.ts";
 import { BrowserToolbar } from "@/app/components/browser-toolbar.tsx";
 import { ArrowLeft } from "lucide-react";
 import { IconButton } from "@/app/components/icon-button.tsx";
@@ -21,6 +22,7 @@ export function MealBrowserPage() {
   const [displayError, setDisplayError] = useState<string>();
   const browser = useMealBrowser();
   const { state } = browser;
+  const deepLinkError = useDeepLink(browser);
   const presentation = displayMode === "fullscreen" ? "browse" : browser.view;
   const compact = presentation !== "browse";
   const editing = browser.editing;
@@ -84,6 +86,11 @@ export function MealBrowserPage() {
       }}
     >
       <div aria-busy={busy && !state.selectedMeal} className={compact ? "compact-view" : undefined}>
+        {deepLinkError && (
+          <p role="alert" className="notice error">
+            {deepLinkError}
+          </p>
+        )}
         <div hidden={inlineEditor}>
           <BrowserToolbar
             title={title}

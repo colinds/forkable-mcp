@@ -1,3 +1,4 @@
+import type { DeepLink } from "./deep-links.ts";
 import { createContext, useContext } from "react";
 import type { QueryClient } from "@tanstack/react-query";
 import type { McpUiDisplayMode } from "@modelcontextprotocol/ext-apps";
@@ -9,6 +10,7 @@ import type { OpenLink } from "./tools.ts";
 
 export interface MealAppProps {
   host: MealBrowserHost;
+  deepLink?: DeepLink;
   initial?: InitialView;
   displayMode?: McpUiDisplayMode;
   expand?: () => Promise<void>;
@@ -16,7 +18,13 @@ export interface MealAppProps {
   openLink?: OpenLink;
 }
 export const MealAppContext = createContext<
-  (MealAppProps & { queryClient: QueryClient; queries: MealQueries }) | undefined
+  | (MealAppProps & {
+      queryClient: QueryClient;
+      queries: MealQueries;
+      initialLinkRevision?: number;
+      initialLinkError?: string;
+    })
+  | undefined
 >(undefined);
 export function useMealApp() {
   const context = useContext(MealAppContext);

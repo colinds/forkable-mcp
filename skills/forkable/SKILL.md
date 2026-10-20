@@ -47,12 +47,19 @@ selection instead of restoring an old or default choice.
 
 ## Show the interactive app
 
-For requests such as "show me curry," resolve the delivery and matching meals with `search_items`,
-then call `open_forkable` with the same `deliveryId` and query as the final display step. For a
-specific dish, include its exact `menuId` and `itemId`. Only `open_forkable` launches the app;
-ordinary reads return data without opening another view. The app loads its own data after launch.
-Do not substitute a Markdown image for an explicitly requested interactive view when the client
-supports MCP Apps. Text remains available in clients without MCP Apps.
+Use only tools actually exposed in the current conversation. When Forkable is already open,
+prefer its available view tools to inspect or update the current search, filters, delivery, or dish.
+
+If no current-view tools are exposed, answer with meal data in chat without naming or suggesting
+unavailable tools. Do not reopen the app as a substitute for updating it, or claim the tab changed.
+Launch another view only when the user explicitly requests one, or no app is known to be open.
+
+To launch a new view for "show me curry," resolve the delivery and matching meals with
+`search_items`, then call `open_forkable` with the same `deliveryId` and query as the final display
+step. For a specific dish, include its exact `menuId` and `itemId`. The app loads its own data after
+launch; ordinary reads do not open a view. Do not substitute a Markdown image for an explicitly
+requested interactive view when the client supports MCP Apps. Text remains available in clients
+without MCP Apps.
 
 Use `prepare_meal` for guided choices: pass `deliveryId` and `candidates` for a photo shortlist, or
 `deliveryId`, `menuId`, and `itemId` to configure a known dish. Do not supply both shapes. After

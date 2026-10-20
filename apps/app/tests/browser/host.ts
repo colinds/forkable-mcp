@@ -44,6 +44,7 @@ const bridge = new AppBridge(
   },
   {
     hostContext: {
+      ...(config.deepLink ? { "openai/deepLink": { url: config.deepLink } } : {}),
       ...(config.context?.restore
         ? {
             "openai/modelContext": JSON.parse(
@@ -112,6 +113,9 @@ bridge.onupdatemodelcontext = async (context) => {
   }
   return {};
 };
+Object.assign(window, {
+  openDeepLink: (url: string) => bridge.setHostContext({ "openai/deepLink": { url } }),
+});
 bridge.oncalltool = respond;
 bridge.onrequestdisplaymode = async ({ mode }) => {
   displayMode = mode;

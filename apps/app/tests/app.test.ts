@@ -1,3 +1,4 @@
+import { deepLinkInput, deepLinkPath } from "@/app/lib/deep-links.ts";
 import { menuFiltersSchema } from "@forkable-mcp/shared/contracts/menu-filters.ts";
 import { selectedMealTotal } from "@forkable-mcp/shared/meal-options.ts";
 import { createMealReference } from "@forkable-mcp/shared/meal-reference.ts";
@@ -618,4 +619,38 @@ test("delivery context does not claim that hidden menus are visible", () => {
     view,
   ).structuredContent;
   expect(context).toMatchObject({ view: "delivery", visibleMeals: [], totalMatchingMeals: 0 });
+});
+
+describe("deep links", () => {
+  test("round-trips the shared launch schema, including numeric search text and every filter", () => {
+    const input = openBrowserInputSchema.parse({
+      deliveryId: 1,
+      menuId: 10,
+      itemId: 7,
+      query: "123",
+      from: "2026-10-05",
+      to: "2026-10-06",
+      view: "meals",
+      filters: {
+        restaurantId: 10,
+        diet: "Vegetarian",
+        maxPrice: 15,
+        recommendedOnly: true,
+        sort: "price-low",
+      },
+    });
+    expect(deepLinkInput(deepLinkPath(input))).toEqual(input);
+  });
+  test("rejects external targets, fragments and invalid meal identities", () => {
+    for (const path of [
+      "https://example.com/",
+      "//example.com/",
+      "/unknown",
+      "/#fragment",
+      "/?deliveryId=-1",
+      "/?itemId=7",
+      "/?from=2026-10-06&to=2026-10-05",
+    ])
+      expect(() => deepLinkInput(path)).toThrow();
+  });
 });
