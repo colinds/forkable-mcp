@@ -1,5 +1,16 @@
 import { z } from "zod";
 
+export const ingredientCategorySchema = z.enum([
+  "dairy",
+  "gluten",
+  "nuts",
+  "soy",
+  "seafood",
+  "eggs",
+]);
+export type IngredientCategory = z.infer<typeof ingredientCategorySchema>;
+export const menuCapacitySchema = z.enum(["available", "at_capacity", "over_capacity"]);
+
 export const ratingSchema = z.object({
   level: z.number().nullable(),
   reasons: z.array(z.string()),
@@ -23,6 +34,7 @@ const mealSchema = z.object({
   itemId: z.number().int(),
   name: z.string().nullable().optional(),
   cancellationPending: z.boolean(),
+  canSwapAtCapacity: z.boolean().optional(),
   instructions: z.string().optional(),
   group: z.string().nullable().optional(),
   isConfirmed: z.boolean().nullable().optional(),
@@ -50,6 +62,7 @@ const itemSchema = z.object({
   price: z.number().nullable(),
   imageUrl: z.string().nullable(),
   diet: z.string().nullable().optional(),
+  ingredients: z.array(ingredientCategorySchema).optional(),
   hasModifiers: z.boolean().optional(),
   description: z.string().nullable().optional(),
 });
@@ -57,6 +70,7 @@ const itemSchema = z.object({
 const menuSchema = z.object({
   menuId: z.number().int(),
   name: z.string(),
+  capacityStatus: menuCapacitySchema.optional(),
   items: z.array(itemSchema),
 });
 

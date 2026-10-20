@@ -16,6 +16,7 @@ export function createToolFixtures(config: ResolvedFixtureConfig) {
     price: 15,
     imageUrl: "https://cdn.filestackcontent.com/test-photo",
     diet: "Vegetarian",
+    ingredients: ["dairy", "gluten", "soy", "eggs"],
     description: "Tofu with mango, pineapple and chili",
   };
   function searchItems() {
@@ -189,6 +190,7 @@ export function createToolFixtures(config: ResolvedFixtureConfig) {
         ? {
             item: {
               ...item,
+              ingredients: undefined,
               menuId: args.arguments.menuId,
               name: args.arguments.menuId === 20 ? "Another bowl" : item.name,
               description: "Chili tofu, warm rice, and crisp vegetables.",
@@ -207,7 +209,12 @@ export function createToolFixtures(config: ResolvedFixtureConfig) {
           }
         : {
             menus: [
-              { menuId: 10, name: "Seoul Kitchen", items: [item] },
+              {
+                menuId: 10,
+                name: "Seoul Kitchen",
+                capacityStatus: config.soldOut ? "at_capacity" : "available",
+                items: [item],
+              },
               {
                 menuId: 20,
                 name: "Second Restaurant",

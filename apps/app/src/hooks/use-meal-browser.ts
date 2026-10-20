@@ -141,7 +141,7 @@ export function useMealBrowser(): MealBrowserController {
         .find((menu) => menu.menuId === target.menuId)
         ?.items.find((item) => item.itemId === target.itemId)
     : undefined;
-  const selectedMeal: MealPreview | undefined = target
+  const preview: MealPreview | undefined = target
     ? (detail ??
       (listedItem
         ? {
@@ -153,6 +153,9 @@ export function useMealBrowser(): MealBrowserController {
             description: listedItem.description ?? null,
           }
         : undefined))
+    : undefined;
+  const selectedMeal: MealPreview | undefined = preview
+    ? { ...preview, ingredients: listedItem?.ingredients ?? preview.ingredients }
     : undefined;
   const writeMutation = useMutation({
     mutationFn: async (submission: MealSubmission) => {

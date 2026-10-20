@@ -79,6 +79,7 @@ p {
   margin-top: 12px;
 }
 .meal-card {
+  position: relative;
   display: flex;
   flex-direction: column;
   align-items: stretch;
@@ -91,8 +92,62 @@ p {
   border-radius: var(--border-radius-lg, var(--radius));
   font: inherit;
 }
-.meal-card:hover {
+button.meal-card:not(:disabled):hover {
   border-color: var(--ring);
+}
+.meal-ingredients {
+  display: flex;
+  flex-shrink: 0;
+  flex-wrap: nowrap;
+  min-width: 0;
+  overflow-x: auto;
+  white-space: nowrap;
+  scrollbar-width: none;
+  column-gap: 6px;
+  padding: 12px 0 0;
+  margin: auto 0 0;
+  list-style: none;
+  border-top: var(--border-width-regular, 1px) solid var(--color-border-tertiary, var(--border));
+  font-size: var(--font-text-sm-size, 13px);
+}
+.meal-ingredients li {
+  flex-shrink: 0;
+}
+.meal-ingredients li:not(:last-child)::after {
+  content: " ·";
+  margin-left: 6px;
+}
+.sold-out {
+  display: inline-block;
+  align-self: flex-start;
+  justify-self: start;
+  padding: 3px 8px;
+  border-radius: var(--border-radius-full, 999px);
+  background: var(--color-background-secondary, var(--secondary));
+  color: var(--color-text-secondary, var(--muted));
+  font-size: var(--font-text-xs-size, 12px);
+  font-weight: 600;
+}
+.card-badges {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  right: 10px;
+  z-index: 1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 6px;
+  pointer-events: none;
+}
+.card-badges .recommendation {
+  padding: 3px 8px;
+  border-radius: var(--border-radius-full, 999px);
+  background: var(--background);
+  font-weight: 600;
+}
+.meal-card-sold-out .photo {
+  opacity: 0.65;
 }
 button:focus-visible,
 input:focus-visible,
@@ -123,7 +178,10 @@ button:disabled {
 }
 .card-body {
   padding: 14px;
-  display: grid;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
   gap: 7px;
 }
 .price {
@@ -354,7 +412,7 @@ legend {
   border: 0;
   border-radius: 0;
 }
-.selected-card:has(> .meal-card:hover) {
+.selected-card:has(> button.meal-card:not(:disabled):hover) {
   border-color: var(--ring);
 }
 .selected-card:has(> .meal-card:focus-visible) {
@@ -365,6 +423,10 @@ legend {
   box-sizing: border-box;
   padding-right: 8.5em;
   min-height: 2.5em;
+}
+.selected-card:has(.selected-card-actions) .card-body > .meal-ingredients {
+  width: calc(100% - 8.5em);
+  padding-right: 0;
 }
 .selected-card-actions {
   position: absolute;

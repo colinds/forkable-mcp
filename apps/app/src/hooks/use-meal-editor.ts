@@ -5,6 +5,7 @@ import { createMealReference } from "@forkable-mcp/shared/meal-reference.ts";
 import type { MealBrowserController } from "./use-meal-browser.ts";
 import type { Detail } from "@forkable-mcp/shared/contracts/meals.ts";
 import type { MealDraftValues } from "@/app/lib/editor-types.ts";
+import { isMenuSoldOut } from "@forkable-mcp/shared/menu-availability.ts";
 
 const noChoices: Record<string, number[]> = {};
 
@@ -25,6 +26,11 @@ export function useMealEditor(browser: MealBrowserController, detail: Detail) {
     choices: noChoices,
     instructions: notesFor(defaultSource),
   };
+  const sourceMeal = delivery?.meals.find((meal) => String(meal.pieceId) === draft.source);
+  const soldOut = isMenuSoldOut(
+    browser.state.menus.find((menu) => menu.menuId === detail.menuId),
+    sourceMeal,
+  );
   function update(next: Partial<MealDraftValues>) {
     browser.clearFeedback();
     setEdited({ ...draft, ...next });
@@ -41,7 +47,10 @@ export function useMealEditor(browser: MealBrowserController, detail: Detail) {
     mealTotal: selectedMealTotal(detail, draft.choices),
     back: browser.back,
     mealToSkip,
-    submit: () => browser.submit(draft),
+    soldOut,
+    submit: () => {
+      if (!soldOut) return browser.submit(draft);
+    },
     chooseOption: (modifierId: number, optionId: number, checked: boolean, max: number | null) => {
       const picked = draft.choices[modifierId] ?? [];
       let options = picked.filter((id) => id !== optionId);

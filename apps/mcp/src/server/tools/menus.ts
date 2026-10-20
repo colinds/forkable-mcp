@@ -14,6 +14,8 @@ import { type McpServer } from "@modelcontextprotocol/server";
 import { appResult, errResult } from "@/server/results.ts";
 import { guard, APP_TOOL_META } from "@/server/tools/shared.ts";
 import { loadDeliveries, findDelivery, loadMenus, loadDietLabels } from "@/server/order/data.ts";
+import { loadMenuIndicators } from "@/server/order/menu-indicators.ts";
+import { isMenuSoldOut } from "@forkable-mcp/shared/menu-availability.ts";
 import {
   imageMd,
   flattenItems,
@@ -58,17 +60,25 @@ export function registerMenuTool(server: McpServer): void {
           });
         }
 
+        const [diets, indicators] = await Promise.all([
+          loadDietLabels(client),
+          loadMenuIndicators(client, d, menus),
+        ]);
         const summary = menus
           .map((m) => {
             const items = m.sections.flatMap((s) => s.items);
             const lines = items.map(
               (it) => `    ${it.id}  ${it.name}  ${formatKnownPrice(it.price)}${imageMd(it)}`,
             );
-            return `${m.displayName || m.name || `menu ${m.id}`} (${items.length} items):\n${lines.join("\n")}`;
+            const soldOut = isMenuSoldOut({
+              menuId: m.id,
+              capacityStatus: indicators.capacity.get(m.id),
+            });
+            return `${m.displayName || m.name || `menu ${m.id}`} (${items.length} items)${soldOut ? " — sold out" : ""}:\n${lines.join("\n")}`;
           })
           .join("\n\n");
         return appResult(getMenusResultSchema, summary || "No items.", {
-          menus: compactMenus(menus, await loadDietLabels(client)),
+          menus: compactMenus(menus, diets, indicators),
         });
       }),
   );

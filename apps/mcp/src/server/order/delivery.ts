@@ -116,6 +116,7 @@ export function compactDelivery(
         rating: ratingDetails(p.userRating),
       };
       if (p.instructions != null) meal.instructions = p.instructions;
+      if (p.isLateSwappable === true) meal.canSwapAtCapacity = true;
       return meal;
     }),
   };

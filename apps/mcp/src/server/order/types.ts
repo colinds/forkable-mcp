@@ -26,6 +26,7 @@ export interface MenuItem {
   price?: number;
   imageUrl?: string;
   dietLevel?: number;
+  ingredientTags?: string[];
   modifierIds?: number[];
   modifiers?: MenuModifier[];
 }
@@ -34,6 +35,7 @@ export interface Menu {
   id: number;
   name?: string;
   displayName?: string;
+  venue?: { id: number; capacity?: number | null };
   sections: { items: MenuItem[] }[];
   /** Option price fallback, in dollars. */
   optionSets?: { id: number; price?: number | null }[];
@@ -81,10 +83,11 @@ export interface EtaStatus {
 export interface Order {
   id: string | number;
   state?: string;
+  isOverVenueCapacity?: boolean;
   replacementCutoffTs?: string;
   menu?: { name?: string };
   pieces?: Piece[];
-  venue?: { name?: string; displayName?: string };
+  venue?: { id?: number; name?: string; displayName?: string };
   etaStatus?: EtaStatus;
   dropoffCompletedAt?: string; // UTC instant.
 }
@@ -101,11 +104,12 @@ export interface Delivery {
   weeklyAllowance?: number;
   weeklyAllowanceAvailable?: number;
   forBuffet?: boolean | null;
+  afternoon?: boolean;
   deliveryWindow?: string[];
   serviceWindow?: { baseTime?: string; name?: string };
   reportMissingItemCutoff?: string; // UTC instant.
   address?: { formatted?: string; notes?: string };
-  club?: { id: number; name?: string; market?: { timezone?: string } };
+  club?: { id: number; name?: string; isDemo?: boolean; market?: { timezone?: string } };
   orders?: Order[];
   userReceipt?: { due?: number; clubCopay?: number };
 }
