@@ -1,4 +1,3 @@
-import { MealSkipAction } from "./skip-action.tsx";
 import { MessageSquare } from "lucide-react";
 import { modifierMinimum, MEAL_INSTRUCTIONS_LIMIT } from "@forkable-mcp/shared/meal-options.ts";
 import { money } from "@forkable-mcp/shared/currency.ts";
@@ -9,9 +8,11 @@ import type { ReactNode } from "react";
 export function MealOptions({
   browser,
   children,
+  actions,
 }: {
   browser: MealEditorController;
   children?: ReactNode;
+  actions?: ReactNode;
 }) {
   const { state } = browser;
   const { busy, delivery, detail: meal } = state;
@@ -118,7 +119,7 @@ export function MealOptions({
               {state.pendingAction === "drafting" ? "Adding to draft…" : "Ask about this meal"}
             </Button>
           )}
-          <MealSkipAction browser={browser} />
+          {actions}
         </footer>
       </form>
     </div>
