@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { PNG_BASE64 } from "../fixtures/image.ts";
+import { PNG_BASE64, MEAL_ILLUSTRATION_SVG } from "../fixtures/image.ts";
 import { fixtureUrl, type FixtureConfig } from "./fixture-config.ts";
 import type { MenuFilters } from "@/shared/contracts/menu-filters.ts";
 
@@ -25,7 +25,7 @@ test("photos, theme, search, options, exact target and one-click submission", as
   await page.screenshot({ path: testInfo.outputPath("meal-browser-light.png") });
   await page.getByRole("button", { name: "Dark theme" }).click();
   await expect(ui.locator("html")).toHaveAttribute("data-theme", "dark");
-  await expect(ui.locator("body")).toHaveCSS("background-color", "rgb(24, 24, 24)");
+  await expect(ui.locator("body")).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
   await page.screenshot({ path: testInfo.outputPath("meal-browser-dark.png") });
   await ui.getByLabel("Find a meal").fill("Second Restaurant");
   await expect(ui.getByRole("button", { name: /View Another bowl/ })).toBeVisible();
@@ -309,7 +309,7 @@ test("meal tool results launch the exact meal and are not fetched twice", async 
     }),
   );
   const ui = page.frameLocator("iframe");
-  await expect(ui.getByRole("dialog", { name: "Spicy tofu bowl" })).toBeVisible();
+  await expect(ui.getByRole("dialog", { name: "Another bowl" })).toBeVisible();
   const detailCalls = await page.evaluate(() =>
     (
       window as unknown as { calls: { name: string; arguments?: Record<string, unknown> }[] }
@@ -361,7 +361,7 @@ test("restaurant sections persist for filters and combine only during search", a
   await page.route("https://cdn.filestackcontent.com/**", (route) =>
     route.fulfill({
       contentType: "image/svg+xml",
-      body: '<svg xmlns="http://www.w3.org/2000/svg" width="640" height="400" viewBox="0 0 640 400"><rect width="640" height="400" fill="#ddd6c9"/><ellipse cx="320" cy="207" rx="158" ry="147" fill="#f8f4ea"/><ellipse cx="320" cy="204" rx="130" ry="122" fill="#b78147"/><path d="M220 150Q320 65 398 160L370 229 257 228Z" fill="#4d753b"/><path d="M227 191Q162 244 282 303L311 241Z" fill="#d99b3c"/><path d="M339 191Q448 173 414 257L353 292 319 247Z" fill="#863e2d"/><path d="m250 154 21 65m17-85 10 69m32-71 4 61m30-57-8 47" stroke="#90a85d" stroke-width="9"/><path d="m295 213 23 9m-48 13 25 8m24 17 19 9" stroke="#ead6a5" stroke-width="7"/></svg>',
+      body: MEAL_ILLUSTRATION_SVG,
     }),
   );
   await page.goto(fixtureUrl({ menus: "restaurants", tracking: true, deliveryScenario: "dates" }));
@@ -383,7 +383,7 @@ test("restaurant sections persist for filters and combine only during search", a
   );
   await page.getByRole("button", { name: "Dark theme" }).click();
   await expect(ui.locator("html")).toHaveAttribute("data-theme", "dark");
-  await expect(ui.locator("body")).toHaveCSS("background-color", "rgb(24, 24, 24)");
+  await expect(ui.locator("body")).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
   await page.screenshot({
     path: testInfo.outputPath("restaurant-layout-wide.png"),
     fullPage: true,
@@ -1308,4 +1308,200 @@ test("sidebar fullscreen keeps the full browser and inline return preserves deli
   await expect(ui.getByRole("heading", { name: "Your delivery" })).toBeVisible();
   await expect(ui.getByRole("region", { name: "Available meals" })).toHaveCount(0);
   await expect(ui.getByRole("group", { name: "Delivery dates" })).toHaveCount(0);
+});
+
+for (const appearance of ["claude", "cursor", "chatgpt"] as const) {
+  for (const width of [375, 1000]) {
+    test(`${appearance} host tokens adapt at ${width} without platform-specific UI`, async ({
+      page,
+    }, testInfo) => {
+      await page.setViewportSize({ width, height: 1050 });
+      await page.route("https://cdn.filestackcontent.com/**", (route) =>
+        route.fulfill({ contentType: "image/svg+xml", body: MEAL_ILLUSTRATION_SVG }),
+      );
+      await page.goto(
+        fixtureUrl({
+          appearance,
+          initialFrameHeight: 1000,
+          launch: { name: "open_forkable", arguments: { view: "meals" } },
+        }),
+      );
+      const ui = page.frameLocator("iframe");
+      const meal = ui.getByRole("button", { name: "View Spicy tofu bowl from Seoul Kitchen" });
+      await expect(meal).toBeVisible();
+      await expect(ui.locator("body")).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+      const expected = {
+        claude: { body: "16px", radius: "10px", control: "8px" },
+        cursor: { body: "13px", radius: "6px", control: "4px" },
+        chatgpt: { body: "14px", radius: "14px", control: "10px" },
+      }[appearance];
+      await expect(ui.locator("body")).toHaveCSS("font-size", expected.body);
+      await expect(meal).toHaveCSS("border-radius", expected.radius);
+      await expect(ui.getByLabel("Find a meal")).toHaveCSS("border-radius", expected.control);
+      expect(
+        await ui.locator("html").evaluate((element) => element.scrollWidth <= element.clientWidth),
+      ).toBe(true);
+      await ui
+        .locator("#app")
+        .screenshot({ path: testInfo.outputPath(`${appearance}-${width}-light.png`) });
+      await ui.getByLabel("Find a meal").fill("tofu");
+      await page.getByRole("button", { name: "Dark theme" }).click();
+      await expect(ui.locator("html")).toHaveAttribute("data-theme", "dark");
+      await expect(ui.getByLabel("Find a meal")).toHaveValue("tofu");
+      await expect(meal).toHaveCSS(
+        "background-color",
+        {
+          claude: "rgb(48, 48, 46)",
+          cursor: "rgb(30, 30, 30)",
+          chatgpt: "rgb(24, 24, 24)",
+        }[appearance],
+      );
+      await ui
+        .locator("#app")
+        .screenshot({ path: testInfo.outputPath(`${appearance}-${width}-dark.png`) });
+      await meal.click();
+      const dialog = ui.getByRole("dialog");
+      await expect(dialog).toBeVisible();
+      await expect(dialog.getByRole("heading", { name: "Spicy tofu bowl" })).toBeVisible();
+      expect(await dialog.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(
+        true,
+      );
+      await dialog.screenshot({ path: testInfo.outputPath(`${appearance}-${width}-dialog.png`) });
+      await dialog.getByRole("button", { name: "Close", exact: true }).click();
+      await expect(meal).toBeFocused();
+    });
+  }
+}
+
+test("safe areas update live and keep modal actions inside the host's visible bounds", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 900 });
+  await page.goto(
+    fixtureUrl({
+      appearance: "claude",
+      initialFrameHeight: 800,
+      safeAreaInsets: { top: 20, right: 16, bottom: 80, left: 16 },
+    }),
+  );
+  const ui = page.frameLocator("iframe");
+  await expect(ui.locator("#app")).toHaveCSS("padding-bottom", "80px");
+  await ui.getByRole("button", { name: "View Spicy tofu bowl from Seoul Kitchen" }).click();
+  const dialog = ui.getByRole("dialog");
+  const box = await dialog.boundingBox();
+  const frame = await page.locator("iframe").boundingBox();
+  expect(box!.y).toBeGreaterThanOrEqual(frame!.y + 20);
+  expect(box!.y + box!.height).toBeLessThanOrEqual(frame!.y + frame!.height - 80);
+  await page.evaluate(() =>
+    (
+      window as unknown as {
+        setSafeAreaInsets: (insets: {
+          top: number;
+          right: number;
+          bottom: number;
+          left: number;
+        }) => void;
+      }
+    ).setSafeAreaInsets({ top: 0, right: 0, bottom: 0, left: 0 }),
+  );
+  await expect(ui.locator("#app")).toHaveCSS("padding-bottom", "12px");
+});
+
+test.describe("touch host", () => {
+  test.use({ hasTouch: true, isMobile: true, viewport: { width: 390, height: 900 } });
+  test("compact icon controls remain usable touch targets", async ({ page }) => {
+    await page.goto(fixtureUrl({ appearance: "claude" }));
+    const ui = page.frameLocator("iframe");
+    const refresh = ui.getByRole("button", { name: "Refresh", exact: true });
+    await expect(refresh).toBeVisible();
+    expect(Math.round((await refresh.boundingBox())!.height)).toBeGreaterThanOrEqual(44);
+    await ui.getByLabel("Find a meal").fill("tofu");
+    const clear = ui.getByRole("button", { name: "Clear search", exact: true });
+    expect(Math.round((await clear.boundingBox())!.height)).toBeGreaterThanOrEqual(44);
+    await ui.getByRole("button", { name: "View Spicy tofu bowl from Seoul Kitchen" }).click();
+    const close = ui.getByRole("button", { name: "Close", exact: true });
+    expect(Math.round((await close.boundingBox())!.height)).toBeGreaterThanOrEqual(44);
+  });
+});
+
+test("meal selection opens immediately with its preview while options are loading", async ({
+  page,
+}, testInfo) => {
+  await page.setViewportSize({ width: 1000, height: 1000 });
+  await page.route("https://cdn.filestackcontent.com/**", (route) =>
+    route.fulfill({ contentType: "image/svg+xml", body: MEAL_ILLUSTRATION_SVG }),
+  );
+  await page.goto(fixtureUrl({ details: "held", appearance: "claude", theme: "dark" }));
+  const ui = page.frameLocator("iframe");
+  await ui.getByRole("button", { name: "View Spicy tofu bowl from Seoul Kitchen" }).click();
+  const dialog = ui.getByRole("dialog", { name: "Spicy tofu bowl" });
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByRole("status")).toHaveAccessibleName("Loading meal options");
+  await expect(dialog.getByRole("status")).toHaveText("");
+  await expect(dialog.getByText("$15.00", { exact: true })).toBeVisible();
+  await expect(dialog.getByRole("img", { name: "Spicy tofu bowl" })).toBeVisible();
+  await expect(dialog.getByRole("button", { name: "Close", exact: true })).toBeEnabled();
+  await expect(dialog.getByRole("button", { name: /Replace meal/ })).toHaveCount(0);
+  await dialog.screenshot({ path: testInfo.outputPath("meal-options-loading.png") });
+  await page.evaluate(() =>
+    (window as unknown as { releaseDetail: (index: number) => void }).releaseDetail(0),
+  );
+  await expect(dialog.getByLabel("Kimchi")).toBeVisible();
+  await expect(dialog.getByRole("status")).toHaveCount(0);
+  expect(
+    await page.evaluate(() =>
+      (window as unknown as { calls: { name: string }[] }).calls.some(
+        (call) => call.name === "set_meal",
+      ),
+    ),
+  ).toBe(false);
+});
+
+test("closing a loading meal ignores its late reply and does not replace a newer selection", async ({
+  page,
+}) => {
+  await page.goto(fixtureUrl({ details: "held" }));
+  const ui = page.frameLocator("iframe");
+  const first = ui.getByRole("button", { name: "View Spicy tofu bowl from Seoul Kitchen" });
+  await first.click();
+  await expect(ui.getByRole("dialog", { name: "Spicy tofu bowl" })).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(ui.getByRole("dialog")).toHaveCount(0);
+  await expect(first).toBeFocused();
+  await ui.getByRole("button", { name: "View Another bowl from Second Restaurant" }).click();
+  const second = ui.getByRole("dialog", { name: "Another bowl" });
+  await expect(second).toBeVisible();
+  await page.evaluate(() =>
+    (
+      window as unknown as { releaseDetail: (index: number, failed?: boolean) => void }
+    ).releaseDetail(0, true),
+  );
+  await expect(second.getByRole("status")).toHaveAccessibleName("Loading meal options");
+  await expect(second.getByRole("alert")).toHaveCount(0);
+  await page.evaluate(() =>
+    (window as unknown as { releaseDetail: (index: number) => void }).releaseDetail(1),
+  );
+  await expect(second.getByLabel("Kimchi")).toBeVisible();
+  await expect(second.getByRole("heading", { name: "Another bowl" })).toBeVisible();
+});
+
+test("a failed meal read keeps its preview and retries only when requested", async ({ page }) => {
+  await page.goto(fixtureUrl({ details: "error-once" }));
+  const ui = page.frameLocator("iframe");
+  await ui.getByRole("button", { name: "View Spicy tofu bowl from Seoul Kitchen" }).click();
+  const dialog = ui.getByRole("dialog", { name: "Spicy tofu bowl" });
+  await expect(dialog.getByRole("alert")).toHaveText("Meal options unavailable.");
+  await expect(dialog.getByRole("img", { name: "Spicy tofu bowl" })).toBeVisible();
+  const count = () =>
+    page.evaluate(
+      () =>
+        (
+          window as unknown as { calls: { name: string; arguments?: { itemId?: number } }[] }
+        ).calls.filter((call) => call.name === "get_menus" && call.arguments?.itemId).length,
+    );
+  expect(await count()).toBe(1);
+  await dialog.getByRole("button", { name: "Try again" }).click();
+  await expect(dialog.getByLabel("Kimchi")).toBeVisible();
+  expect(await count()).toBe(2);
+  await expect(dialog.getByRole("alert")).toHaveCount(0);
 });

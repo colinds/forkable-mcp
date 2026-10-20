@@ -63,7 +63,13 @@ export function registerMealBrowser(
         mimeType: RESOURCE_MIME_TYPE,
         text: await readHtml(),
         _meta: {
-          ui: { prefersBorder: true, csp: { connectDomains: [], resourceDomains: IMAGE_ORIGINS } },
+          ui: {
+            prefersBorder: false,
+            csp: {
+              connectDomains: [],
+              resourceDomains: [...IMAGE_ORIGINS, "https://assets.claude.ai"],
+            },
+          },
           "openai/ui": {
             preferredDisplayMode: "inline",
             availableDisplayModes: ["inline", "fullscreen"],

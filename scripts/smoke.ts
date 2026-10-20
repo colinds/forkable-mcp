@@ -97,6 +97,9 @@ async function checkInstalled(runner: Runner, cwd: string, home: string): Promis
   if (version !== pkg.version)
     fail(`${runner} server reports v${version}, package.json says v${pkg.version}`);
   log(`${runner} serverInfo.version = ${version}`);
+  const serverPng = client.getServerVersion()?.icons?.find((icon) => icon.mimeType === "image/png");
+  if (!serverPng?.src.startsWith("data:image/png;base64,iVBORw0KGgo"))
+    fail(`${runner}: server does not advertise a self-contained PNG icon`);
 
   const listedTools = (await client.listTools()).tools;
   const names = listedTools.map((tool) => tool.name).toSorted();
@@ -107,6 +110,8 @@ async function checkInstalled(runner: Runner, cwd: string, home: string): Promis
   log(`${runner} registered ${names.length} tools`);
 
   const browser = listedTools.find((tool) => tool.name === "open_forkable");
+  if (!browser?.icons?.some((icon) => icon.src === serverPng.src))
+    fail(`${runner}: meal browser does not share the server PNG icon`);
   const ui = browser?.["_meta"]?.ui as { resourceUri?: string } | undefined;
   if (!ui?.resourceUri) fail(`${runner}: meal browser has no UI resource`);
   for (const name of [

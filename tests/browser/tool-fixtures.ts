@@ -4,6 +4,8 @@ import type { ResolvedFixtureConfig } from "./fixture-config.ts";
 export function createToolFixtures(config: ResolvedFixtureConfig) {
   const calls: { name: string; arguments?: Record<string, unknown> }[] = [];
   const pendingAux: (() => void)[] = [];
+  const pendingDetails: ((failed: boolean) => void)[] = [];
+  let detailFailed = false;
   let changed = false;
   const item = {
     itemId: 7,
@@ -27,6 +29,17 @@ export function createToolFixtures(config: ResolvedFixtureConfig) {
     args: Parameters<NonNullable<AppBridge["oncalltool"]>>[0],
   ): ReturnType<NonNullable<AppBridge["oncalltool"]>> => {
     calls.push({ name: args.name, arguments: args.arguments });
+    if (args.name === "get_menus" && args.arguments?.itemId) {
+      let failed = false;
+      if (config.details === "held")
+        failed = await new Promise<boolean>((resolve) => pendingDetails.push(resolve));
+      if (config.details === "error-once" && !detailFailed) {
+        detailFailed = true;
+        failed = true;
+      }
+      if (failed)
+        return { isError: true, content: [{ type: "text", text: "Meal options unavailable." }] };
+    }
     const refreshFailure = config.refreshFailure;
     if (
       failNextRefresh &&
@@ -161,6 +174,7 @@ export function createToolFixtures(config: ResolvedFixtureConfig) {
             item: {
               ...item,
               menuId: args.arguments.menuId,
+              name: args.arguments.menuId === 20 ? "Another bowl" : item.name,
               description: "Chili tofu, warm rice, and crisp vegetables.",
               instructionsAllowed: config.notesAllowed,
               modifiers: [
@@ -302,6 +316,7 @@ export function createToolFixtures(config: ResolvedFixtureConfig) {
     respond,
     calls,
     armRefreshFailure,
+    releaseDetail: (index: number, failed = false) => pendingDetails[index]?.(failed),
     releaseAux: () => pendingAux.splice(0).forEach((release) => release()),
   };
 }

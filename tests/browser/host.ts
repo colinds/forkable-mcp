@@ -3,16 +3,25 @@ import { OpenAIMessageParamsSchema } from "@openai/mcp-extensions/app";
 // Test host uses the real MCP Apps bridge with deterministic meal fixtures; never real credentials.
 import type { McpUiStyles, McpUiDisplayMode } from "@modelcontextprotocol/ext-apps";
 import { AppBridge, PostMessageTransport } from "@modelcontextprotocol/ext-apps/app-bridge";
-import { readFixtureConfig } from "./fixture-config.ts";
+import { type ResolvedFixtureConfig, readFixtureConfig } from "./fixture-config.ts";
 import { createToolFixtures } from "./tool-fixtures.ts";
+import { hostStyles } from "./theme-fixtures.ts";
 const config = readFixtureConfig(location.search);
-const { respond, calls, releaseAux, armRefreshFailure } = createToolFixtures(config);
+function appearance(theme: "light" | "dark") {
+  const variables = hostStyles(config.appearance, theme);
+  document.documentElement.style.colorScheme = theme;
+  document.body.style.background = variables["--color-background-primary"] ?? "transparent";
+  document.body.style.color = variables["--color-text-primary"] ?? "inherit";
+  return { theme, styles: { variables: variables as McpUiStyles } };
+}
+const { respond, calls, releaseAux, releaseDetail, armRefreshFailure } = createToolFixtures(config);
 const contextUpdates: unknown[] = [];
 const draftMessages: unknown[] = [];
 const composer = { text: "My existing question", sent: false };
 Object.assign(window, { draftMessages, composer });
 Object.assign(window, { calls, contextUpdates });
 Object.assign(window, { releaseAux, armRefreshFailure });
+Object.assign(window, { releaseDetail });
 const frame = document.querySelector<HTMLIFrameElement>("iframe")!;
 const bridge = new AppBridge(
   null,
@@ -46,15 +55,10 @@ const bridge = new AppBridge(
             platform: config.drafts.platform,
           } as const)
         : {}),
-      theme: "light",
+      ...appearance(config.theme),
+      safeAreaInsets: config.safeAreaInsets,
       displayMode: config.displayMode,
       availableDisplayModes: ["inline", "fullscreen"],
-      styles: {
-        variables: {
-          "--color-background-primary": "#ffffff",
-          "--color-text-primary": "#202020",
-        } as McpUiStyles,
-      },
     },
   },
 );
@@ -143,17 +147,14 @@ bridge.oninitialized = async () => {
   await bridge.sendToolResult(result);
 };
 await bridge.connect(new PostMessageTransport(frame.contentWindow!, frame.contentWindow!));
-document.querySelector("button")!.addEventListener("click", () =>
-  bridge.setHostContext({
-    theme: "dark",
-    styles: {
-      variables: {
-        "--color-background-primary": "#181818",
-        "--color-text-primary": "#ffffff",
-      } as McpUiStyles,
-    },
-  }),
-);
+document
+  .querySelector("button")!
+  .addEventListener("click", () => bridge.setHostContext(appearance("dark")));
+Object.assign(window, {
+  setHostAppearance: (theme: "light" | "dark") => bridge.setHostContext(appearance(theme)),
+  setSafeAreaInsets: (safeAreaInsets: NonNullable<ResolvedFixtureConfig["safeAreaInsets"]>) =>
+    bridge.setHostContext({ safeAreaInsets }),
+});
 if (config.sizing !== "fixed") {
   frame.style.height = `${config.initialFrameHeight}px`;
   frame.addEventListener("load", () => {

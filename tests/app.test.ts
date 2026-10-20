@@ -62,8 +62,12 @@ describe("meal browser", () => {
       expect(tool["_meta"]?.["openai/ui"]).toEqual({
         entrypoints: [{ type: "global" }, { type: "thread" }],
       });
-      expect(tool.icons?.map((icon) => icon.theme)).toEqual(["light", "dark"]);
-      expect(tool.icons?.every((icon) => icon.src.startsWith("data:image/svg+xml,"))).toBe(true);
+      const vectors = tool.icons?.filter((icon) => icon.mimeType === "image/svg+xml");
+      expect(vectors?.map((icon) => icon.theme)).toEqual(["light", "dark"]);
+      expect(vectors?.every((icon) => icon.src.startsWith("data:image/svg+xml,"))).toBe(true);
+      const png = tool.icons?.find((icon) => icon.mimeType === "image/png");
+      expect(png?.sizes).toEqual(["128x128"]);
+      expect(png?.src).toStartWith("data:image/png;base64,iVBORw0KGgo");
       expect(tool["_meta"]?.ui).toMatchObject({ resourceUri: APP_URI });
       expect((await client.callTool({ name: "open_forkable", arguments: {} })).isError).not.toBe(
         true,
@@ -102,7 +106,11 @@ describe("meal browser", () => {
       const resource = (await client.readResource({ uri: APP_URI })).contents[0]!;
       expect(resource.mimeType).toBe("text/html;profile=mcp-app");
       expect(resource["_meta"]?.ui).toMatchObject({
-        csp: { connectDomains: [], resourceDomains: ["https://cdn.filestackcontent.com"] },
+        prefersBorder: false,
+        csp: {
+          connectDomains: [],
+          resourceDomains: ["https://cdn.filestackcontent.com", "https://assets.claude.ai"],
+        },
       });
     } finally {
       await client.close();
