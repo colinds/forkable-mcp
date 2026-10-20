@@ -869,6 +869,17 @@ for (const timezoneId of ["America/Los_Angeles", "America/New_York"]) {
   });
 }
 
+test("single-order updates retain the delivery lifecycle when the order has no status", async ({
+  page,
+}) => {
+  await page.goto(fixtureUrl({ deliveryUpdates: "pending" }));
+  const ui = page.frameLocator("iframe");
+  const progress = ui.getByRole("region", { name: "Delivery updates" });
+  await expect(progress).toContainText("Awaiting delivery updates");
+  await expect(progress).not.toContainText("Delivery status unavailable");
+  await expect(progress.locator(".status-badge .lucide-badge-check")).toBeVisible();
+});
+
 for (const width of [375, 1000]) {
   test(`a single delivery shows its arrival and tracking once at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 900 });
@@ -880,6 +891,11 @@ for (const width of [375, 1000]) {
     await expect(progress.getByText("Seoul Kitchen", { exact: true })).toHaveCount(0);
     await expect(progress.locator(".order-update")).toHaveCount(0);
     await expect(progress.getByRole("link", { name: "Track order" })).toHaveCount(1);
+    if (width === 375) {
+      const link = await progress.getByRole("link", { name: "Track order" }).boundingBox();
+      const region = await progress.boundingBox();
+      expect(Math.abs(link!.width - region!.width)).toBeLessThanOrEqual(2);
+    }
     expect(await progress.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(
       true,
     );
@@ -907,6 +923,13 @@ for (const width of [375, 1000]) {
       "href",
       "https://track.example/second",
     );
+    if (width === 375) {
+      const region = await progress.boundingBox();
+      for (const link of await progress.getByRole("link").all()) {
+        const bounds = await link.boundingBox();
+        expect(Math.abs(bounds!.width - region!.width)).toBeLessThanOrEqual(2);
+      }
+    }
     expect(await progress.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(
       true,
     );

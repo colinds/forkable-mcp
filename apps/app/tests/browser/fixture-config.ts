@@ -25,7 +25,7 @@ const fixtureConfigSchema = z.object({
     .optional(),
   searchResults: z.enum(["default", "empty", "many"]).default("default"),
   tracking: z.boolean().default(false),
-  deliveryUpdates: z.enum(["delivered", "multiple"]).optional(),
+  deliveryUpdates: z.enum(["pending", "delivered", "multiple"]).optional(),
   notesAllowed: z.boolean().default(true),
   currentNotes: z.string().optional(),
   currentOptions: z.array(z.string()).optional(),

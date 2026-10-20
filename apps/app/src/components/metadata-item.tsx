@@ -1,19 +1,9 @@
 import type { LucideIcon } from "lucide-react";
 import type { ReactNode } from "react";
 
-export function MetadataItem({
-  icon: Icon,
-  children,
-  className = "",
-  title,
-}: {
-  icon: LucideIcon;
-  children: ReactNode;
-  className?: string;
-  title?: string;
-}) {
+export function MetadataItem({ icon: Icon, children }: { icon: LucideIcon; children: ReactNode }) {
   return (
-    <span className={`metadata-item ${className}`} title={title}>
+    <span className="metadata-item">
       <Icon size={16} aria-hidden="true" />
       <span>{children}</span>
     </span>

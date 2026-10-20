@@ -635,6 +635,7 @@ html[data-display-mode="inline"] #app:has(.meal-page) {
   font-weight: var(--font-weight-medium, 500);
 }
 .track-order {
+  box-sizing: border-box;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -782,6 +783,13 @@ html[data-display-mode="inline"] #app {
   }
   .track-order {
     width: 100%;
+  }
+  .tracking-action {
+    flex: 1 0 100%;
+    width: 100%;
+  }
+  .delivery-summary > .tracking-action {
+    margin-left: 0;
   }
   .menu-browser {
     margin-top: 22px;

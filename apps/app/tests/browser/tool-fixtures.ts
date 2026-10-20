@@ -192,25 +192,30 @@ export function createToolFixtures(config: ResolvedFixtureConfig) {
       };
     if (args.name === "get_delivery_status" && config.deliveryUpdates) {
       const status = result.status as DeliveryStatus;
-      status.fulfillment = "delivered";
-      status.orders[0] = {
-        ...status.orders[0]!,
-        fulfillment: "delivered",
-        dropoffCompletedAt: "2026-10-05T18:28:00Z",
-        trackingUrl: "https://track.example/meal",
-      };
-      if (config.deliveryUpdates === "multiple") {
-        status.fulfillment = "partially delivered";
-        status.delayed = true;
-        status.orders.push({
-          orderId: 101,
-          venue: "Second Restaurant",
-          fulfillment: "delayed",
-          etaStart: "2026-10-05T19:10:00Z",
-          etaEnd: "2026-10-05T19:30:00Z",
-          dropoffCompletedAt: null,
-          trackingUrl: "https://track.example/second",
-        });
+      if (config.deliveryUpdates === "pending") {
+        status.fulfillment = "grace_period";
+        status.orders[0]!.fulfillment = null;
+      } else {
+        status.fulfillment = "delivered";
+        status.orders[0] = {
+          ...status.orders[0]!,
+          fulfillment: "delivered",
+          dropoffCompletedAt: "2026-10-05T18:28:00Z",
+          trackingUrl: "https://track.example/meal",
+        };
+        if (config.deliveryUpdates === "multiple") {
+          status.fulfillment = "partially delivered";
+          status.delayed = true;
+          status.orders.push({
+            orderId: 101,
+            venue: "Second Restaurant",
+            fulfillment: "delayed",
+            etaStart: "2026-10-05T19:10:00Z",
+            etaEnd: "2026-10-05T19:30:00Z",
+            dropoffCompletedAt: null,
+            trackingUrl: "https://track.example/second",
+          });
+        }
       }
     }
     if (args.name === "get_menus")

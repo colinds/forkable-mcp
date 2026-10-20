@@ -1,4 +1,4 @@
-import { Check, Clock3, ReceiptText, Store, Truck } from "lucide-react";
+import { BadgeCheck, Clock3, ReceiptText, Store, Truck } from "lucide-react";
 import { clockTime, deliveryZoneLabel, fulfillmentLabel } from "@/app/lib/delivery-labels.ts";
 import { type OpenLink } from "@/app/lib/tools.ts";
 import { money } from "@forkable-mcp/shared/currency.ts";
@@ -30,14 +30,23 @@ export function DeliveryProgress({
   const multipleOrders = orderCount > 1;
   let summary = <MetadataItem icon={Truck}>{statusLabel}</MetadataItem>;
   if (!unavailable && singleOrder)
-    summary = <OrderStatus order={singleOrder} timezone={status?.timezone ?? null} />;
+    summary = (
+      <OrderStatus
+        order={{
+          ...singleOrder,
+          fulfillment:
+            singleOrder.fulfillment ?? status?.fulfillment ?? delivery.fulfillment ?? null,
+        }}
+        timezone={status?.timezone ?? null}
+      />
+    );
   if (!unavailable && multipleOrders)
     summary = <MetadataItem icon={Store}>{orderCount} orders</MetadataItem>;
   return (
     <section className="delivery-progress" aria-label="Delivery updates">
       <div className="delivery-summary">
         <span className="status-badge" data-status={delivery.status}>
-          {delivery.status === "confirmed" && <Check size={14} aria-hidden="true" />}
+          {delivery.status === "confirmed" && <BadgeCheck size={14} aria-hidden="true" />}
           {delivery.status === "confirmed" ? "Confirmed" : "Meal selection"}
         </span>
         {loading ? (

@@ -14,7 +14,7 @@ export function OrderStatus({
   const hasEta = order.fulfillment === "ontime" || order.fulfillment === "delayed";
   const range = hasEta ? arrivalRange(order.etaStart, order.etaEnd, timezone) : null;
   return (
-    <MetadataItem icon={arrived ? CheckCheck : Truck}>
+    <MetadataItem icon={arrived || order.fulfillment === "delivered" ? CheckCheck : Truck}>
       {arrived
         ? `Delivered at ${arrived}`
         : [fulfillmentLabel(order.fulfillment), range].filter(Boolean).join(" · ")}

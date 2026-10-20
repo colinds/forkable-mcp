@@ -1,4 +1,4 @@
-import { useEffect, useRef, useMemo } from "react";
+import { useEffect, useId, useRef, useMemo } from "react";
 import { Check, Plus } from "lucide-react";
 import type { Delivery } from "@forkable-mcp/shared/contracts/meals.ts";
 
@@ -16,6 +16,7 @@ export function DateStrip({
   onSelect: (id: number) => void;
 }) {
   const strip = useRef<HTMLDivElement>(null);
+  const statusId = useId();
   const dateCounts = useMemo(() => {
     const counts = new Map<string, number>();
     for (const delivery of deliveries)
@@ -59,12 +60,15 @@ export function DateStrip({
             className="date-chip cursor-interaction"
             aria-pressed={delivery.deliveryId === selectedId}
             aria-label={`${label.weekday}, ${label.date}, ${serviceLabel(delivery.service) ?? "Delivery"}${delivery.club ? `, ${delivery.club}` : ""}`}
-            aria-description={hasMeal ? "Meal selected" : "No meal selected. Choose a meal."}
+            aria-describedby={`${statusId}-${delivery.deliveryId}`}
             disabled={busy}
             onClick={() => onSelect(delivery.deliveryId)}
           >
             <span className="muted">{label.weekday}</span>
             <time dateTime={delivery.date}>{label.date}</time>
+            <span id={`${statusId}-${delivery.deliveryId}`} className="sr-only">
+              {hasMeal ? "Meal selected" : "No meal selected. Choose a meal."}
+            </span>
             {sameDay ? (
               <span className="date-context">
                 {serviceLabel(delivery.service)}
