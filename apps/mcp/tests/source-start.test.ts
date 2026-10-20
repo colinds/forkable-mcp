@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test";
-import { cp, mkdtemp, rm, symlink } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, rm, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { Client } from "@modelcontextprotocol/client";
@@ -50,6 +50,9 @@ test.each(["start", "dev"])(
           ),
         ),
       );
+      await mkdir(join(dir, "apps/mcp/skills"), { recursive: true });
+      const staleSkill = Bun.file(join(dir, "apps/mcp/skills/removed-skill.md"));
+      await Bun.write(staleSkill, "Obsolete generated skill");
       const transport = new StdioClientTransport({
         command: "bun",
         args: ["run", mode],
@@ -67,6 +70,10 @@ test.each(["start", "dev"])(
       });
       const resource = await client.readResource({ uri: APP_URI });
       expect(resource.contents[0]?.mimeType).toBe("text/html;profile=mcp-app");
+      expect(await staleSkill.exists()).toBe(false);
+      expect(await Bun.file(join(dir, "apps/mcp/skills/forkable/SKILL.md")).text()).toBe(
+        await Bun.file(join(dir, "skills/forkable/SKILL.md")).text(),
+      );
       const html = Bun.file(join(dir, "apps/mcp/dist/app.html"));
       const sourceMap = "sourceMappingURL=data:application/json;base64,";
       const markup = await html.text();
