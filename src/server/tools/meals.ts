@@ -4,13 +4,13 @@ import { type McpServer } from "@modelcontextprotocol/server";
 import type { ForkableClient } from "@/server/net/client.ts";
 import { hashWriteArgs, type WriteGate, type WritePlan } from "@/server/write-gate.ts";
 import { buildSelectionsHash, resolveItemModifiers } from "@/server/order/selections.ts";
-import { evaluateGuards } from "@/server/order/guards.ts";
+import { evaluateGuards, ownPieces } from "@/server/order/guards.ts";
 import { formatMoney, formatDay } from "@/server/order/format.ts";
 import { type MenuItem } from "@/server/order/types.ts";
-import { guard, gateCtx, WRITE_NOTE } from "@/server/tools/shared.ts";
+import { guard, gateCtx, WRITE_NOTE, APP_TOOL_META } from "@/server/tools/shared.ts";
 import { loadDeliveries, findDelivery, loadMenusByIds } from "@/server/order/data.ts";
 import { resolveExactItem } from "@/server/order/menu.ts";
-import { pieceTargets, resolveOwnedSource } from "@/server/order/ownership.ts";
+import { resolveOwnedSource } from "@/server/order/ownership.ts";
 
 /** Add/replace refusal details. Requesting these fields from `removePiece` causes a server 503. */
 const PIECE_WRITE_SEL = "errors errorDetails warningDetails";
@@ -59,10 +59,13 @@ export function registerSetMealTool(server: McpServer, writeGate: WriteGate): vo
   server.registerTool(
     "set_meal",
     {
-      _meta: { ui: { visibility: ["model", "app"] }, "openai/widgetAccessible": true },
+      _meta: APP_TOOL_META,
       title: "Set the meal for a delivery",
       description:
-        "Set an exact menu item for a delivery. By default this adds if empty or replaces an " +
+        "Preview or submit an exact meal the user has already chosen; this does not open a choice form. " +
+        "If food selection or customizations are missing, " +
+        "use prepare_meal. Call this directly when the desired options or defaults are already known. " +
+        "By default this adds if empty or replaces an " +
         "owned meal. Pass mode=add to add without replacing. If you own several meals and are " +
         "replacing one, pass sourcePieceId to choose it. " +
         WRITE_NOTE,
@@ -195,7 +198,8 @@ export function registerSetAllMealsTool(server: McpServer, writeGate: WriteGate)
       _meta: { ui: { visibility: ["model"] } },
       title: "Set the same meal across multiple deliveries",
       description:
-        "Apply one exact menu item to several delivery days. Duplicate " +
+        "Apply the same exact menu item and customizations to several delivery days. For different meals " +
+        "on different days, use set_meal for each delivery. Duplicate " +
         "delivery ids are ignored. A day with multiple owned meals must be handled individually. " +
         WRITE_NOTE,
       inputSchema: z.object({
@@ -233,7 +237,7 @@ export function registerSetAllMealsTool(server: McpServer, writeGate: WriteGate)
             choices: a.modifiers,
           });
           for (const d of targets) {
-            const owned = pieceTargets(d).filter(({ piece }) => piece.userId === userId);
+            const owned = ownPieces(d, userId);
             if (owned.length > 1) {
               throw new Error(
                 `You have ${owned.length} meals on delivery ${d.id}; set them individually with set_meal and sourcePieceId.`,

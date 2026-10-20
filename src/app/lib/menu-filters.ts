@@ -50,19 +50,19 @@ export function visibleMeals(
       })),
     )
     .filter(({ menu, item, rank }) => {
-      const text = normalize(
-        `${menu.name} ${item.name} ${item.description ?? ""} ${item.diet ?? ""}`,
-      );
-      return (
-        (sourceOrder
-          ? sourceOrder.has(itemKey(menu.menuId, item.itemId))
-          : terms.every((term) => text.includes(term))) &&
+      const matchesFilters =
         (filters.restaurantId == null ||
           (restaurant != null && restaurantKey(menu.name) === restaurantKey(restaurant.name))) &&
         (!filters.diet || item.diet === filters.diet) &&
         (filters.maxPrice == null || (item.price != null && item.price <= filters.maxPrice)) &&
-        (!filters.recommendedOnly || rank != null)
+        (!filters.recommendedOnly || rank != null);
+      if (!matchesFilters) return false;
+      if (sourceOrder) return sourceOrder.has(itemKey(menu.menuId, item.itemId));
+      if (!terms.length) return true;
+      const text = normalize(
+        `${menu.name} ${item.name} ${item.description ?? ""} ${item.diet ?? ""}`,
       );
+      return terms.every((term) => text.includes(term));
     })
     .toSorted((a, b) => {
       if (filters.sort !== "recommended") {

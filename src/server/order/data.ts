@@ -11,7 +11,7 @@ const DELIVERY_CORE =
   "deliveryWindow serviceWindow { baseTime name } club { id name market { timezone } }";
 
 const PIECE_CORE =
-  "id itemId menuId userId name price group isConfirmed isLateSwappable isRemoval requestStatus isLateOrder " +
+  "id itemId menuId userId name price instructions group isConfirmed isLateSwappable isRemoval requestStatus isLateOrder " +
   `userRating { ${RATING_SEL} }`;
 
 const ORDER_CORE =

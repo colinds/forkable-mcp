@@ -1,6 +1,6 @@
 import { X, MessageSquare } from "lucide-react";
 import { IconButton } from "../icon-button.tsx";
-import { modifierMinimum } from "@/shared/meal-options.ts";
+import { modifierMinimum, MEAL_INSTRUCTIONS_LIMIT } from "@/shared/meal-options.ts";
 import { Button } from "../button.tsx";
 import { MealPhoto } from "./photo.tsx";
 
@@ -100,6 +100,26 @@ export function MealDetail({ browser }: { browser: MealEditorController }) {
               </fieldset>
             );
           })}
+          {detail.instructionsAllowed && (
+            <div>
+              <label className="form-label" htmlFor="meal-notes">
+                Notes <span className="muted">(optional)</span>
+              </label>
+              <textarea
+                id="meal-notes"
+                className="form-control"
+                rows={3}
+                maxLength={MEAL_INSTRUCTIONS_LIMIT}
+                placeholder="E.g., please no onions"
+                disabled={busy}
+                value={state.instructions}
+                onChange={(event) => browser.setInstructions(event.currentTarget.value)}
+              />
+              <p className="muted">
+                {state.instructions.length}/{MEAL_INSTRUCTIONS_LIMIT}
+              </p>
+            </div>
+          )}
           <footer className="detail-actions">
             <Button type="submit" primary disabled={busy || state.needsRefresh}>
               {state.pendingAction === "saving"

@@ -117,8 +117,11 @@ async function checkInstalled(runner: Runner, cwd: string, home: string): Promis
     "get_delivery_status",
   ]) {
     const metadata = listedTools.find((tool) => tool.name === name)?.["_meta"];
-    if ((metadata?.ui as { resourceUri?: string } | undefined)?.resourceUri !== ui.resourceUri)
-      fail(`${runner}: ${name} is not wired to the meal browser`);
+    const dataUi = metadata?.ui as { resourceUri?: string; visibility?: string[] } | undefined;
+    if (!dataUi?.visibility?.includes("app"))
+      fail(`${runner}: ${name} is not callable from the app`);
+    if (dataUi.resourceUri || metadata?.["ui/resourceUri"] || metadata?.["openai/outputTemplate"])
+      fail(`${runner}: ${name} unexpectedly launches a UI`);
   }
   const resource = await client.readResource({ uri: ui.resourceUri });
   const html = resource.contents.find((content) => "text" in content);

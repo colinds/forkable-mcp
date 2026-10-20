@@ -1,5 +1,7 @@
 import type { Detail } from "./contracts/meals.ts";
 
+export const MEAL_INSTRUCTIONS_LIMIT = 100;
+
 export function modifierMinimum(modifier: Pick<Detail["modifiers"][number], "required" | "min">) {
   return Math.max(modifier.required ? 1 : 0, modifier.min ?? 0);
 }

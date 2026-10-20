@@ -104,15 +104,19 @@ export function compactDelivery(
     trackingUrl: tracked?.trackingUrl ?? null,
     deliveryWindow: d.deliveryWindow ?? null,
     reportedDueCents: fulfillment.billing.reportedDueCents,
-    meals: pieces.map((p) => ({
-      pieceId: p.id,
-      itemId: p.itemId,
-      menuId: p.menuId,
-      name: p.name,
-      group: p.group ?? null,
-      isConfirmed: p.isConfirmed ?? null,
-      cancellationPending: cancellationPending(p),
-      rating: ratingDetails(p.userRating),
-    })),
+    meals: pieces.map((p) => {
+      const meal: PublicDelivery["meals"][number] = {
+        pieceId: p.id,
+        itemId: p.itemId,
+        menuId: p.menuId,
+        name: p.name,
+        group: p.group ?? null,
+        isConfirmed: p.isConfirmed ?? null,
+        cancellationPending: cancellationPending(p),
+        rating: ratingDetails(p.userRating),
+      };
+      if (p.instructions != null) meal.instructions = p.instructions;
+      return meal;
+    }),
   };
 }

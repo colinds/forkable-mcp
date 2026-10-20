@@ -28,8 +28,30 @@ For each delivery:
 2. Use `recommend_meals` for a short set of alternatives.
 3. Use `search_items` for a stated ingredient or cuisine, or `get_menus` when the user wants to
    browse.
-4. Keep the image Markdown returned by the tools.
-5. Record whether the user wants to keep, replace, remove, or confirm the meal.
+4. Call `prepare_meal` with that `deliveryId` and a short, preference-ranked list of exact
+   `{menuId, itemId}` candidates. The tool loads the names, prices, and photos and presents a native
+   form when supported. Each form is for one delivery; keep the date, service, and club clear.
+5. Handle the returned choice:
+   - `selected`: call `prepare_meal` again with its returned `arguments` (the exact delivery/menu/item
+     pair, without `candidates`). This configures required options, optional add-ons, Notes when the
+     restaurant accepts them, and an owned replacement target when needed.
+   - `configured`: use the returned arguments for the later `set_meal` preview.
+   - `keep`: leave the meal unchanged; handle delivery confirmation separately if requested.
+   - `skip`: record the request to remove the owned meal(s), using the normal removal preview and
+     confirmation flow. An already-empty delivery needs no removal.
+   - `cancelled`: leave the delivery unchanged and unresolved; do not interpret cancellation as skip.
+
+If `prepare_meal` returns `needs_input` with `phase: "meal"`, show the same shortlist in chat,
+retaining its image Markdown, prices, and exact menu/item identities. Ask the user which meal to
+keep or choose, or whether to skip. If it returns `needs_input` with `phase: "options"`, collect
+the options and optional Notes in chat from the returned item details. A client without native
+forms can complete the whole workflow this way; do not repeatedly retry forms or require an MCP App.
+If `prepare_meal` is unavailable on the current connection, use the existing read tools and
+collect the same choices in chat.
+
+Form submissions collect preferences only. They do not place or remove meals, and are not an
+authorization to execute a write. Review the proposed change and obtain the confirmation required
+by the `forkable` skill before using a confirmation token.
 
 Apply the local preferences described in the `forkable` skill across the week. Use likes, dislikes,
 and notes to rank options and avoid unnecessary repetition.

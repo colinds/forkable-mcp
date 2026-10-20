@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type CallToolResult, McpServer, InMemoryTransport } from "@modelcontextprotocol/server";
-import { APP_URI } from "@/server/ui-server.ts";
+import { APP_URI, registerMealBrowser } from "@/server/ui-server.ts";
 import { Client } from "@modelcontextprotocol/client";
 import { patchSession } from "@/server/auth/session.ts";
 import { ForkableClient } from "@/server/net/client.ts";
@@ -359,6 +359,7 @@ describe("read tool responses", () => {
   test("composer mentions advertise discovery and resolve fresh account-scoped resources", async () => {
     const server = new McpServer({ name: "mentions-test", version: "0" });
     registerAllTools(server, createWriteGate());
+    registerMealBrowser(server, async () => "<!doctype html><html>Forkable</html>");
     const client = new Client({ name: "test", version: "0" });
     const [ct, st] = InMemoryTransport.createLinkedPair();
     try {
@@ -372,11 +373,23 @@ describe("read tool responses", () => {
         "get_delivery_status",
       ]) {
         expect(definitions.find((tool) => tool.name === name)?.["_meta"]).toMatchObject({
-          ui: { resourceUri: APP_URI },
-          "openai/outputTemplate": APP_URI,
+          ui: { visibility: ["model", "app"] },
           "openai/widgetAccessible": true,
         });
       }
+      expect(
+        definitions
+          .filter(
+            (tool) =>
+              (tool["_meta"]?.ui as { resourceUri?: string } | undefined)?.resourceUri ||
+              tool["_meta"]?.["ui/resourceUri"] ||
+              tool["_meta"]?.["openai/outputTemplate"],
+          )
+          .map((tool) => tool.name),
+      ).toEqual(["open_forkable"]);
+      expect(definitions.find((tool) => tool.name === "open_forkable")?.["_meta"]).toMatchObject({
+        ui: { resourceUri: APP_URI },
+      });
       expect(definitions.find((tool) => tool.name === "set_meal")?.["_meta"]).toMatchObject({
         ui: { visibility: ["model", "app"] },
         "openai/widgetAccessible": true,
@@ -621,6 +634,7 @@ describe("read tool responses", () => {
       itemId: ITEM_ID,
     });
     expect(structured(detail).item).toEqual({
+      instructionsAllowed: true,
       menuId: MENU_ID,
       itemId: ITEM_ID,
       name: "Test Bowl",

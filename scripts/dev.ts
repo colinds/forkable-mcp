@@ -1,58 +1,33 @@
-import { watch } from "node:fs";
+export {};
 
-let build: ReturnType<typeof Bun.spawn> | undefined;
-let rebuilding = false;
-let queued = false;
-let stopping = false;
+process.env.NODE_ENV = "development";
+await import("./build.ts");
 
-async function rebuild() {
-  queued = true;
-  if (rebuilding || stopping) return;
+const app = Bun.spawn(
+  [
+    process.execPath,
+    "build",
+    "src/app/index.html",
+    "--compile",
+    "--target=browser",
+    "--outfile=dist/app.html",
+    "--sourcemap=inline",
+    "--define",
+    'process.env.NODE_ENV:"development"',
+    "--watch",
+    "--no-clear-screen",
+  ],
+  { stdout: "ignore", stderr: "inherit" },
+);
 
-  rebuilding = true;
-
-  try {
-    while (queued) {
-      if (stopping) break;
-
-      queued = false;
-      build = Bun.spawn(["bun", "scripts/build.ts"], {
-        env: { ...process.env, NODE_ENV: "development" },
-        stdout: "ignore",
-        stderr: "inherit",
-      });
-      // eslint-disable-next-line no-await-in-loop -- Rebuilds write the same output and must be serialized.
-      const exitCode = await build.exited;
-      if (exitCode && !stopping) console.error("Build failed; fix the error to rebuild the UI.");
-    }
-  } finally {
-    rebuilding = false;
-  }
-}
-
-await rebuild();
-
-const server = Bun.spawn(["bun", "--watch", "src/index.ts"], {
+const server = Bun.spawn([process.execPath, "--watch", "--no-clear-screen", "src/index.ts"], {
   stdin: "inherit",
   stdout: "inherit",
   stderr: "inherit",
 });
 
-let timer: ReturnType<typeof setTimeout> | undefined;
-const watchers = ["src/app", "src/shared"].map((directory) =>
-  watch(directory, { recursive: true }, () => {
-    clearTimeout(timer);
-    timer = setTimeout(() => void rebuild(), 100);
-  }),
-);
-
 function stop() {
-  if (stopping) return;
-
-  stopping = true;
-  clearTimeout(timer);
-  for (const watcher of watchers) watcher.close();
-  if (build?.exitCode === null) build.kill();
+  if (app.exitCode === null) app.kill();
   if (server.exitCode === null) server.kill();
 }
 
@@ -60,7 +35,8 @@ process.once("SIGINT", stop);
 process.once("SIGTERM", stop);
 
 try {
-  process.exitCode = await server.exited;
+  process.exitCode = await Promise.race([server.exited, app.exited.then((code) => code || 1)]);
 } finally {
   stop();
+  await Promise.all([app.exited, server.exited]);
 }

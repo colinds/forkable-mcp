@@ -98,6 +98,7 @@ export function compactItemDetail(detail: ReturnType<typeof itemDetail>): Detail
     description: detail.description,
     imageUrl: detail.imageUrl,
     modifiers: detail.modifiers,
+    instructionsAllowed: detail.instructionsAllowed,
   };
 }
 
@@ -110,6 +111,7 @@ export function itemDetail(item: MenuItem, menu: Menu) {
     price: item.price ?? null,
     description: item.description ?? null,
     imageUrl: item.imageUrl ?? null,
+    instructionsAllowed: !menu.disableSpecialInstructions,
     modifiers: resolveItemModifiers(item).map((mod) => ({
       id: mod.id,
       name: mod.display || mod.name || `modifier ${mod.id}`,

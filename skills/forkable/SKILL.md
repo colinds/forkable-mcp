@@ -47,13 +47,19 @@ selection instead of restoring an old or default choice.
 
 ## Show the interactive app
 
-For requests such as "show me curry," call `search_items` with the delivery and keyword to show
-compact matching meals. When the user asks to open the full browser or see a specific meal, call
-`open_forkable`. Pass the known
-`deliveryId` and, for a specific dish, its exact `menuId` and `itemId`. Do not substitute a
-Markdown image for the interactive view when the client supports MCP Apps. Delivery, menu,
-search, recommendation, and status reads also carry the app UI. Text remains available in
-clients without MCP Apps.
+For requests such as "show me curry," resolve the delivery and matching meals with `search_items`,
+then call `open_forkable` with the same `deliveryId` and query as the final display step. For a
+specific dish, include its exact `menuId` and `itemId`. Only `open_forkable` launches the app;
+ordinary reads return data without opening another view. The app loads its own data after launch.
+Do not substitute a Markdown image for an explicitly requested interactive view when the client
+supports MCP Apps. Text remains available in clients without MCP Apps.
+
+Use `prepare_meal` for guided choices: pass `deliveryId` and `candidates` for a photo shortlist, or
+`deliveryId`, `menuId`, and `itemId` to configure a known dish. Do not supply both shapes. After
+`mode: "selected"`, call it again with its returned arguments to configure that meal. After
+`mode: "configured"`, use the returned arguments for the `set_meal` preview. Clients without forms
+receive `needs_input` with `phase: "meal"` or `phase: "options"`; collect those choices in chat.
+This tool is read-only. A form submission does not place an order or replace write confirmation.
 
 ## Local preferences
 

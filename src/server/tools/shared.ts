@@ -6,6 +6,11 @@ import { requireSession, type SessionRecord } from "@/server/auth/session.ts";
 import { loginWithPassword, envLoginInput } from "@/server/auth/login.ts";
 import { type GateCtx } from "@/server/write-gate.ts";
 
+export const APP_TOOL_META = {
+  ui: { visibility: ["model", "app"] },
+  "openai/widgetAccessible": true,
+};
+
 function reauthResult(e: ReauthRequiredError): CallToolResult {
   return {
     isError: true,
@@ -75,9 +80,11 @@ export const WRITE_NOTE =
   "Returns a preview and confirmToken. Call again with the same arguments plus that token to send the change.";
 
 /** SDK v1 clients validate any structured payload, even on an error result. */
-export async function appGuard(
-  fn: (client: ForkableClient, session: SessionRecord) => Promise<CallToolResult>,
-): Promise<CallToolResult> {
+export async function appGuard<T extends CallToolResult | InputRequiredResult>(
+  fn: (client: ForkableClient, session: SessionRecord) => Promise<T>,
+): Promise<T | CallToolResult> {
   const result = await guard(fn);
-  return result.isError ? { ...result, structuredContent: undefined } : result;
+  return "isError" in result && result.isError
+    ? { ...result, structuredContent: undefined }
+    : result;
 }

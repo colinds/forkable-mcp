@@ -85,6 +85,7 @@ The source files are in [`skills/`](./skills).
 | Tool                  | What it does                                                       |
 | --------------------- | ------------------------------------------------------------------ |
 | `open_forkable`       | Opens the interactive meal browser in MCP Apps clients              |
+| `prepare_meal`        | Chooses and customizes a meal through forms or chat                  |
 | `list_deliveries`     | Shows upcoming deliveries and selected meals                       |
 | `get_delivery_status` | Shows courier status, ETA, arrival time, tracking, and access notes |
 | `get_menus`           | Lists menus and item options for a delivery                         |

@@ -21,6 +21,8 @@ const fixtureConfigSchema = z.object({
   menus: z.enum(["default", "restaurants"]).default("default"),
   searchResults: z.enum(["default", "empty", "many"]).default("default"),
   tracking: z.boolean().default(false),
+  notesAllowed: z.boolean().default(true),
+  currentNotes: z.string().optional(),
   displayMode: z.enum(["inline", "fullscreen"]).default("inline"),
   sizing: z.enum(["fixed", "auto", "clamped"]).default("fixed"),
   initialFrameHeight: z.number().positive().default(1600),

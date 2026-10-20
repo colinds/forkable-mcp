@@ -1,4 +1,5 @@
 import { test, expect } from "@playwright/test";
+import { PNG_BASE64 } from "../fixtures/image.ts";
 import { fixtureUrl, type FixtureConfig } from "./fixture-config.ts";
 import type { MenuFilters } from "@/shared/contracts/menu-filters.ts";
 
@@ -8,10 +9,7 @@ test.beforeEach(async ({ page }) => {
   await page.route("https://cdn.filestackcontent.com/**", (route) =>
     route.fulfill({
       contentType: "image/png",
-      body: Buffer.from(
-        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=",
-        "base64",
-      ),
+      body: Buffer.from(PNG_BASE64, "base64"),
     }),
   );
 });
@@ -59,6 +57,62 @@ test("photos, theme, search, options, exact target and one-click submission", as
   await expect(ui.getByRole("status")).toContainText("Delivery refreshed");
   await expect(ui.getByRole("status")).not.toContainText("Warning:");
 });
+test("meal notes reach chat drafts and the exact confirmed request", async ({ page }) => {
+  await page.goto(fixtureUrl({ drafts: {} }));
+  const ui = page.frameLocator("iframe");
+  await ui.getByRole("button", { name: /View Spicy tofu/ }).click();
+  const dialog = ui.getByRole("dialog");
+  const notes = dialog.getByLabel("Notes", { exact: false });
+  await expect(notes).toHaveAttribute("maxlength", "100");
+  await notes.fill("Please no onions");
+  await dialog.getByRole("button", { name: "Ask about this meal" }).click();
+  await expect(dialog.getByRole("status")).toContainText("Added to your draft");
+  expect(
+    await page.evaluate(() =>
+      JSON.stringify((window as unknown as { draftMessages: unknown[] }).draftMessages),
+    ),
+  ).toContain("Please no onions");
+  await dialog.getByLabel("Meal to replace").selectOption("b");
+  await dialog.getByLabel("Kimchi").check();
+  await dialog.getByRole("button", { name: "Replace meal" }).click();
+  await expect(ui.getByText("Change sent. Delivery refreshed.")).toBeVisible();
+  const calls = await page.evaluate(() =>
+    (
+      window as unknown as { calls: { name: string; arguments: Record<string, unknown> }[] }
+    ).calls.filter((call) => call.name === "set_meal"),
+  );
+  expect(calls).toHaveLength(2);
+  expect(calls[0]!.arguments.instructions).toBe("Please no onions");
+  expect(calls[1]!.arguments).toEqual({ ...calls[0]!.arguments, confirmToken: "fixture-token" });
+});
+
+test("restaurants that disable notes do not render a notes field", async ({ page }) => {
+  await page.goto(fixtureUrl({ notesAllowed: false }));
+  const ui = page.frameLocator("iframe");
+  await ui.getByRole("button", { name: /View Spicy tofu/ }).click();
+  await expect(ui.getByRole("dialog")).toBeVisible();
+  await expect(ui.getByLabel("Notes", { exact: false })).toHaveCount(0);
+});
+
+test("editing an existing meal keeps its notes without carrying them to another meal", async ({
+  page,
+}) => {
+  await page.goto(fixtureUrl({ currentNotes: "Please no onions" }));
+  const ui = page.frameLocator("iframe");
+  await ui
+    .getByRole("region", { name: "Selected meals" })
+    .getByRole("button", { name: /View Chicken rice bowl/ })
+    .click();
+  await expect(ui.getByRole("dialog").getByLabel("Notes", { exact: false })).toHaveValue(
+    "Please no onions",
+  );
+  await ui.getByRole("dialog").getByLabel("Meal to replace").selectOption("b");
+  await expect(ui.getByRole("dialog").getByLabel("Notes", { exact: false })).toHaveValue("");
+  await ui.getByRole("button", { name: "Close", exact: true }).click();
+  await ui.getByRole("button", { name: /View Another bowl/ }).click();
+  await expect(ui.getByRole("dialog").getByLabel("Notes", { exact: false })).toHaveValue("");
+});
+
 for (const scenario of ["unknown", "rejected", "expired", "blocked"] as const)
   test(`${scenario} never automatically retries`, async ({ page }) => {
     await page.goto(fixtureUrl({ write: { outcome: scenario } }));
@@ -264,9 +318,7 @@ test("meal tool results launch the exact meal and are not fetched twice", async 
   expect(detailCalls).toHaveLength(1);
   expect(detailCalls[0]?.arguments).toMatchObject({ menuId: 20, itemId: 7 });
 });
-test("delivery results seed the browser and standard fullscreen expansion works", async ({
-  page,
-}) => {
+test("delivery results seed the browser and host fullscreen expansion works", async ({ page }) => {
   await page.goto(
     fixtureUrl({
       launch: { name: "list_deliveries", arguments: { from: "2026-10-05", to: "2026-10-13" } },
@@ -283,7 +335,11 @@ test("delivery results seed the browser and standard fullscreen expansion works"
         ).length,
     ),
   ).toBe(1);
-  await ui.getByRole("button", { name: "Open full view" }).click();
+  await page.evaluate(() =>
+    (window as unknown as { changeDisplayMode: (mode: string) => void }).changeDisplayMode(
+      "fullscreen",
+    ),
+  );
   await expect(ui.locator("html")).toHaveAttribute("data-display-mode", "fullscreen");
   await expect(ui.getByRole("button", { name: "Open full view" })).toBeHidden();
   await page.goto(
@@ -320,7 +376,11 @@ test("restaurant sections persist for filters and combine only during search", a
   );
   const track = ui.getByRole("link", { name: "Track Order" });
   expect((await track.boundingBox())?.height).toBeGreaterThanOrEqual(44);
-  await ui.getByRole("button", { name: "Open full view" }).click();
+  await page.evaluate(() =>
+    (window as unknown as { changeDisplayMode: (mode: string) => void }).changeDisplayMode(
+      "fullscreen",
+    ),
+  );
   await page.getByRole("button", { name: "Dark theme" }).click();
   await expect(ui.locator("html")).toHaveAttribute("data-theme", "dark");
   await expect(ui.locator("body")).toHaveCSS("background-color", "rgb(24, 24, 24)");
@@ -1142,7 +1202,16 @@ for (const width of [375, 1000]) {
     await expect(ui.getByRole("link", { name: "Track Order" })).toBeVisible();
     await expect(ui.getByRole("group", { name: "Delivery dates" })).toHaveCount(0);
     await expect(ui.getByRole("region", { name: "Available meals" })).toHaveCount(0);
-    await expect(ui.getByRole("button", { name: "Browse meals", exact: true })).toBeEnabled();
+    await expect(
+      ui
+        .getByRole("region", { name: "Selected meals" })
+        .getByRole("button", { name: "Change meal", exact: true }),
+    ).toBeEnabled();
+    await expect(ui.locator(".browser-toolbar").getByRole("button")).toHaveCount(1);
+    await expect(
+      ui.locator(".browser-date-row").getByRole("button", { name: "Refresh", exact: true }),
+    ).toBeVisible();
+    await expect(ui.getByRole("button", { name: "Open full view" })).toHaveCount(0);
     await expect
       .poll(() =>
         page.evaluate(
@@ -1159,7 +1228,7 @@ for (const width of [375, 1000]) {
     const before = await page.evaluate(
       () => (window as unknown as { calls: unknown[] }).calls.length,
     );
-    await ui.getByRole("button", { name: "Browse meals", exact: true }).click();
+    await ui.getByRole("button", { name: "Change meal", exact: true }).click();
     await expect(ui.getByRole("region", { name: "Available meals" })).toBeVisible();
     await expect(ui.getByRole("region", { name: "Selected meals" })).toHaveCount(0);
     await ui.getByRole("button", { name: "Back to delivery" }).click();

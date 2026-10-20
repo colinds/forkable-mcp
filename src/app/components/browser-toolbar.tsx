@@ -19,25 +19,41 @@ export function BrowserToolbar({
   children?: ReactNode;
 }) {
   const label = date ? dateLabels(date) : undefined;
+  const refresh = (
+    <IconButton
+      icon={RefreshCw}
+      label="Refresh"
+      className="refresh-button"
+      disabled={busy}
+      onClick={onRefresh}
+    />
+  );
   return (
     <header className="browser-toolbar">
       <div>
-        <h2 tabIndex={-1} data-dialog-return-focus>
-          {title}
-        </h2>
+        <div className="browser-title-row">
+          <h2 tabIndex={-1} data-dialog-return-focus>
+            {title}
+          </h2>
+          {!date && refresh}
+        </div>
         {date && label && (
-          <p className="muted">
-            <time dateTime={date}>
-              {label.weekday}, {label.date}
-            </time>
-            {service ? ` · ${service}` : ""}
-          </p>
+          <div className="browser-date-row">
+            <p className="muted">
+              <time dateTime={date}>
+                {label.weekday}, {label.date}
+              </time>
+              {service ? ` · ${service}` : ""}
+            </p>
+            {refresh}
+          </div>
         )}
       </div>
-      <div className="app-toolbar" role="group" aria-label="Meal browser actions">
-        <IconButton icon={RefreshCw} label="Refresh" disabled={busy} onClick={onRefresh} />
-        {children}
-      </div>
+      {children && (
+        <div className="app-toolbar" role="group" aria-label="Meal browser actions">
+          {children}
+        </div>
+      )}
     </header>
   );
 }
