@@ -9,6 +9,8 @@ export function MealPending() {
     <MealFrame>
       <MealPageLoading
         inline={inline}
+        meal={browser.state.selectedMeal}
+        delivery={browser.state.delivery}
         navigation={
           <MealNavigation backLabel={inline ? backLabel : undefined} onBack={browser.back} />
         }

@@ -1793,43 +1793,56 @@ test.describe("touch host", () => {
   });
 });
 
-test("meal route shows a skeleton until its required data is ready", async ({ page }, testInfo) => {
-  await page.setViewportSize({ width: 1000, height: 1000 });
-  await page.route("https://cdn.filestackcontent.com/**", (route) =>
-    route.fulfill({ contentType: "image/svg+xml", body: MEAL_ILLUSTRATION_SVG }),
-  );
-  await page.goto(fixtureUrl({ details: "held", appearance: "claude", theme: "dark" }));
-  const ui = page.frameLocator("iframe");
-  await ui.getByRole("button", { name: "View Spicy tofu bowl from Seoul Kitchen" }).click();
-  const loading = ui.getByRole("status", { name: "Loading meal details", exact: true });
-  await expect(loading).toBeVisible();
-  await expect(loading.locator(".photo.skeleton")).toBeVisible();
-  await expect(ui.getByRole("button", { name: "Back to meals", exact: true })).toBeEnabled();
-  await expect(ui.getByRole("button", { name: /Replace meal/ })).toHaveCount(0);
-  await ui.locator("#app").screenshot({ path: testInfo.outputPath("meal-options-loading.png") });
-  await expect
-    .poll(() =>
-      page.evaluate(() =>
-        (
-          window as unknown as { calls: { name: string; arguments?: { itemId?: number } }[] }
-        ).calls.some((call) => call.name === "get_menus" && call.arguments?.itemId === 7),
-      ),
-    )
-    .toBe(true);
-  await page.evaluate(() =>
-    (window as unknown as { releaseDetail: (index: number) => void }).releaseDetail(0),
-  );
-  const dialog = ui.getByRole("region", { name: "Meal details" });
-  await expect(dialog.getByLabel("Kimchi")).toBeVisible();
-  await expect(dialog.getByRole("status")).toHaveCount(0);
-  expect(
+for (const displayMode of ["inline", "fullscreen"] as const) {
+  test(`${displayMode} meal shows its summary while options load`, async ({ page }, testInfo) => {
+    await page.setViewportSize({ width: 1000, height: 1000 });
+    await page.route("https://cdn.filestackcontent.com/**", (route) =>
+      route.fulfill({ contentType: "image/svg+xml", body: MEAL_ILLUSTRATION_SVG }),
+    );
+    await page.goto(
+      fixtureUrl({ displayMode, details: "held", appearance: "claude", theme: "dark" }),
+    );
+    const ui = page.frameLocator("iframe");
+    await ui.getByRole("button", { name: "View Spicy tofu bowl from Seoul Kitchen" }).click();
+    const loading = ui.getByRole("status", { name: "Loading meal details", exact: true });
+    await expect(loading).toBeVisible();
+    await expect(loading.locator(".photo.skeleton")).toHaveCount(0);
+    await expect(loading.getByRole("heading", { name: "Spicy tofu bowl" })).toBeVisible();
+    await expect(loading.locator(".detail-summary img")).toBeVisible();
+    await expect(loading.locator(".detail-summary .price")).toBeVisible();
+    await expect(loading.locator(".option-skeleton")).toBeVisible();
+    await expect(
+      ui.getByRole("button", {
+        name: displayMode === "inline" ? "Back to meals" : "Close",
+        exact: true,
+      }),
+    ).toBeEnabled();
+    await expect(ui.getByRole("button", { name: /Replace meal/ })).toHaveCount(0);
+    await ui.locator("#app").screenshot({ path: testInfo.outputPath("meal-options-loading.png") });
+    await expect
+      .poll(() =>
+        page.evaluate(() =>
+          (
+            window as unknown as { calls: { name: string; arguments?: { itemId?: number } }[] }
+          ).calls.some((call) => call.name === "get_menus" && call.arguments?.itemId === 7),
+        ),
+      )
+      .toBe(true);
     await page.evaluate(() =>
-      (window as unknown as { calls: { name: string }[] }).calls.some(
-        (call) => call.name === "set_meal",
+      (window as unknown as { releaseDetail: (index: number) => void }).releaseDetail(0),
+    );
+    const dialog = ui.getByRole("region", { name: "Meal details" });
+    await expect(dialog.getByLabel("Kimchi")).toBeVisible();
+    await expect(dialog.getByRole("status")).toHaveCount(0);
+    expect(
+      await page.evaluate(() =>
+        (window as unknown as { calls: { name: string }[] }).calls.some(
+          (call) => call.name === "set_meal",
+        ),
       ),
-    ),
-  ).toBe(false);
-});
+    ).toBe(false);
+  });
+}
 
 test("closing a loading meal ignores its late reply and does not replace a newer selection", async ({
   page,

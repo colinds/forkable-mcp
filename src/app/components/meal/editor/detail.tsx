@@ -2,7 +2,7 @@ import { MessageSquare } from "lucide-react";
 import { MealNavigation } from "./navigation.tsx";
 import { modifierMinimum, MEAL_INSTRUCTIONS_LIMIT } from "@/shared/meal-options.ts";
 import { Button } from "../../button.tsx";
-import { MealPhoto } from "../photo.tsx";
+import { MealSummary } from "./summary.tsx";
 
 import { money } from "@/shared/currency.ts";
 import type { MealEditorController } from "../../../hooks/use-meal-browser.ts";
@@ -17,9 +17,6 @@ export function MealDetail({
   const { busy, delivery, detail: meal } = state;
   if (!delivery) return null;
   const submitLabel = delivery.meals.length ? "Replace meal" : "Add meal";
-  const deliveryLabel = [delivery.date, delivery.service, delivery.club]
-    .filter(Boolean)
-    .join(" · ");
   return (
     <section className="detail" aria-label="Meal details">
       <header className={`detail-header${backLabel ? " detail-page-header" : ""}`}>
@@ -31,12 +28,7 @@ export function MealDetail({
         </h2>
         {!backLabel && <MealNavigation disabled={busy} onBack={browser.back} />}
       </header>
-      <div className="detail-summary">
-        <MealPhoto key={meal.imageUrl} url={meal.imageUrl} name={meal.name} />
-        <p className="muted">{deliveryLabel}</p>
-        <p className="price">{money(meal.price)}</p>
-        {meal.description && <p>{meal.description}</p>}
-      </div>
+      <MealSummary meal={meal} delivery={delivery} />
       <div className="detail-content">
         {state.notice && (
           <p
