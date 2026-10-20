@@ -96,6 +96,50 @@ test("selected card keeps Skip inset and confirms before removing", async ({ pag
   await expect(card).toHaveCount(0);
 });
 
+test("selected card preserves focus and keeps long details clear of Skip", async ({ page }) => {
+  await page.setViewportSize({ width: 375, height: 900 });
+  await page.goto(
+    fixtureUrl({
+      currentOptions: ["Extra vegetables, garlic sauce, brown rice and roasted sesame seeds"],
+    }),
+  );
+  const ui = page.frameLocator("iframe");
+  const card = ui.locator(".selected-card").first();
+  await expect(card).toContainText("Extra vegetables");
+  const view = card.getByRole("button", { name: /^View/ });
+  await view.focus();
+  await expect(card).toHaveCSS("outline-style", "solid");
+  await expect(card).toHaveCSS("outline-width", "2px");
+  const skip = await card.getByRole("button", { name: "Skip meal", exact: true }).boundingBox();
+  const textRects = await card.locator(".card-body").evaluate((body) => {
+    const walker = document.createTreeWalker(body, NodeFilter.SHOW_TEXT);
+    const rects = [];
+    let node;
+    while ((node = walker.nextNode())) {
+      if (!node.textContent?.trim()) continue;
+      const range = document.createRange();
+      range.selectNodeContents(node);
+      rects.push(
+        ...Array.from(range.getClientRects(), (rect) => ({
+          x: rect.x,
+          y: rect.y,
+          width: rect.width,
+          height: rect.height,
+        })),
+      );
+    }
+    return rects;
+  });
+  for (const rect of textRects) {
+    const overlaps =
+      rect.x < skip!.x + skip!.width &&
+      rect.x + rect.width > skip!.x &&
+      rect.y < skip!.y + skip!.height &&
+      rect.y + rect.height > skip!.y;
+    expect(overlaps).toBe(false);
+  }
+});
+
 for (const displayMode of ["inline", "fullscreen"] as const) {
   test(`${displayMode} skip requires confirmation and removes only the selected owned meal`, async ({
     page,

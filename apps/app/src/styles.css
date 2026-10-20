@@ -354,6 +354,18 @@ legend {
   border: 0;
   border-radius: 0;
 }
+.selected-card:has(> .meal-card:hover) {
+  border-color: var(--ring);
+}
+.selected-card:has(> .meal-card:focus-visible) {
+  outline: 2px solid var(--ring);
+  outline-offset: 3px;
+}
+.selected-card:has(.selected-card-actions) .card-body > :last-child {
+  box-sizing: border-box;
+  padding-right: 8.5em;
+  min-height: 2.5em;
+}
 .selected-card-actions {
   position: absolute;
   bottom: 12px;

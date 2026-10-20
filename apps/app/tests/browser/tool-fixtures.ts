@@ -176,7 +176,7 @@ export function createToolFixtures(config: ResolvedFixtureConfig) {
               orderId: 100,
               price: 15,
               venue: "Seoul Kitchen",
-              options: ["Side: Kimchi"],
+              options: config.currentOptions ?? ["Side: Kimchi"],
               group,
               isConfirmed: true,
             },
