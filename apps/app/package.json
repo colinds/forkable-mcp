@@ -12,19 +12,19 @@
     "@forkable-mcp/shared": "workspace:*",
     "@modelcontextprotocol/ext-apps": "catalog:",
     "@openai/mcp-extensions": "catalog:",
-    "@tanstack/react-query": "catalog:",
-    "@tanstack/react-router": "catalog:",
-    "lucide-react": "catalog:",
-    "react": "catalog:",
-    "react-dom": "catalog:",
+    "@tanstack/react-query": "^5.104.5",
+    "@tanstack/react-router": "^1.170.45",
+    "lucide-react": "^1.59.0",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
     "zod": "catalog:"
   },
   "devDependencies": {
     "@modelcontextprotocol/client": "catalog:",
-    "@playwright/test": "catalog:",
+    "@playwright/test": "^1.64.0",
     "@types/bun": "catalog:",
-    "@types/react": "catalog:",
-    "@types/react-dom": "catalog:",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
     "typescript": "catalog:"
   }
 }

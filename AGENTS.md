@@ -34,7 +34,7 @@ migrations, or response shims without a demonstrated need; agents can re-read to
 adapt.
 
 The app and shared code are private Bun workspaces. Declare dependencies in the workspace that
-imports them, using the root catalog for external versions. React and TanStack belong to the app;
+imports them, using the root catalog only for external versions shared across workspaces. React and TanStack belong to the app;
 the server uses `lucide-static` only at build time for native-form icons. Shared source is bundled
 into the published server; private workspace dependencies must never escape into its runtime.
 
