@@ -22,7 +22,7 @@ import { imageMd, resolveExactItem, formatKnownPrice } from "../order/menu.ts";
 import { resolveOwnedSource } from "../order/ownership.ts";
 import { ownPieces } from "../order/guards.ts";
 import { appResult, errResult } from "../results.ts";
-import { appGuard } from "../tools/shared.ts";
+import { guard } from "../tools/shared.ts";
 
 export function createMealPicker(server: McpServer) {
   return choose;
@@ -32,7 +32,7 @@ export function createMealPicker(server: McpServer) {
     context: ServerContext,
     answered?: { result: OpenAIFormResult; requestState: string },
   ): Promise<CallToolResult | InputRequiredResult> {
-    return appGuard(async (client, session) => {
+    return guard(async (client, session) => {
       const { deliveries, userId } = await loadDeliveries(client);
       const delivery = findDelivery(deliveries, args.deliveryId);
       if (!delivery)

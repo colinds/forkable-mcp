@@ -1,3 +1,4 @@
+import { withReauth } from "@/shared/contracts/errors.ts";
 import {
   getMenusResultSchema,
   searchResultsSchema,
@@ -11,7 +12,7 @@ import {
 import { type McpServer } from "@modelcontextprotocol/server";
 
 import { appResult, errResult } from "@/server/results.ts";
-import { appGuard, APP_TOOL_META } from "@/server/tools/shared.ts";
+import { guard, APP_TOOL_META } from "@/server/tools/shared.ts";
 import { loadDeliveries, findDelivery, loadMenus, loadDietLabels } from "@/server/order/data.ts";
 import {
   imageMd,
@@ -35,11 +36,11 @@ export function registerMenuTool(server: McpServer): void {
         "List menu items for a delivery. Item IDs can repeat across menus; pass both menuId and itemId " +
         "to get the modifier and option IDs for one item.",
       inputSchema: getMenusInputSchema,
-      outputSchema: getMenusResultSchema,
+      outputSchema: withReauth(getMenusResultSchema),
       annotations: { readOnlyHint: true, openWorldHint: true },
     },
     async ({ deliveryId, itemId, menuId }) =>
-      appGuard(async (client) => {
+      guard(async (client) => {
         const { deliveries } = await loadDeliveries(client);
         const d = findDelivery(deliveries, deliveryId);
         if (!d) return errResult(`Delivery ${deliveryId} not found in your upcoming deliveries.`);
@@ -82,11 +83,11 @@ export function registerSearchTool(server: McpServer): void {
       description:
         "Search items across a delivery's available menus by keyword. Returns meal data without opening a UI. To display results, call open_forkable afterwards with this deliveryId and query.",
       inputSchema: searchItemsInputSchema,
-      outputSchema: searchResultsSchema,
+      outputSchema: withReauth(searchResultsSchema),
       annotations: { readOnlyHint: true, openWorldHint: true },
     },
     async ({ deliveryId, query }) =>
-      appGuard(async (client) => {
+      guard(async (client) => {
         const d = findDelivery((await loadDeliveries(client)).deliveries, deliveryId);
         if (!d?.availableMenuIds?.length)
           return errResult(`Delivery ${deliveryId} not found or has no menus.`);
@@ -128,11 +129,11 @@ export function registerRecommendationTool(server: McpServer): void {
       title: "Recommend meals",
       description: "Return Forkable's ranked meal suggestions for a delivery.",
       inputSchema: recommendMealsInputSchema,
-      outputSchema: recommendationsSchema,
+      outputSchema: withReauth(recommendationsSchema),
       annotations: { readOnlyHint: true, openWorldHint: true },
     },
     async ({ deliveryId, limit }) =>
-      appGuard(async (client) => {
+      guard(async (client) => {
         const { deliveries, userId } = await loadDeliveries(client);
         const d = findDelivery(deliveries, deliveryId);
         if (!d?.availableMenuIds?.length)

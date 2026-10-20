@@ -1,3 +1,4 @@
+import { withReauth } from "@/shared/contracts/errors.ts";
 import { z } from "zod";
 import type { OpenAIFormResult } from "@openai/mcp-extensions";
 import { createHash } from "node:crypto";
@@ -21,7 +22,7 @@ import { resolveOwnedSource } from "../order/ownership.ts";
 import { ownPieces } from "../order/guards.ts";
 import { buildSelectionsHash, resolveItemModifiers } from "../order/selections.ts";
 import { appResult, errResult } from "../results.ts";
-import { appGuard } from "./shared.ts";
+import { guard } from "./shared.ts";
 
 export function registerPrepareMealTool(server: McpServer): void {
   const pickMeal = createMealPicker(server);
@@ -39,7 +40,7 @@ export function registerPrepareMealTool(server: McpServer): void {
         "If the meal and desired options/defaults are already known, skip this tool and use set_meal. " +
         "Only set_meal with preview and confirmation can place an order.",
       inputSchema: prepareMealInputSchema,
-      outputSchema: prepareMealResultSchema,
+      outputSchema: withReauth(prepareMealResultSchema),
       annotations: { readOnlyHint: true, openWorldHint: true },
       _meta: { ui: { visibility: ["model"] } },
     },
@@ -58,7 +59,7 @@ export function registerPrepareMealTool(server: McpServer): void {
     context: ServerContext,
     answered?: { result: OpenAIFormResult; requestState: string },
   ): Promise<CallToolResult | InputRequiredResult> {
-    return appGuard(async (client, session) => {
+    return guard(async (client, session) => {
       const mode = args.mode ?? "set";
       const { deliveries, userId } = await loadDeliveries(client);
       const delivery = findDelivery(deliveries, args.deliveryId);

@@ -8,6 +8,7 @@ import { APP_URI, registerMealBrowser } from "@/server/ui-server.ts";
 import { Client } from "@modelcontextprotocol/client";
 import { patchSession } from "@/server/auth/session.ts";
 import { ForkableClient } from "@/server/net/client.ts";
+import { ReauthRequiredError } from "@/server/net/errors.ts";
 import { type Delivery, type Menu } from "@/server/order/types.ts";
 import { registerAllTools } from "@/server/tools/index.ts";
 import { createWriteGate } from "@/server/write-gate.ts";
@@ -229,45 +230,76 @@ describe("read tool responses", () => {
     ["v1", LegacyClient],
     ["v2", Client],
   ] as const) {
-    test(`reauth errors retain their instructions through schema-aware MCP clients (${version})`, async () => {
-      rmSync(join(home, "session.json"));
-      const email = process.env.FORKABLE_EMAIL;
-      delete process.env.FORKABLE_EMAIL;
-      const server = new McpServer({ name: "reauth-test", version: "0" });
-      registerAllTools(server, createWriteGate());
-      const client = new ClientClass({ name: "reauth-client", version: "0" });
-      const [ct, st] = InMemoryTransport.createLinkedPair();
-      try {
-        await Promise.all([server.connect(st), client.connect(ct)]);
-        await client.listTools();
-        const calls = [
-          { name: "list_deliveries", arguments: {} },
-          { name: "get_menus", arguments: { deliveryId: DELIVERY_ID } },
-          { name: "search_items", arguments: { deliveryId: DELIVERY_ID, query: "bowl" } },
-          { name: "recommend_meals", arguments: { deliveryId: DELIVERY_ID } },
-          { name: "get_delivery_status", arguments: { deliveryId: DELIVERY_ID } },
-        ];
-        const results = await Promise.all(calls.map((call) => client.callTool(call)));
-        for (const result of results) {
-          expect(result.isError).toBe(true);
-          expect(result.structuredContent).toBeUndefined();
-          expect(result.content).toMatchObject([
-            { type: "text", text: expect.stringContaining("provide a fresh browser cookie") },
-          ]);
+    test.each(["missing", "expired"] as const)(
+      `reauth %s retains its structured code through MCP ${version}`,
+      async (reason) => {
+        if (reason === "missing") rmSync(join(home, "session.json"));
+        else {
+          const expired = async () => {
+            throw new ReauthRequiredError("expired");
+          };
+          ForkableClient.prototype.gql = expired;
+          ForkableClient.prototype.query = expired;
         }
-        const profile = await client.callTool({ name: "get_profile", arguments: {} });
-        expect(profile.isError).toBe(true);
-        expect(profile.structuredContent).toEqual({
-          error: "forkable_reauth_required",
-          reason: "missing",
-        });
-      } finally {
-        if (email === undefined) delete process.env.FORKABLE_EMAIL;
-        else process.env.FORKABLE_EMAIL = email;
-        await client.close();
-        await server.close();
-      }
-    });
+        const email = process.env.FORKABLE_EMAIL;
+        delete process.env.FORKABLE_EMAIL;
+        const server = new McpServer({ name: "reauth-test", version: "0" });
+        registerAllTools(server, createWriteGate());
+        const client = new ClientClass({ name: "reauth-client", version: "0" });
+        const [ct, st] = InMemoryTransport.createLinkedPair();
+        try {
+          await Promise.all([server.connect(st), client.connect(ct)]);
+          await client.listTools();
+          const calls = [
+            { name: "list_deliveries", arguments: {} },
+            { name: "get_menus", arguments: { deliveryId: DELIVERY_ID } },
+            { name: "search_items", arguments: { deliveryId: DELIVERY_ID, query: "bowl" } },
+            { name: "recommend_meals", arguments: { deliveryId: DELIVERY_ID } },
+            { name: "get_delivery_status", arguments: { deliveryId: DELIVERY_ID } },
+            {
+              name: "set_meal",
+              arguments: { deliveryId: DELIVERY_ID, menuId: MENU_ID, itemId: ITEM_ID },
+            },
+            {
+              name: "set_meal_all",
+              arguments: { deliveryIds: [DELIVERY_ID], menuId: MENU_ID, itemId: ITEM_ID },
+            },
+            { name: "remove_meal", arguments: { deliveryId: DELIVERY_ID, pieceId: "piece-1" } },
+            {
+              name: "rate_meal",
+              arguments: { deliveryId: DELIVERY_ID, pieceId: "piece-1", level: 5 },
+            },
+            { name: "confirm_delivery", arguments: { deliveryId: DELIVERY_ID } },
+            {
+              name: "prepare_meal",
+              arguments: { deliveryId: DELIVERY_ID, menuId: MENU_ID, itemId: ITEM_ID },
+            },
+          ];
+          const results = await Promise.all(calls.map((call) => client.callTool(call)));
+          for (const result of results) {
+            expect(result.isError).toBe(true);
+            expect(result.structuredContent).toEqual({
+              error: "forkable_reauth_required",
+              reason,
+            });
+            expect(result.content).toMatchObject([
+              { type: "text", text: expect.stringContaining("provide a fresh browser cookie") },
+            ]);
+          }
+          const profile = await client.callTool({ name: "get_profile", arguments: {} });
+          expect(profile.isError).toBe(true);
+          expect(profile.structuredContent).toEqual({
+            error: "forkable_reauth_required",
+            reason,
+          });
+        } finally {
+          if (email === undefined) delete process.env.FORKABLE_EMAIL;
+          else process.env.FORKABLE_EMAIL = email;
+          await client.close();
+          await server.close();
+        }
+      },
+    );
   }
 
   test("read output validation tolerates missing optional wire fields", async () => {
