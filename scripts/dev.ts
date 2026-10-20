@@ -1,4 +1,5 @@
 import { fileURLToPath } from "node:url";
+import pkg from "../apps/mcp/package.json" with { type: "json" };
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 
@@ -16,6 +17,8 @@ const app = Bun.spawn(
     "--sourcemap=inline",
     "--define",
     'process.env.NODE_ENV:"development"',
+    "--define",
+    `APP_VERSION:${JSON.stringify(pkg.version)}`,
     "--watch",
     "--no-clear-screen",
   ],

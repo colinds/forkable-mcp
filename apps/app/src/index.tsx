@@ -12,7 +12,7 @@ import { browserInputSchema } from "@forkable-mcp/shared/contracts/browser.ts";
 import { createContextUpdater } from "@/app/lib/model-context.ts";
 import type { CallTool } from "@/app/lib/tools.ts";
 const app = new App(
-  { name: "Forkable", version: "1.0.0" },
+  { name: "Forkable", version: APP_VERSION },
   { availableDisplayModes: ["inline", "fullscreen"] },
   { autoResize: false },
 );

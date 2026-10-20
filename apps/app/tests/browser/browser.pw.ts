@@ -2,6 +2,7 @@ import { test, expect } from "@playwright/test";
 import { PNG_BASE64, MEAL_ILLUSTRATION_SVG } from "@/tests/fixtures/image.ts";
 import { fixtureUrl, type FixtureConfig } from "./fixture-config.ts";
 import type { MenuFilters } from "@forkable-mcp/shared/contracts/menu-filters.ts";
+import pkg from "../../../mcp/package.json" with { type: "json" };
 
 test.beforeEach(async ({ page }) => {
   await page.clock.setFixedTime(new Date("2026-10-05T12:00:00-07:00"));
@@ -12,6 +13,13 @@ test.beforeEach(async ({ page }) => {
       body: Buffer.from(PNG_BASE64, "base64"),
     }),
   );
+});
+
+test("app handshake reports the published package version", async ({ page }) => {
+  await page.goto(fixtureUrl());
+  await expect
+    .poll(() => page.evaluate(() => (window as unknown as { appVersion?: string }).appVersion))
+    .toBe(pkg.version);
 });
 
 test("meal cards show a compact ingredient row instead of diet labels", async ({ page }) => {
@@ -172,14 +180,15 @@ test("card intent prefetches options and reuses them when opened", async ({ page
   expect(await requests()).toBe(1);
 });
 
-test("selected card keeps Skip inset and confirms before removing", async ({ page }) => {
+test("meal actions sit below the card and confirm before removing", async ({ page }) => {
   await page.setViewportSize({ width: 375, height: 900 });
   await page.goto(fixtureUrl({}));
   const ui = page.frameLocator("iframe");
-  const card = ui
-    .locator(".selected-card")
+  const selectedMeal = ui
+    .locator(".selected-meal")
     .filter({ has: ui.getByRole("heading", { name: "Pasta", exact: true }) });
-  const skip = card.getByRole("button", { name: "Skip meal", exact: true });
+  const card = selectedMeal.locator(".selected-card");
+  const skip = selectedMeal.getByRole("button", { name: "Skip meal", exact: true });
   await skip.click();
   const dialog = ui.getByRole("dialog", { name: "Skip Pasta?" });
   await expect(dialog).toBeVisible();
@@ -195,22 +204,51 @@ test("selected card keeps Skip inset and confirms before removing", async ({ pag
   const cardBounds = await card.boundingBox();
   const buttonBounds = await skip.boundingBox();
   const contentBounds = await card.locator(".meal-card").boundingBox();
+  expect(buttonBounds!.height).toBeLessThanOrEqual(32);
   expect(cardBounds!.height).toBeCloseTo(contentBounds!.height + 2, 0);
   expect(cardBounds).not.toBeNull();
   expect(buttonBounds).not.toBeNull();
-  await expect(card.locator(".selected-card-actions")).toHaveCSS("bottom", "12px");
-  await expect(card.locator(".selected-card-actions")).toHaveCSS("right", "12px");
-  for (const inset of [
-    cardBounds!.x + cardBounds!.width - buttonBounds!.x - buttonBounds!.width,
-    cardBounds!.y + cardBounds!.height - buttonBounds!.y - buttonBounds!.height,
-  ]) {
-    expect(inset).toBeGreaterThanOrEqual(12);
-    expect(inset).toBeLessThanOrEqual(15);
-  }
+  const actions = selectedMeal.locator(".selected-actions");
+  await expect(actions).toHaveCSS("display", "flex");
+  const actionBounds = await actions.boundingBox();
+  const changeBounds = await actions
+    .getByRole("button", { name: "Change meal", exact: true })
+    .boundingBox();
+  expect(actionBounds!.y).toBeGreaterThanOrEqual(cardBounds!.y + cardBounds!.height);
+  expect(actionBounds!.x).toBeCloseTo(cardBounds!.x, 0);
+  expect(changeBounds!.width).toBeCloseTo(buttonBounds!.width, 0);
+  expect(changeBounds!.width + buttonBounds!.width + 8).toBeCloseTo(actionBounds!.width, 0);
   await skip.click();
   await dialog.getByRole("button", { name: "Skip meal", exact: true }).click();
   await expect(card).toHaveCount(0);
 });
+
+for (const width of [375, 1000]) {
+  test(`per-meal Change remembers the meal being replaced at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto(fixtureUrl({ displayMode: "fullscreen" }));
+    const ui = page.frameLocator("iframe");
+    const actions = ui.getByRole("group", { name: "Actions for Pasta", exact: true });
+    const change = actions.getByRole("button", { name: "Change meal", exact: true });
+    await expect(change).toBeVisible();
+    const row = await actions.boundingBox();
+    const button = await change.boundingBox();
+    expect(button!.x).toBeCloseTo(row!.x, 0);
+    await change.click();
+    await expect(ui.getByRole("heading", { name: "Browse menus", exact: true })).toBeFocused();
+    await ui
+      .getByRole("region", { name: "Available meals" })
+      .getByRole("button", { name: "View Spicy tofu bowl from Seoul Kitchen", exact: true })
+      .click();
+    await expect(ui.getByLabel("Meal to replace")).toHaveValue("b");
+    const writes = await page.evaluate(() =>
+      (window as unknown as { calls: { name: string }[] }).calls.filter((call) =>
+        ["set_meal", "remove_meal"].includes(call.name),
+      ),
+    );
+    expect(writes).toEqual([]);
+  });
+}
 
 test("selected card preserves focus and keeps long details clear of Skip", async ({ page }) => {
   await page.setViewportSize({ width: 375, height: 900 });
@@ -226,34 +264,13 @@ test("selected card preserves focus and keeps long details clear of Skip", async
   await view.focus();
   await expect(card).toHaveCSS("outline-style", "solid");
   await expect(card).toHaveCSS("outline-width", "2px");
-  const skip = await card.getByRole("button", { name: "Skip meal", exact: true }).boundingBox();
-  const textRects = await card.locator(".card-body").evaluate((body) => {
-    const walker = document.createTreeWalker(body, NodeFilter.SHOW_TEXT);
-    const rects = [];
-    let node;
-    while ((node = walker.nextNode())) {
-      if (!node.textContent?.trim()) continue;
-      const range = document.createRange();
-      range.selectNodeContents(node);
-      const overflowRow = node.parentElement?.closest(".meal-ingredients")?.getBoundingClientRect();
-      rects.push(
-        ...Array.from(range.getClientRects(), (rect) => {
-          const left = overflowRow ? Math.max(rect.left, overflowRow.left) : rect.left;
-          const right = overflowRow ? Math.min(rect.right, overflowRow.right) : rect.right;
-          return { x: left, y: rect.y, width: Math.max(0, right - left), height: rect.height };
-        }).filter((rect) => rect.width > 0),
-      );
-    }
-    return rects;
-  });
-  for (const rect of textRects) {
-    const overlaps =
-      rect.x < skip!.x + skip!.width &&
-      rect.x + rect.width > skip!.x &&
-      rect.y < skip!.y + skip!.height &&
-      rect.y + rect.height > skip!.y;
-    expect(overlaps).toBe(false);
-  }
+  const cardBounds = await card.boundingBox();
+  const actions = await ui
+    .locator(".selected-meal")
+    .first()
+    .locator(".selected-actions")
+    .boundingBox();
+  expect(actions!.y).toBeGreaterThanOrEqual(cardBounds!.y + cardBounds!.height);
 });
 
 for (const displayMode of ["inline", "fullscreen"] as const) {
@@ -1076,7 +1093,9 @@ test("restaurant sections persist for filters and combine only during search", a
     2,
   );
   const track = ui.getByRole("link", { name: "Track order" });
-  expect((await track.boundingBox())?.height).toBeGreaterThanOrEqual(44);
+  const trackBounds = await track.boundingBox();
+  expect(trackBounds!.height).toBeGreaterThanOrEqual(28);
+  expect(trackBounds!.height).toBeLessThanOrEqual(32);
   await page.evaluate(() =>
     (window as unknown as { changeDisplayMode: (mode: string) => void }).changeDisplayMode(
       "fullscreen",
@@ -2144,7 +2163,8 @@ for (const width of [375, 1000]) {
     await expect(
       ui
         .getByRole("region", { name: "Selected meals" })
-        .getByRole("button", { name: "Change meal", exact: true }),
+        .getByRole("button", { name: "Change meal", exact: true })
+        .first(),
     ).toBeEnabled();
     await expect(ui.locator(".browser-toolbar").getByRole("button")).toHaveCount(1);
     await expect(
@@ -2173,7 +2193,7 @@ for (const width of [375, 1000]) {
             .length,
       );
     const before = await browserReads();
-    await ui.getByRole("button", { name: "Change meal", exact: true }).click();
+    await ui.getByRole("button", { name: "Change meal", exact: true }).first().click();
     await expect(ui.getByRole("region", { name: "Available meals" })).toBeVisible();
     await expect(ui.getByRole("region", { name: "Selected meals" })).toHaveCount(0);
     const back = ui.getByRole("button", { name: "Back to delivery" });

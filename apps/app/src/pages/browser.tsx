@@ -6,7 +6,6 @@ import { useMealApp } from "@/app/lib/app-context.ts";
 import { MealEditorContext } from "@/app/lib/editor-context.ts";
 import { activeFilterCount, menuView } from "@/app/lib/menu-filters.ts";
 import { isPastDelivery } from "@/app/lib/initial-view.ts";
-import { useState, useMemo } from "react";
 import { Button } from "@/app/components/button.tsx";
 import { DateStrip } from "@/app/components/date-strip.tsx";
 import { MealFilters } from "@/app/components/meal/browse/filters.tsx";
@@ -15,10 +14,12 @@ import { DeliveryProgress } from "@/app/components/delivery-progress.tsx";
 import { SelectedMeals } from "@/app/components/meal/browse/selected.tsx";
 import { useModelContext } from "@/app/hooks/use-model-context.ts";
 import { useMealBrowser } from "@/app/hooks/use-meal-browser.ts";
+import { useMemo, useRef, useState } from "react";
 
 export function MealBrowserPage() {
   const { openLink, updateContext, expand, displayMode = "inline" } = useMealApp();
   const [displayError, setDisplayError] = useState<string>();
+  const menuHeading = useRef<HTMLHeadingElement>(null);
   const browser = useMealBrowser();
   const { state } = browser;
   const presentation = displayMode === "fullscreen" ? "browse" : browser.view;
@@ -71,6 +72,13 @@ export function MealBrowserPage() {
   function choose(menuId: number, itemId: number, sourcePieceId?: string | number) {
     setOpener(document.activeElement instanceof HTMLElement ? document.activeElement : undefined);
     browser.choose(menuId, itemId, sourcePieceId);
+  }
+  function browseMeals(sourcePieceId?: string | number) {
+    browser.setView("meals", sourcePieceId);
+    if (displayMode === "fullscreen") {
+      menuHeading.current?.focus({ preventScroll: true });
+      menuHeading.current?.scrollIntoView({ block: "start" });
+    }
   }
   return (
     <MealEditorContext
@@ -143,11 +151,7 @@ export function MealBrowserPage() {
                   choose={choose}
                   prefetchMeal={browser.prefetchMeal}
                   status={state.deliveryStatus}
-                  onBrowseMeals={
-                    presentation === "delivery" && !isPastDelivery(delivery.date)
-                      ? () => browser.setView("meals")
-                      : undefined
-                  }
+                  onBrowseMeals={!isPastDelivery(delivery.date) ? browseMeals : undefined}
                 />
               )}
               {presentation !== "meals" && delivery && (
@@ -167,7 +171,12 @@ export function MealBrowserPage() {
               ) : (
                 presentation !== "delivery" && (
                   <section className="menu-browser" aria-labelledby="browse-menus-title">
-                    <h2 id="browse-menus-title" className={compact ? "sr-only" : undefined}>
+                    <h2
+                      id="browse-menus-title"
+                      ref={menuHeading}
+                      tabIndex={-1}
+                      className={compact ? "sr-only" : undefined}
+                    >
                       {compact ? "Meal results" : "Browse menus"}
                     </h2>
                     <MealFilters
