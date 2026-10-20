@@ -247,6 +247,9 @@ legend {
   display: grid;
   gap: 12px;
 }
+.selected-action {
+  margin-top: 12px;
+}
 .meal-card-horizontal {
   flex-direction: row;
   width: 100%;
@@ -535,7 +538,29 @@ html[data-display-mode="inline"] #app {
   margin: 0;
 }
 .browser-toolbar p {
-  margin: 4px 0 0;
+  margin: 0;
+}
+.browser-title-row,
+.browser-date-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.browser-date-row {
+  margin-top: 4px;
+}
+.refresh-button {
+  width: 28px;
+  height: 28px;
+  padding: 5px;
+  color: var(--muted-foreground);
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+}
+.refresh-button:hover {
+  color: var(--foreground);
+  background: var(--secondary);
 }
 .compact-view .menu-browser {
   margin-top: 0;

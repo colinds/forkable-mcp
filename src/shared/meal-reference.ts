@@ -40,12 +40,14 @@ export function createMealReference({
   restaurant,
   choices = {},
   source,
+  instructions,
 }: {
   delivery: Delivery;
   detail: Detail;
   restaurant?: string;
   choices?: Record<string, number[]>;
   source?: string;
+  instructions?: string;
 }) {
   const modifiers = selectedMealModifiers(detail, choices);
   const replacement = delivery.meals.find((meal) => String(meal.pieceId) === source);
@@ -77,6 +79,7 @@ export function createMealReference({
       .map(({ name, options }) => ({ name, options: options.map((option) => option.name) })),
     sourcePieceId: replacement?.pieceId,
     sourceMealName: replacement?.name ?? undefined,
+    instructions: detail.instructionsAllowed ? instructions : undefined,
   };
 }
 
@@ -90,11 +93,13 @@ export function formatMealReference(meal: MealReference): string {
     itemId: meal.itemId,
     modifiers: meal.modifiers,
     sourcePieceId: meal.sourcePieceId,
+    instructions: meal.instructions,
   };
   return [
     `${meal.name}${meal.restaurant ? ` — ${meal.restaurant}` : ""}`,
     `Delivery: ${[meal.date, meal.service, meal.club].filter(Boolean).join(" · ")}`,
     meal.description,
+    meal.instructions ? `Notes: ${meal.instructions}` : undefined,
     `Selected options: ${meal.selectedOptions.length ? meal.selectedOptions.map((option) => `${option.name}: ${option.options.join(", ")}`).join("; ") : "None selected"}`,
     `Meal price with selected options: ${money(meal.totalPrice)}`,
     meal.sourcePieceId != null

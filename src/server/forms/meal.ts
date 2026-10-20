@@ -1,19 +1,26 @@
 import type { OpenAIForm, OpenAIFormResult } from "@openai/mcp-extensions";
 import type { Detail } from "@/shared/contracts/meals.ts";
 import type { ReplacementTarget } from "@/shared/contracts/preparation.ts";
-import { modifierMinimum } from "@/shared/meal-options.ts";
+import { modifierMinimum, MEAL_INSTRUCTIONS_LIMIT } from "@/shared/meal-options.ts";
 import { formatMoney } from "../order/format.ts";
 
-export function mealForm(detail: Detail, replacements: ReplacementTarget[]): OpenAIForm {
+export function mealForm(
+  detail: Detail,
+  replacements: ReplacementTarget[],
+  instructions?: string,
+): OpenAIForm {
   const required: string[] = [];
   const form: OpenAIForm = { type: "object", properties: {}, required };
   if (replacements.length > 1) {
+    const names = replacements.map((meal) => meal.name?.trim() || "Meal");
+    const counts = new Map<string, number>();
+    for (const name of names) counts.set(name, (counts.get(name) ?? 0) + 1);
     form.properties.sourcePieceId = {
       type: "string",
       title: "Meal to replace",
-      oneOf: replacements.map((meal) => ({
+      oneOf: replacements.map((meal, index) => ({
         const: String(meal.pieceId),
-        title: `${meal.name || "Selected meal"} · ${meal.pieceId}`,
+        title: counts.get(names[index]!)! > 1 ? `${names[index]} (${index + 1})` : names[index]!,
       })),
     };
     required.push("sourcePieceId");
@@ -23,19 +30,21 @@ export function mealForm(detail: Detail, replacements: ReplacementTarget[]): Ope
     const min = modifierMinimum(modifier);
     const options = modifier.options.map((option) => ({
       const: String(option.id),
-      title: option.name,
-      ...(option.price ? { description: `+${formatMoney(option.price)}` } : {}),
+      title: option.name.trim(),
+      ...(option.price
+        ? { description: `${option.price > 0 ? "+" : ""}${formatMoney(option.price)}` }
+        : {}),
     }));
     if (modifier.max === 1) {
       form.properties[key] = {
         type: "string",
-        title: modifier.name,
-        oneOf: min ? options : [{ const: "", title: "No selection" }, ...options],
+        title: modifier.name.trim(),
+        oneOf: min ? options : [{ const: "", title: "None" }, ...options],
       };
     } else {
       form.properties[key] = {
         type: "array",
-        title: modifier.name,
+        title: modifier.name.trim(),
         items: { anyOf: options },
         minItems: min,
         ...(modifier.max != null ? { maxItems: modifier.max } : {}),
@@ -43,6 +52,13 @@ export function mealForm(detail: Detail, replacements: ReplacementTarget[]): Ope
     }
     if (min) required.push(key);
   }
+  if (detail.instructionsAllowed)
+    form.properties.instructions = {
+      type: "string",
+      title: "Notes",
+      maxLength: MEAL_INSTRUCTIONS_LIMIT,
+      ...(instructions !== undefined ? { default: instructions } : {}),
+    };
   return form;
 }
 

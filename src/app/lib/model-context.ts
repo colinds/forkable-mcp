@@ -18,6 +18,7 @@ export function browserContext(
     filters: MenuFilters;
     choices: Record<string, number[]>;
     source: string;
+    instructions?: string;
     needsRefresh: boolean;
   },
   results: MenuView,
@@ -69,6 +70,7 @@ export function browserContext(
             restaurant: view.menus?.find((menu) => menu.menuId === view.detail?.menuId)?.name,
             choices: view.choices,
             source: view.source,
+            instructions: view.instructions,
           })
         : null,
     visibleMeals: visible,

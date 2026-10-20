@@ -274,6 +274,7 @@ Keep date rendering host-independent. `bun run test:tz` exercises the suite unde
 
 Other wire constraints:
 
+- `Piece.instructions` is readable and carries restaurant notes; verified with live delivery reads.
 - `etaStatus.status` values observed by the client are `delayed`, `ontime`, and `delivered`.
 - `delivery.state`, `delivery.simpleState`, and `order.state` are different lifecycles; do not merge
   them into one source field.
@@ -323,6 +324,8 @@ and use them for server registration and frontend response validation. Keep raw 
 models on the server and UI state in the app. The linter enforces import boundaries.
 
 Use the standard MCP Apps bridge and host styles. OpenAI metadata is an optional layer.
+Only `open_forkable` advertises a UI resource. Data tools remain callable from the app without
+launching another view; resolve chat reads before opening the final requested view.
 Only `set_meal` is app-visible among write tools; it still uses the existing confirmation gate.
 Context updates must honor host modalities and exclude credentials and confirmation tokens.
 Browser regression tests use fixture data, not live meal mutations.

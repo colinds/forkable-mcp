@@ -42,6 +42,7 @@ export function selectionArgs(
   detail: Detail,
   source: string,
   choices: Record<string, number[]>,
+  instructions?: string,
 ): SetMealInput {
   const target = delivery.meals.find((m) => String(m.pieceId) === source);
   if (delivery.meals.length && !target) throw new Error("Choose the meal to replace.");
@@ -63,6 +64,7 @@ export function selectionArgs(
       modifier: mod.id,
       options: choices[mod.id] ?? [],
     })),
+    ...(detail.instructionsAllowed && instructions !== undefined ? { instructions } : {}),
   };
 }
 

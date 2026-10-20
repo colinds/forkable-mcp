@@ -8,12 +8,10 @@ import {
   searchItemsInputSchema,
   recommendMealsInputSchema,
 } from "@/shared/contracts/inputs.ts";
-import { registerAppTool } from "@modelcontextprotocol/ext-apps/server";
-import { MEAL_APP_META } from "@/server/ui-server.ts";
 import { type McpServer } from "@modelcontextprotocol/server";
 
 import { appResult, errResult } from "@/server/results.ts";
-import { appGuard } from "@/server/tools/shared.ts";
+import { appGuard, APP_TOOL_META } from "@/server/tools/shared.ts";
 import { loadDeliveries, findDelivery, loadMenus, loadDietLabels } from "@/server/order/data.ts";
 import {
   imageMd,
@@ -28,11 +26,10 @@ import {
 } from "@/server/order/menu.ts";
 
 export function registerMenuTool(server: McpServer): void {
-  registerAppTool(
-    server,
+  server.registerTool(
     "get_menus",
     {
-      _meta: MEAL_APP_META,
+      _meta: APP_TOOL_META,
       title: "Get menus for a delivery",
       description:
         "List menu items for a delivery. Item IDs can repeat across menus; pass both menuId and itemId " +
@@ -77,14 +74,13 @@ export function registerMenuTool(server: McpServer): void {
 }
 
 export function registerSearchTool(server: McpServer): void {
-  registerAppTool(
-    server,
+  server.registerTool(
     "search_items",
     {
-      _meta: MEAL_APP_META,
+      _meta: APP_TOOL_META,
       title: "Search menu items",
       description:
-        "Search items across a delivery's available menus by keyword. MCP Apps clients show compact inline results for requests such as 'show me curry'.",
+        "Search items across a delivery's available menus by keyword. Returns meal data without opening a UI. To display results, call open_forkable afterwards with this deliveryId and query.",
       inputSchema: searchItemsInputSchema,
       outputSchema: searchResultsSchema,
       annotations: { readOnlyHint: true, openWorldHint: true },
@@ -125,11 +121,10 @@ export function registerSearchTool(server: McpServer): void {
 }
 
 export function registerRecommendationTool(server: McpServer): void {
-  registerAppTool(
-    server,
+  server.registerTool(
     "recommend_meals",
     {
-      _meta: MEAL_APP_META,
+      _meta: APP_TOOL_META,
       title: "Recommend meals",
       description: "Return Forkable's ranked meal suggestions for a delivery.",
       inputSchema: recommendMealsInputSchema,

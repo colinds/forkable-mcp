@@ -4,11 +4,13 @@
   "description": "Unofficial MCP server for Forkable — order and manage corporate lunches from any MCP client.",
   "keywords": [
     "bun",
+    "food",
     "forkable",
     "lunch",
     "mcp",
     "model-context-protocol",
-    "node"
+    "node",
+    "ordering"
   ],
   "homepage": "https://github.com/colinds/forkable-mcp#readme",
   "bugs": {

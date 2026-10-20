@@ -48,6 +48,7 @@ interface BrowserState {
   recommendationsUnavailable: boolean;
   source: string;
   choices: Record<string, number[]>;
+  instructions: string;
   query: string;
   filters: MenuFilters;
   searchMatches?: SearchMatch[];
@@ -80,12 +81,19 @@ export interface MealBrowserController {
   setFilters: (filters: MenuFilters) => void;
   setQuery: (query: string) => void;
   setSource: (source: string) => void;
+  setInstructions: (instructions: string) => void;
   setDelivery: (id: number) => void;
 }
 
 export type MealEditorController = Pick<
   MealBrowserController,
-  "mealTotal" | "chooseOption" | "setSource" | "submit" | "back" | "askAboutMeal"
+  | "mealTotal"
+  | "chooseOption"
+  | "setSource"
+  | "setInstructions"
+  | "submit"
+  | "back"
+  | "askAboutMeal"
 > & {
   state: Pick<
     MealBrowserController["state"],
@@ -97,6 +105,7 @@ export type MealEditorController = Pick<
     | "problem"
     | "source"
     | "choices"
+    | "instructions"
     | "needsRefresh"
   >;
 };
@@ -115,12 +124,20 @@ function sortDeliveries(deliveries: Delivery[]) {
   return deliveries.toSorted((a, b) => a.date.localeCompare(b.date) || a.deliveryId - b.deliveryId);
 }
 
+function savedInstructions(detail: Detail, delivery: Delivery, source: string | number) {
+  const meal = delivery.meals.find((candidate) => String(candidate.pieceId) === String(source));
+  return meal?.menuId === detail.menuId && meal.itemId === detail.itemId
+    ? (meal.instructions ?? "")
+    : "";
+}
+
 function detailSelection(detail: Detail, delivery: Delivery, sourcePieceId?: string | number) {
   const source = sourcePieceId ?? (delivery.meals.length === 1 ? delivery.meals[0]!.pieceId : "");
   return {
     detail,
     source: String(source),
     choices: {},
+    instructions: savedInstructions(detail, delivery, source),
   };
 }
 
@@ -128,6 +145,7 @@ const emptySelection = {
   detail: undefined,
   source: "",
   choices: {},
+  instructions: "",
   notice: "",
 };
 const initialState: BrowserState = {
@@ -377,6 +395,7 @@ export function useMealBrowser(
         detail,
         restaurant: state.menus.find((menu) => menu.menuId === detail.menuId)?.name,
         choices: state.choices,
+        instructions: state.instructions,
         source: state.source,
       }),
     );
@@ -389,7 +408,7 @@ export function useMealBrowser(
   async function submit() {
     invalidate();
     if (!delivery || !detail) throw new Error("Choose a delivery and meal first.");
-    const args = selectionArgs(delivery, detail, state.source, state.choices);
+    const args = selectionArgs(delivery, detail, state.source, state.choices, state.instructions);
     const result = await confirmation.current.preview(call, args);
     if (!confirmation.current.pending) {
       patch({
@@ -456,7 +475,13 @@ export function useMealBrowser(
     setFilters: (filters: MenuFilters) => patch({ filters }),
     setQuery: (query: string) =>
       patch({ query, searchMatches: undefined, searchFromServer: false }),
-    setSource: (source: string) => invalidate({ source }),
+    setSource: (source: string) => {
+      let instructions = state.instructions;
+      if (detail && delivery && instructions === savedInstructions(detail, delivery, state.source))
+        instructions = savedInstructions(detail, delivery, source);
+      invalidate({ source, instructions });
+    },
+    setInstructions: (instructions: string) => invalidate({ instructions }),
     setDelivery: (id: number) =>
       void run(async () => {
         const selected = state.deliveries.find((d) => d.deliveryId === id);

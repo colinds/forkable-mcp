@@ -1,6 +1,6 @@
 import { BrowserToolbar } from "../browser-toolbar.tsx";
 import type { BrowserView } from "@/shared/contracts/browser.ts";
-import { ArrowLeft, Maximize2 } from "lucide-react";
+import { ArrowLeft } from "lucide-react";
 import { IconButton } from "../icon-button.tsx";
 import type { McpUiDisplayMode } from "@modelcontextprotocol/ext-apps";
 import { activeFilterCount, defaultFilters, menuView } from "../../lib/menu-filters.ts";
@@ -100,11 +100,6 @@ export function MealBrowser({
         busy={busy}
         onRefresh={browser.refresh}
       >
-        {presentation === "delivery" && delivery && !isPastDelivery(delivery.date) && (
-          <Button disabled={busy} onClick={() => setViewOverride("meals")}>
-            Browse meals
-          </Button>
-        )}
         {presentation === "meals" && (
           <>
             {browser.launch.view === "delivery" && (
@@ -119,14 +114,6 @@ export function MealBrowser({
               Browse all meals
             </Button>
           </>
-        )}
-        {expand && displayMode !== "fullscreen" && (
-          <IconButton
-            icon={Maximize2}
-            label="Open full view"
-            disabled={busy}
-            onClick={openFullView}
-          />
         )}
       </BrowserToolbar>
       {displayError && (
@@ -163,6 +150,11 @@ export function MealBrowser({
               busy={busy}
               choose={choose}
               status={state.deliveryStatus}
+              onBrowseMeals={
+                presentation === "delivery" && !isPastDelivery(delivery.date)
+                  ? () => setViewOverride("meals")
+                  : undefined
+              }
             />
           )}
           {presentation !== "meals" && delivery && (

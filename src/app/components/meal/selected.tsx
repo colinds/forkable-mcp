@@ -1,4 +1,5 @@
 import { MealCard } from "./card.tsx";
+import { Button } from "../button.tsx";
 import type { Delivery, Menu, DeliveryStatus } from "@/shared/contracts/meals.ts";
 
 export function SelectedMeals({
@@ -7,12 +8,14 @@ export function SelectedMeals({
   busy,
   status,
   choose,
+  onBrowseMeals,
 }: {
   delivery: Delivery;
   menus: Menu[];
   busy: boolean;
   status?: DeliveryStatus;
   choose: (menuId: number, itemId: number, sourcePieceId?: string | number) => void;
+  onBrowseMeals?: () => void;
 }) {
   return (
     <section className="selected-meals" aria-label="Selected meals">
@@ -52,6 +55,11 @@ export function SelectedMeals({
           );
         })}
       </div>
+      {onBrowseMeals && (
+        <Button className="selected-action" disabled={busy} onClick={onBrowseMeals}>
+          {delivery.meals.length ? "Change meal" : "Choose meal"}
+        </Button>
+      )}
     </section>
   );
 }

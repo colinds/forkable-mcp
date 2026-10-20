@@ -78,6 +78,7 @@ export function createToolFixtures(config: ResolvedFixtureConfig) {
                       itemId: 7,
                       cancellationPending: false,
                       name: changed ? item.name : "Chicken rice bowl",
+                      instructions: config.currentNotes,
                     },
                     {
                       pieceId: "b",
@@ -161,6 +162,7 @@ export function createToolFixtures(config: ResolvedFixtureConfig) {
               ...item,
               menuId: args.arguments.menuId,
               description: "Chili tofu, warm rice, and crisp vegetables.",
+              instructionsAllowed: config.notesAllowed,
               modifiers: [
                 {
                   id: 3,

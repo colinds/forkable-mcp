@@ -1,12 +1,10 @@
 import { deliveriesSchema, deliveryStatusSchema } from "@/shared/contracts/meals.ts";
 import { listDeliveriesInputSchema, deliveryStatusInputSchema } from "@/shared/contracts/inputs.ts";
-import { registerAppTool } from "@modelcontextprotocol/ext-apps/server";
-import { MEAL_APP_META } from "@/server/ui-server.ts";
 import { type McpServer } from "@modelcontextprotocol/server";
 import { deliveryStatus, formatDeliveryStatus } from "@/server/order/status.ts";
 
 import { appResult, errResult } from "@/server/results.ts";
-import { appGuard } from "@/server/tools/shared.ts";
+import { appGuard, APP_TOOL_META } from "@/server/tools/shared.ts";
 import {
   DELIVERY_SEL,
   DELIVERY_DETAIL_SEL,
@@ -19,11 +17,10 @@ import {
 import { fmtDelivery, compactDelivery } from "@/server/order/delivery.ts";
 
 export function registerDeliveryListTool(server: McpServer): void {
-  registerAppTool(
-    server,
+  server.registerTool(
     "list_deliveries",
     {
-      _meta: MEAL_APP_META,
+      _meta: APP_TOOL_META,
       title: "List deliveries",
       description:
         "List deliveries, selected meals, and the IDs used by other tools. Defaults to today through " +
@@ -63,11 +60,10 @@ export function registerDeliveryListTool(server: McpServer): void {
 }
 
 export function registerDeliveryStatusTool(server: McpServer): void {
-  registerAppTool(
-    server,
+  server.registerTool(
     "get_delivery_status",
     {
-      _meta: MEAL_APP_META,
+      _meta: APP_TOOL_META,
       title: "Get delivery status",
       description:
         "Show meal fulfillment, courier ETA, arrival, and each owned order's tracking link, plus delivery access notes.",

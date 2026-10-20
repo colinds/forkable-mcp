@@ -57,6 +57,7 @@ export interface Piece {
   menuId: number;
   userId?: number;
   name?: string | null;
+  instructions?: string | null;
   nonHiddenAttributes?: { label?: string; value?: string }[];
   group?: string | null;
   isConfirmed?: boolean | null;

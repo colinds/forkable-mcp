@@ -23,6 +23,7 @@ const mealSchema = z.object({
   itemId: z.number().int(),
   name: z.string().nullable().optional(),
   cancellationPending: z.boolean(),
+  instructions: z.string().optional(),
   group: z.string().nullable().optional(),
   isConfirmed: z.boolean().nullable().optional(),
   rating: ratingSchema.nullable().optional(),
@@ -72,6 +73,7 @@ const detailSchema = itemSchema.extend({
   menuId: z.number().int(),
   description: z.string().nullable(),
   modifiers: z.array(modifierSchema),
+  instructionsAllowed: z.boolean().optional(),
 });
 
 const recommendationSchema = z.object({
