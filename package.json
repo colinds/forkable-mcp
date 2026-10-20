@@ -78,7 +78,7 @@
     "fmt:check": "oxfmt --check src apps packages tests scripts package.json tsconfig.json .oxlintrc.json",
     "smoke": "bun run scripts/smoke.ts",
     "check": "oxlint && bun run fmt:check && bun run typecheck && bun test && bun run test:tz",
-    "test:browser": "bun run --filter @forkable/app test:browser"
+    "test:browser": "bun run --filter @forkable-mcp/app test:browser"
   },
   "dependencies": {
     "@modelcontextprotocol/core": "catalog:",
@@ -91,7 +91,7 @@
     "zod": "catalog:"
   },
   "devDependencies": {
-    "@forkable/shared": "workspace:*",
+    "@forkable-mcp/shared": "workspace:*",
     "@modelcontextprotocol/client": "catalog:",
     "@modelcontextprotocol/sdk": "catalog:",
     "@types/bun": "catalog:",

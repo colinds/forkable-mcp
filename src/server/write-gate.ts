@@ -1,5 +1,5 @@
 import { text } from "./results.ts";
-import type { WriteResult } from "@forkable/shared/contracts/writes.ts";
+import type { WriteResult } from "@forkable-mcp/shared/contracts/writes.ts";
 import { createHash, randomBytes } from "node:crypto";
 import type { CallToolResult } from "@modelcontextprotocol/server";
 import { baseCodes, MutationError, MutationOutcomeUnknownError } from "@/server/net/errors.ts";

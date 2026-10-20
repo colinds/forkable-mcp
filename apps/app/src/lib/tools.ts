@@ -1,9 +1,9 @@
-import { modifierMinimum } from "@forkable/shared/meal-options.ts";
+import { modifierMinimum } from "@forkable-mcp/shared/meal-options.ts";
 import type { CallToolResult } from "@modelcontextprotocol/client";
-import type { SetMealInput, BrowserToolInputs } from "@forkable/shared/contracts/inputs.ts";
+import type { SetMealInput, BrowserToolInputs } from "@forkable-mcp/shared/contracts/inputs.ts";
 import { z } from "zod";
-import type { Delivery, Detail } from "@forkable/shared/contracts/meals.ts";
-import { writeResultSchema, type WriteResult } from "@forkable/shared/contracts/writes.ts";
+import type { Delivery, Detail } from "@forkable-mcp/shared/contracts/meals.ts";
+import { writeResultSchema, type WriteResult } from "@forkable-mcp/shared/contracts/writes.ts";
 
 export type OpenLink = (url: string) => Promise<{ isError?: boolean }>;
 

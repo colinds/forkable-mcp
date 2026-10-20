@@ -2,7 +2,7 @@ import { Search, SlidersHorizontal, RotateCcw, X } from "lucide-react";
 import { IconButton } from "@/app/components/icon-button.tsx";
 import { Button } from "@/app/components/button.tsx";
 import { useRef, useState, useMemo } from "react";
-import type { Menu } from "@forkable/shared/contracts/meals.ts";
+import type { Menu } from "@forkable-mcp/shared/contracts/meals.ts";
 import {
   activeFilterCount,
   defaultFilters,

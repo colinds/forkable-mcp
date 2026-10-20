@@ -1,4 +1,4 @@
-import { withReauth } from "@forkable/shared/contracts/errors.ts";
+import { withReauth } from "@forkable-mcp/shared/contracts/errors.ts";
 import { z } from "zod";
 import type { OpenAIFormResult } from "@openai/mcp-extensions";
 import { createHash } from "node:crypto";
@@ -14,7 +14,7 @@ import {
   prepareMealInputSchema,
   prepareMealResultSchema,
   mealConfigurationInputSchema,
-} from "@forkable/shared/contracts/preparation.ts";
+} from "@forkable-mcp/shared/contracts/preparation.ts";
 import { mealForm, mealFormChoices } from "../forms/meal.ts";
 import { loadDeliveries, findDelivery, loadMenusByIds } from "../order/data.ts";
 import { compactItemDetail, itemDetail, resolveExactItem, fmtItemDetail } from "../order/menu.ts";

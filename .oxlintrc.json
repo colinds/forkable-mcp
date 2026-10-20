@@ -32,7 +32,7 @@
         "no-restricted-imports": [
           "error",
           {
-            "patterns": ["@/app/**", "**/app/**", "@forkable/app/**"]
+            "patterns": ["@/app/**", "**/app/**", "@forkable-mcp/app/**"]
           }
         ]
       }
@@ -50,7 +50,7 @@
               "**/server/**",
               "@/app/**",
               "**/app/**",
-              "@forkable/app/**"
+              "@forkable-mcp/app/**"
             ]
           }
         ]

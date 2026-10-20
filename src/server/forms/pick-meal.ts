@@ -11,9 +11,9 @@ import {
   mealShortlistInputSchema,
   mealChoiceResultSchema,
   type MealChoice,
-} from "@forkable/shared/contracts/preparation.ts";
-import { imageUrl } from "@forkable/shared/images.ts";
-import { referenceDate, referenceUri } from "@forkable/shared/meal-reference.ts";
+} from "@forkable-mcp/shared/contracts/preparation.ts";
+import { imageUrl } from "@forkable-mcp/shared/images.ts";
+import { referenceDate, referenceUri } from "@forkable-mcp/shared/meal-reference.ts";
 import { loadMealChoiceForm, mealChoiceForm } from "./choice.ts";
 import { requestMealForm, supportsMealForms } from "./request.ts";
 import { findDelivery, loadDeliveries, loadMenusByIds } from "../order/data.ts";

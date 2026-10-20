@@ -326,7 +326,7 @@ Exact-meal launches require a delivery plus its menu/item pair. `bun run start` 
 before starting stdio; `bun run dev` rebuilds UI changes while watching the server. Reopen the
 MCP view after rebuilding. Keep build output off protocol stdout.
 
-Keep app and server dependencies directed into `@forkable/shared`, never into each other. Shared
+Keep app and server dependencies directed into `@forkable-mcp/shared`, never into each other. Shared
 modules must be browser-safe. Define public tool schemas once in `packages/shared/src/contracts`, infer their types,
 and use them for server registration and frontend response validation. Keep raw Forkable API
 models on the server and UI state in the app. The linter enforces import boundaries.

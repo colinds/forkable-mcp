@@ -7,7 +7,7 @@ import {
   itemDetailSchema,
   searchResultsSchema,
   type Delivery,
-} from "@forkable/shared/contracts/meals.ts";
+} from "@forkable-mcp/shared/contracts/meals.ts";
 import { data, type CallTool } from "./tools.ts";
 import {
   initialData,

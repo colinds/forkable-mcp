@@ -1,7 +1,7 @@
 import { createContext, useContext } from "react";
 import type { MealBrowserController } from "@/app/hooks/use-meal-browser.ts";
 import type { MenuView } from "./menu-filters.ts";
-import type { BrowserView } from "@forkable/shared/contracts/browser.ts";
+import type { BrowserView } from "@forkable-mcp/shared/contracts/browser.ts";
 
 export const MealEditorContext = createContext<
   | {

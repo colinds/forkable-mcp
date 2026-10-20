@@ -1,4 +1,4 @@
-import { calendarDateSchema } from "@forkable/shared/contracts/inputs.ts";
+import { calendarDateSchema } from "@forkable-mcp/shared/contracts/inputs.ts";
 import { z } from "zod";
 import { type McpServer } from "@modelcontextprotocol/server";
 import { hashWriteArgs, type WriteGate, type WritePlan } from "@/server/write-gate.ts";

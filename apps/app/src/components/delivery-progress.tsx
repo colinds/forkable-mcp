@@ -8,8 +8,8 @@ import {
   trackingUrl,
 } from "@/app/lib/delivery-labels.ts";
 import { type OpenLink } from "@/app/lib/tools.ts";
-import { money } from "@forkable/shared/currency.ts";
-import { type Delivery, type DeliveryStatus } from "@forkable/shared/contracts/meals.ts";
+import { money } from "@forkable-mcp/shared/currency.ts";
+import { type Delivery, type DeliveryStatus } from "@forkable-mcp/shared/contracts/meals.ts";
 
 export function DeliveryProgress({
   delivery,

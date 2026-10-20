@@ -1,5 +1,5 @@
-import { browserInputSchema } from "@forkable/shared/contracts/browser.ts";
-import { setMealInputSchema } from "@forkable/shared/contracts/inputs.ts";
+import { browserInputSchema } from "@forkable-mcp/shared/contracts/browser.ts";
+import { setMealInputSchema } from "@forkable-mcp/shared/contracts/inputs.ts";
 import { z } from "zod";
 
 export const MEAL_PATH = "/delivery/$deliveryId/menu/$menuId/item/$itemId";

@@ -4,7 +4,7 @@ import {
   formatMealReference,
   mealReferenceTitle,
   type MealReference,
-} from "@forkable/shared/meal-reference.ts";
+} from "@forkable-mcp/shared/meal-reference.ts";
 
 export type WriteDraft = (meal: MealReference) => Promise<void>;
 type DraftHost = Pick<App, "getHostContext" | "getHostCapabilities" | "sendMessage">;

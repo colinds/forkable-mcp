@@ -189,7 +189,7 @@ async function checkPackage(runner: Runner, root: string, tarball: string): Prom
     await readFile(join(consumer, "node_modules", "forkable-mcp", "package.json"), "utf8"),
   ) as { dependencies: Record<string, string> };
   for (const [name, version] of Object.entries(installed.dependencies)) {
-    if (name.startsWith("@forkable/") || /^(catalog|workspace):/.test(version))
+    if (name.startsWith("@forkable-mcp/") || /^(catalog|workspace):/.test(version))
       fail(`${runner}: unresolved workspace dependency ${name}@${version}`);
     if (
       ["react", "react-dom", "lucide-react", "lucide-static"].includes(name) ||

@@ -1,8 +1,8 @@
 import { useEffect, useRef, useEffectEvent } from "react";
 import { useMutation, useQuery, useSuspenseQuery, skipToken } from "@tanstack/react-query";
 import { useRouter, useParams, useRouterState, useSearch } from "@tanstack/react-router";
-import type { createMealReference } from "@forkable/shared/meal-reference.ts";
-import type { BrowserView } from "@forkable/shared/contracts/browser.ts";
+import type { createMealReference } from "@forkable-mcp/shared/meal-reference.ts";
+import type { BrowserView } from "@forkable-mcp/shared/contracts/browser.ts";
 import type {
   Delivery,
   Detail,
@@ -10,7 +10,7 @@ import type {
   Recommendation,
   SearchMatch,
   DeliveryStatus,
-} from "@forkable/shared/contracts/meals.ts";
+} from "@forkable-mcp/shared/contracts/meals.ts";
 import {
   Confirmation,
   writeResult,

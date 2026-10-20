@@ -1,7 +1,7 @@
 import { DateStripLoading } from "./date-strip-loading.tsx";
 import { MealCardsLoading } from "@/app/components/meal/browse/loading.tsx";
 import { MealCardLoading } from "@/app/components/meal/browse/card-loading.tsx";
-import type { BrowserView } from "@forkable/shared/contracts/browser.ts";
+import type { BrowserView } from "@forkable-mcp/shared/contracts/browser.ts";
 
 export function BrowserLoading({ view, showDates }: { view: BrowserView; showDates: boolean }) {
   return (

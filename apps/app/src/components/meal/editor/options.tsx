@@ -1,6 +1,6 @@
 import { MessageSquare } from "lucide-react";
-import { modifierMinimum, MEAL_INSTRUCTIONS_LIMIT } from "@forkable/shared/meal-options.ts";
-import { money } from "@forkable/shared/currency.ts";
+import { modifierMinimum, MEAL_INSTRUCTIONS_LIMIT } from "@forkable-mcp/shared/meal-options.ts";
+import { money } from "@forkable-mcp/shared/currency.ts";
 import { Button } from "@/app/components/button.tsx";
 import type { MealEditorController } from "@/app/hooks/use-meal-browser.ts";
 import type { ReactNode } from "react";

@@ -1,6 +1,6 @@
 import { MealCard } from "./card.tsx";
 import { Button } from "@/app/components/button.tsx";
-import type { Delivery, Menu, DeliveryStatus } from "@forkable/shared/contracts/meals.ts";
+import type { Delivery, Menu, DeliveryStatus } from "@forkable-mcp/shared/contracts/meals.ts";
 
 export function SelectedMeals({
   delivery,

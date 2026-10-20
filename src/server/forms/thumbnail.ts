@@ -1,5 +1,5 @@
 import type { OpenAIFormOption } from "@openai/mcp-extensions";
-import { imageUrl } from "@forkable/shared/images.ts";
+import { imageUrl } from "@forkable-mcp/shared/images.ts";
 import type { FetchImpl } from "../net/endpoints.ts";
 
 const MAX_IMAGE_BYTES = 256 * 1024;

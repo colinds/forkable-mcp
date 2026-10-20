@@ -1,5 +1,5 @@
 {
-  "name": "@forkable/app",
+  "name": "@forkable-mcp/app",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -9,7 +9,7 @@
     "install:browser": "playwright install --with-deps chromium"
   },
   "dependencies": {
-    "@forkable/shared": "workspace:*",
+    "@forkable-mcp/shared": "workspace:*",
     "@modelcontextprotocol/ext-apps": "catalog:",
     "@openai/mcp-extensions": "catalog:",
     "@tanstack/react-query": "catalog:",

@@ -1,6 +1,6 @@
 import { afterEach, expect, mock, setSystemTime, test } from "bun:test";
 import { createMealQueries, createQueryClient } from "@/app/lib/queries.ts";
-import type { Delivery } from "@forkable/shared/contracts/meals.ts";
+import type { Delivery } from "@forkable-mcp/shared/contracts/meals.ts";
 
 const clients: ReturnType<typeof createQueryClient>[] = [];
 function client() {

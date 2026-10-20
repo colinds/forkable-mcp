@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { imageUrl } from "@forkable/shared/images.ts";
+import { imageUrl } from "@forkable-mcp/shared/images.ts";
 export function MealPhoto({ url, name }: { url: string | null; name: string }) {
   const [failed, setFailed] = useState(false);
   const src = imageUrl(url);

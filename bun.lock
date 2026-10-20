@@ -15,7 +15,7 @@
         "zod": "catalog:",
       },
       "devDependencies": {
-        "@forkable/shared": "workspace:*",
+        "@forkable-mcp/shared": "workspace:*",
         "@modelcontextprotocol/client": "catalog:",
         "@modelcontextprotocol/sdk": "catalog:",
         "@types/bun": "catalog:",
@@ -26,10 +26,10 @@
       },
     },
     "apps/app": {
-      "name": "@forkable/app",
+      "name": "@forkable-mcp/app",
       "version": "0.0.0",
       "dependencies": {
-        "@forkable/shared": "workspace:*",
+        "@forkable-mcp/shared": "workspace:*",
         "@modelcontextprotocol/ext-apps": "catalog:",
         "@openai/mcp-extensions": "catalog:",
         "@tanstack/react-query": "catalog:",
@@ -49,7 +49,7 @@
       },
     },
     "packages/shared": {
-      "name": "@forkable/shared",
+      "name": "@forkable-mcp/shared",
       "version": "0.0.0",
       "dependencies": {
         "zod": "catalog:",
@@ -87,9 +87,9 @@
   "packages": {
     "@cfworker/json-schema": ["@cfworker/json-schema@4.1.1", "", {}, "sha512-gAmrUZSGtKc3AiBL71iNWxDsyUC5uMaKKGdvzYsBoTW/xi42JQHl7eKV2OYzCUqvc+D2RCcf7EXY2iCyFIk6og=="],
 
-    "@forkable/app": ["@forkable/app@workspace:apps/app"],
+    "@forkable-mcp/app": ["@forkable-mcp/app@workspace:apps/app"],
 
-    "@forkable/shared": ["@forkable/shared@workspace:packages/shared"],
+    "@forkable-mcp/shared": ["@forkable-mcp/shared@workspace:packages/shared"],
 
     "@hono/node-server": ["@hono/node-server@2.1.5", "", { "peerDependencies": { "hono": "^4 || ^5.0.0-0" } }, "sha512-MgP/I06GdvsilDspMk/qmRzpk8LOUStP6jFAbSRi40W09DhoyUn+Mj7eyKICPqeYKybOjVFLVIAQzvu1bfIa7Q=="],
 

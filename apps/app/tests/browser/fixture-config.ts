@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { browserInputSchema } from "@forkable/shared/contracts/browser.ts";
+import { browserInputSchema } from "@forkable-mcp/shared/contracts/browser.ts";
 
 const fixtureConfigSchema = z.object({
   launch: z

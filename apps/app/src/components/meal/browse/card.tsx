@@ -1,6 +1,6 @@
 import { MealPhoto } from "@/app/components/meal/photo.tsx";
 
-import { money } from "@forkable/shared/currency.ts";
+import { money } from "@forkable-mcp/shared/currency.ts";
 
 interface MealCardProps {
   name: string;

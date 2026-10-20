@@ -1,5 +1,5 @@
 import { useEffect, useRef, useMemo } from "react";
-import type { Delivery } from "@forkable/shared/contracts/meals.ts";
+import type { Delivery } from "@forkable-mcp/shared/contracts/meals.ts";
 
 import { dateLabels } from "@/app/lib/delivery-labels.ts";
 

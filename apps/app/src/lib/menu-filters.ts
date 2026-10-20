@@ -1,7 +1,10 @@
 import { itemKey } from "./tools.ts";
-import type { Menu, Recommendation, SearchMatch } from "@forkable/shared/contracts/meals.ts";
-import { menuFiltersSchema, type MenuFilters } from "@forkable/shared/contracts/menu-filters.ts";
-export type { MenuFilters } from "@forkable/shared/contracts/menu-filters.ts";
+import type { Menu, Recommendation, SearchMatch } from "@forkable-mcp/shared/contracts/meals.ts";
+import {
+  menuFiltersSchema,
+  type MenuFilters,
+} from "@forkable-mcp/shared/contracts/menu-filters.ts";
+export type { MenuFilters } from "@forkable-mcp/shared/contracts/menu-filters.ts";
 
 export const defaultFilters: MenuFilters = menuFiltersSchema.parse({});
 

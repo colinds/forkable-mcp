@@ -1,9 +1,9 @@
 import { useMealDraft } from "@/app/lib/meal-draft-context.ts";
 import { useSearch } from "@tanstack/react-router";
-import { selectedMealTotal } from "@forkable/shared/meal-options.ts";
-import { createMealReference } from "@forkable/shared/meal-reference.ts";
+import { selectedMealTotal } from "@forkable-mcp/shared/meal-options.ts";
+import { createMealReference } from "@forkable-mcp/shared/meal-reference.ts";
 import type { MealBrowserController } from "./use-meal-browser.ts";
-import type { Detail } from "@forkable/shared/contracts/meals.ts";
+import type { Detail } from "@forkable-mcp/shared/contracts/meals.ts";
 import type { MealDraftValues } from "@/app/lib/editor-types.ts";
 
 const noChoices: Record<string, number[]> = {};

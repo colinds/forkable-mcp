@@ -1,9 +1,9 @@
-import { withReauth } from "@forkable/shared/contracts/errors.ts";
-import { deliveriesSchema, deliveryStatusSchema } from "@forkable/shared/contracts/meals.ts";
+import { withReauth } from "@forkable-mcp/shared/contracts/errors.ts";
+import { deliveriesSchema, deliveryStatusSchema } from "@forkable-mcp/shared/contracts/meals.ts";
 import {
   listDeliveriesInputSchema,
   deliveryStatusInputSchema,
-} from "@forkable/shared/contracts/inputs.ts";
+} from "@forkable-mcp/shared/contracts/inputs.ts";
 import { type McpServer } from "@modelcontextprotocol/server";
 import { deliveryStatus, formatDeliveryStatus } from "@/server/order/status.ts";
 

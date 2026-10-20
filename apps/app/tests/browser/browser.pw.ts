@@ -1,7 +1,7 @@
 import { test, expect } from "@playwright/test";
 import { PNG_BASE64, MEAL_ILLUSTRATION_SVG } from "@/tests/fixtures/image.ts";
 import { fixtureUrl, type FixtureConfig } from "./fixture-config.ts";
-import type { MenuFilters } from "@forkable/shared/contracts/menu-filters.ts";
+import type { MenuFilters } from "@forkable-mcp/shared/contracts/menu-filters.ts";
 
 test.beforeEach(async ({ page }) => {
   await page.clock.setFixedTime(new Date("2026-10-05T12:00:00-07:00"));

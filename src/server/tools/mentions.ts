@@ -4,7 +4,7 @@ import {
   mealReferenceTitle,
   referenceUri,
   referenceDate,
-} from "@forkable/shared/meal-reference.ts";
+} from "@forkable-mcp/shared/meal-reference.ts";
 import { compactDelivery } from "../order/delivery.ts";
 import { registerMentions } from "@/server/mentions.ts";
 import type { Menu } from "@/server/order/types.ts";

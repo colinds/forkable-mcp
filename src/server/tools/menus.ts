@@ -1,14 +1,14 @@
-import { withReauth } from "@forkable/shared/contracts/errors.ts";
+import { withReauth } from "@forkable-mcp/shared/contracts/errors.ts";
 import {
   getMenusResultSchema,
   searchResultsSchema,
   recommendationsSchema,
-} from "@forkable/shared/contracts/meals.ts";
+} from "@forkable-mcp/shared/contracts/meals.ts";
 import {
   getMenusInputSchema,
   searchItemsInputSchema,
   recommendMealsInputSchema,
-} from "@forkable/shared/contracts/inputs.ts";
+} from "@forkable-mcp/shared/contracts/inputs.ts";
 import { type McpServer } from "@modelcontextprotocol/server";
 
 import { appResult, errResult } from "@/server/results.ts";

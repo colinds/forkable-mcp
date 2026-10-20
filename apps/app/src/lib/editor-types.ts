@@ -1,4 +1,4 @@
-import type { Detail } from "@forkable/shared/contracts/meals.ts";
+import type { Detail } from "@forkable-mcp/shared/contracts/meals.ts";
 
 export type MealPreview = Pick<
   Detail,

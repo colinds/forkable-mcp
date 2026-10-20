@@ -1,9 +1,9 @@
-import type { BrowserView } from "@forkable/shared/contracts/browser.ts";
-import { createMealReference, referenceUri } from "@forkable/shared/meal-reference.ts";
+import type { BrowserView } from "@forkable-mcp/shared/contracts/browser.ts";
+import { createMealReference, referenceUri } from "@forkable-mcp/shared/meal-reference.ts";
 import type { OpenAIModelContextHostState } from "@openai/mcp-extensions/app";
 import { type MenuView, type MenuFilters } from "./menu-filters.ts";
 import type { App, McpUiSupportedContentBlockModalities } from "@modelcontextprotocol/ext-apps";
-import type { Delivery, Detail, Menu } from "@forkable/shared/contracts/meals.ts";
+import type { Delivery, Detail, Menu } from "@forkable-mcp/shared/contracts/meals.ts";
 export type ModelContext = Parameters<App["updateModelContext"]>[0];
 export type UpdateContext = (context: ModelContext) => Promise<unknown>;
 

@@ -1,4 +1,4 @@
-import { todayLocal, addDaysLocal } from "@forkable/shared/dates.ts";
+import { todayLocal, addDaysLocal } from "@forkable-mcp/shared/dates.ts";
 import type { ForkableClient } from "@/server/net/client.ts";
 import { buildQuery } from "@/server/net/gql.ts";
 import { type Delivery, type Menu } from "@/server/order/types.ts";

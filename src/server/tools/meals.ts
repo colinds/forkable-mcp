@@ -1,4 +1,4 @@
-import { setMealInputSchema } from "@forkable/shared/contracts/inputs.ts";
+import { setMealInputSchema } from "@forkable-mcp/shared/contracts/inputs.ts";
 import { z } from "zod";
 import { type McpServer } from "@modelcontextprotocol/server";
 import type { ForkableClient } from "@/server/net/client.ts";

@@ -1,7 +1,7 @@
 import type { OpenAIForm, OpenAIFormResult } from "@openai/mcp-extensions";
-import type { Detail } from "@forkable/shared/contracts/meals.ts";
-import type { ReplacementTarget } from "@forkable/shared/contracts/preparation.ts";
-import { modifierMinimum, MEAL_INSTRUCTIONS_LIMIT } from "@forkable/shared/meal-options.ts";
+import type { Detail } from "@forkable-mcp/shared/contracts/meals.ts";
+import type { ReplacementTarget } from "@forkable-mcp/shared/contracts/preparation.ts";
+import { modifierMinimum, MEAL_INSTRUCTIONS_LIMIT } from "@forkable-mcp/shared/meal-options.ts";
 import { formatMoney } from "../order/format.ts";
 
 export function mealForm(

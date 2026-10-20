@@ -8,7 +8,7 @@ import { MealApp } from "./app.tsx";
 import { observeAppSize } from "@/app/lib/host-size.ts";
 import { applyHostContext } from "@/app/lib/host-theme.ts";
 import { type InitialView } from "@/app/lib/initial-view.ts";
-import { browserInputSchema } from "@forkable/shared/contracts/browser.ts";
+import { browserInputSchema } from "@forkable-mcp/shared/contracts/browser.ts";
 import { createContextUpdater } from "@/app/lib/model-context.ts";
 import type { CallTool } from "@/app/lib/tools.ts";
 const app = new App(

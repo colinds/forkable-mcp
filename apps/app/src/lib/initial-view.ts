@@ -1,7 +1,7 @@
 import { activeFilterCount, defaultFilters } from "./menu-filters.ts";
-import { browserInputSchema, type BrowserView } from "@forkable/shared/contracts/browser.ts";
+import { browserInputSchema, type BrowserView } from "@forkable-mcp/shared/contracts/browser.ts";
 import type { z } from "zod";
-import { todayLocal } from "@forkable/shared/dates.ts";
+import { todayLocal } from "@forkable-mcp/shared/dates.ts";
 import { type ToolResult } from "./tools.ts";
 import {
   deliveriesSchema,
@@ -10,7 +10,7 @@ import {
   itemDetailSchema,
   recommendationsSchema,
   deliveryStatusSchema,
-} from "@forkable/shared/contracts/meals.ts";
+} from "@forkable-mcp/shared/contracts/meals.ts";
 
 export interface InitialView {
   input: z.infer<typeof browserInputSchema>;

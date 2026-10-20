@@ -1,6 +1,6 @@
 import { type MenuView } from "@/app/lib/menu-filters.ts";
 import { itemKey } from "@/app/lib/tools.ts";
-import { type Menu } from "@forkable/shared/contracts/meals.ts";
+import { type Menu } from "@forkable-mcp/shared/contracts/meals.ts";
 import { MealCard } from "./card.tsx";
 import { MealCardsLoading } from "./loading.tsx";
 

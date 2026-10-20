@@ -1,9 +1,9 @@
-import { menuFiltersSchema } from "@forkable/shared/contracts/menu-filters.ts";
-import { selectedMealTotal } from "@forkable/shared/meal-options.ts";
-import { createMealReference } from "@forkable/shared/meal-reference.ts";
+import { menuFiltersSchema } from "@forkable-mcp/shared/contracts/menu-filters.ts";
+import { selectedMealTotal } from "@forkable-mcp/shared/meal-options.ts";
+import { createMealReference } from "@forkable-mcp/shared/meal-reference.ts";
 import { createDraftWriter, mealDraft, supportsEditableDrafts } from "@/app/lib/chat-draft.ts";
 import { initialRange, initialLaunch } from "@/app/lib/initial-view.ts";
-import { openBrowserInputSchema } from "@forkable/shared/contracts/browser.ts";
+import { openBrowserInputSchema } from "@forkable-mcp/shared/contracts/browser.ts";
 import { browserContext, createContextUpdater } from "@/app/lib/model-context.ts";
 import {
   defaultFilters,
@@ -17,8 +17,8 @@ import { Client } from "@modelcontextprotocol/client";
 import { McpServer, InMemoryTransport } from "@modelcontextprotocol/server";
 import { registerMealBrowser, APP_URI, MEAL_BROWSER_INSTRUCTIONS } from "@/server/ui-server.ts";
 import { Confirmation, data, selectionArgs, type CallTool } from "@/app/lib/tools.ts";
-import { imageUrl } from "@forkable/shared/images.ts";
-import { menusSchema, type Delivery, type Detail } from "@forkable/shared/contracts/meals.ts";
+import { imageUrl } from "@forkable-mcp/shared/images.ts";
+import { menusSchema, type Delivery, type Detail } from "@forkable-mcp/shared/contracts/meals.ts";
 
 const delivery: Delivery = {
   deliveryId: 1,

@@ -1,5 +1,5 @@
-import type { Delivery } from "@forkable/shared/contracts/meals.ts";
-import { money } from "@forkable/shared/currency.ts";
+import type { Delivery } from "@forkable-mcp/shared/contracts/meals.ts";
+import { money } from "@forkable-mcp/shared/currency.ts";
 import type { MealPreview } from "@/app/lib/editor-types.ts";
 import { MealPhoto } from "@/app/components/meal/photo.tsx";
 
