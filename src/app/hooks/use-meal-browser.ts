@@ -33,6 +33,10 @@ import {
   type SearchMatch,
 } from "@/shared/contracts/meals.ts";
 type PendingAction = "loading" | "saving" | "drafting";
+type MealPreview = Pick<
+  Detail,
+  "menuId" | "itemId" | "name" | "imageUrl" | "price" | "description"
+>;
 
 interface BrowserState {
   deliveries: Delivery[];
@@ -41,6 +45,7 @@ interface BrowserState {
   menus: Menu[];
   recommendations: Recommendation[];
   detail?: Detail;
+  selectedMeal?: MealPreview;
   deliveryStatus?: DeliveryStatus;
   statusUnavailable: boolean;
   statusLoading: boolean;
@@ -88,6 +93,7 @@ export interface MealBrowserController {
 export type MealEditorController = Pick<
   MealBrowserController,
   | "mealTotal"
+  | "choose"
   | "chooseOption"
   | "setSource"
   | "setInstructions"
@@ -99,6 +105,7 @@ export type MealEditorController = Pick<
     MealBrowserController["state"],
     | "delivery"
     | "detail"
+    | "selectedMeal"
     | "busy"
     | "pendingAction"
     | "notice"
@@ -143,6 +150,7 @@ function detailSelection(detail: Detail, delivery: Delivery, sourcePieceId?: str
 
 const emptySelection = {
   detail: undefined,
+  selectedMeal: undefined,
   source: "",
   choices: {},
   instructions: "",
@@ -172,6 +180,7 @@ export function useMealBrowser(
 ): MealBrowserController {
   const [state, setState] = useState(initialState);
   const running = useRef(false);
+  const detailRequest = useRef<MealPreview | undefined>(undefined);
   const loadGeneration = useRef(0);
   const [range] = useState(() => initialRange(initial));
   const [launch] = useState(() => initialLaunch(initial));
@@ -360,20 +369,55 @@ export function useMealBrowser(
     })();
     return () => {
       cancelled = true;
+      detailRequest.current = undefined;
       discardPendingDeliveryReads();
     };
   }, [call, initial, range, loadMenus, patch, discardPendingDeliveryReads, launch.filters]);
 
-  function choose(menuId: number, itemId: number, sourcePieceId?: string | number) {
-    if (!delivery || isPastDelivery(delivery.date)) return;
-    void run(async () => {
-      invalidate(emptySelection);
-      const item = data(
+  async function choose(menuId: number, itemId: number, sourcePieceId?: string | number) {
+    if (!delivery || isPastDelivery(delivery.date) || running.current || detailRequest.current)
+      return;
+    const listed = state.menus
+      .find((menu) => menu.menuId === menuId)
+      ?.items.find((meal) => meal.itemId === itemId);
+    const selected = delivery.meals.find(
+      (meal) => meal.menuId === menuId && meal.itemId === itemId,
+    );
+    const preview: MealPreview = {
+      menuId,
+      itemId,
+      name: listed?.name ?? selected?.name ?? "Meal details",
+      price: listed?.price ?? null,
+      imageUrl: listed?.imageUrl ?? null,
+      description: listed?.description ?? null,
+    };
+    detailRequest.current = preview;
+    invalidate({
+      ...emptySelection,
+      selectedMeal: preview,
+      source: sourcePieceId == null ? "" : String(sourcePieceId),
+      pendingAction: "loading",
+      problem: false,
+    });
+    try {
+      const loaded = data(
         await call("get_menus", { deliveryId: delivery.deliveryId, menuId, itemId }),
         itemDetailSchema,
       ).item;
-      patch(detailSelection(item, delivery, sourcePieceId));
-    });
+      if (detailRequest.current === preview)
+        patch(detailSelection(loaded, delivery, sourcePieceId));
+    } catch (error) {
+      if (detailRequest.current === preview)
+        patch({
+          notice: error instanceof Error ? error.message : "Unable to load meal options.",
+          problem: true,
+        });
+    } finally {
+      if (detailRequest.current === preview) {
+        detailRequest.current = undefined;
+        patch({ pendingAction: undefined });
+      }
+    }
   }
   function chooseOption(
     modifierId: number,
@@ -471,7 +515,10 @@ export function useMealBrowser(
     submit: () => {
       if (!state.needsRefresh) void run(submit, "saving");
     },
-    back: () => invalidate(emptySelection),
+    back: () => {
+      detailRequest.current = undefined;
+      invalidate({ ...emptySelection, pendingAction: undefined });
+    },
     setFilters: (filters: MenuFilters) => patch({ filters }),
     setQuery: (query: string) =>
       patch({ query, searchMatches: undefined, searchFromServer: false }),

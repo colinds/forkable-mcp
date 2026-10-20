@@ -11,13 +11,13 @@ export const fixtureServer = Bun.serve({
         headers: {
           "Content-Type": "text/html",
           "Content-Security-Policy":
-            "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src https://cdn.filestackcontent.com; font-src data:; connect-src 'none'",
+            "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src https://cdn.filestackcontent.com; font-src data: https://assets.claude.ai; connect-src 'none'",
         },
       });
     if (path === "/host.js")
       return new Response(js, { headers: { "Content-Type": "text/javascript" } });
     return new Response(
-      '<!doctype html><html><body style="margin:0"><button>Dark theme</button><iframe title="Forkable" style="border:0;width:100%;height:94vh"></iframe><script type="module" src="/host.js"></script></body></html>',
+      '<!doctype html><html><head><meta name="color-scheme" content="light dark"></head><body style="margin:0"><button>Dark theme</button><iframe title="Forkable" style="border:0;width:100%;height:94vh"></iframe><script type="module" src="/host.js"></script></body></html>',
       { headers: { "Content-Type": "text/html" } },
     );
   },

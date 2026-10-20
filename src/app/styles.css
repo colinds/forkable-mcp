@@ -1,8 +1,37 @@
+html,
+body {
+  background: transparent;
+}
+body {
+  line-height: var(--font-text-md-line-height, 1.5);
+}
+h1 {
+  font-size: var(--font-heading-xl-size, calc(var(--font-size-base) * 1.7142857143));
+  line-height: var(--font-heading-xl-line-height, 1.25);
+}
+h2 {
+  font-size: var(--font-heading-lg-size, calc(var(--font-size-base) * 1.4285714286));
+  line-height: var(--font-heading-lg-line-height, 1.25);
+}
+h3 {
+  font-size: var(--font-heading-md-size, calc(var(--font-size-base) * 1.1428571429));
+  line-height: var(--font-heading-md-line-height, 1.35);
+}
+.btn,
+.form-control,
+.form-select {
+  border-width: var(--border-width-regular, 1px);
+  border-radius: var(--border-radius-md, var(--radius));
+}
 #app {
+  --content-padding: 24px;
   box-sizing: border-box;
   max-width: 1100px;
   margin: auto;
-  padding: 24px;
+  padding: max(var(--content-padding), var(--host-safe-area-top, 0px))
+    max(var(--content-padding), var(--host-safe-area-right, 0px))
+    max(var(--content-padding), var(--host-safe-area-bottom, 0px))
+    max(var(--content-padding), var(--host-safe-area-left, 0px));
 }
 .lucide {
   flex-shrink: 0;
@@ -31,6 +60,7 @@ p {
 .muted {
   color: var(--muted-foreground);
   font-size: var(--font-text-sm-size, 0.929em);
+  line-height: var(--font-text-sm-line-height, 1.5);
 }
 .form-label {
   display: block;
@@ -54,8 +84,8 @@ p {
   text-align: left;
   color: var(--foreground);
   background: var(--background);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
+  border: var(--border-width-regular, 1px) solid var(--color-border-tertiary, var(--border));
+  border-radius: var(--border-radius-lg, var(--radius));
   font: inherit;
 }
 .meal-card:hover {
@@ -63,6 +93,7 @@ p {
 }
 button:focus-visible,
 input:focus-visible,
+textarea:focus-visible,
 select:focus-visible {
   outline: 2px solid var(--ring);
   outline-offset: 3px;
@@ -98,6 +129,7 @@ button:disabled {
 .recommendation {
   color: var(--primary);
   font-size: var(--font-text-xs-size, 0.857em);
+  line-height: var(--font-text-xs-line-height, 1.4);
 }
 .empty {
   grid-column: 1 / -1;
@@ -119,8 +151,6 @@ button:disabled {
 .detail-header h2 {
   margin: 0;
   min-width: 0;
-  font-size: var(--font-heading-sm-size, 1.35em);
-  line-height: 1.3;
   overflow-wrap: anywhere;
 }
 .detail-header .btn {
@@ -140,8 +170,41 @@ button:disabled {
 .detail-content form {
   min-width: 0;
 }
+.detail-content {
+  min-height: 240px;
+}
+.options-loading {
+  display: grid;
+  gap: 20px;
+}
+.option-skeleton {
+  display: grid;
+  gap: 12px;
+}
+.skeleton {
+  background: var(--color-background-secondary, var(--secondary));
+  border-radius: var(--border-radius-sm, 6px);
+  animation: options-pulse 1.5s ease-in-out infinite;
+}
+.skeleton-label {
+  height: 14px;
+  width: 45%;
+}
+.skeleton-control {
+  height: 36px;
+}
+@keyframes options-pulse {
+  50% {
+    opacity: 0.45;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .skeleton {
+    animation: none;
+  }
+}
 .detail .photo {
-  border-radius: var(--radius);
+  border-radius: var(--border-radius-lg, var(--radius));
 }
 .detail-actions {
   display: grid;
@@ -150,7 +213,7 @@ button:disabled {
   bottom: -1px;
   padding: 16px 0 0;
   background: var(--background);
-  border-top: 1px solid var(--border);
+  border-top: var(--border-width-regular, 1px) solid var(--color-border-tertiary, var(--border));
 }
 .detail-actions .btn {
   width: 100%;
@@ -180,15 +243,21 @@ legend {
   padding: 14px;
   margin: 12px 0;
   background: var(--secondary);
-  border-radius: var(--radius);
+  border-radius: var(--border-radius-lg, var(--radius));
   white-space: pre-wrap;
 }
+.notice[role="status"] {
+  color: var(--color-text-info, var(--foreground));
+  background: var(--color-background-info, var(--secondary));
+}
 .error {
-  border: 1px solid var(--destructive);
+  color: var(--color-text-danger, var(--foreground));
+  background: var(--color-background-danger, var(--secondary));
+  border: var(--border-width-regular, 1px) solid var(--color-border-danger, var(--destructive));
 }
 @media (max-width: 480px) {
   #app {
-    padding: 16px;
+    --content-padding: 16px;
   }
   .meals {
     grid-template-columns: repeat(auto-fill, minmax(155px, 1fr));
@@ -216,15 +285,16 @@ legend {
   gap: 5px;
   text-align: left;
   padding: 14px 18px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
+  border: var(--border-width-regular, 1px) solid var(--color-border-tertiary, var(--border));
+  border-radius: var(--border-radius-lg, var(--radius));
   background: var(--background);
   color: var(--foreground);
   font: inherit;
   scroll-snap-align: start;
 }
 .date-chip time {
-  font-size: 1.15em;
+  font-size: var(--font-text-lg-size, 1.15em);
+  line-height: var(--font-text-lg-line-height, 1.3);
   font-weight: var(--font-weight-medium, 500);
 }
 .date-chip[aria-pressed="true"] {
@@ -267,16 +337,24 @@ legend {
   gap: 5px;
 }
 .meal-dialog {
-  width: min(900px, calc(100% - 32px));
-  max-height: calc(100dvh - 32px);
+  inset: var(--host-safe-area-top, 0px) var(--host-safe-area-right, 0px)
+    var(--host-safe-area-bottom, 0px) var(--host-safe-area-left, 0px);
+  width: min(
+    900px,
+    calc(100% - 32px - var(--host-safe-area-left, 0px) - var(--host-safe-area-right, 0px))
+  );
+  max-height: calc(
+    100dvh - 32px - var(--host-safe-area-top, 0px) - var(--host-safe-area-bottom, 0px)
+  );
   margin: auto;
   padding: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
+  border: var(--border-width-regular, 1px) solid var(--color-border-tertiary, var(--border));
+  border-radius: var(--border-radius-lg, var(--radius));
   background: var(--background);
   color: var(--foreground);
+  box-shadow: var(--shadow-md, 0 8px 32px rgb(0 0 0 / 20%));
 }
 .meal-dialog::backdrop {
   background: color-mix(in srgb, var(--foreground) 30%, transparent);
@@ -312,8 +390,10 @@ legend {
     width: 90px;
   }
   .meal-dialog {
-    width: calc(100% - 16px);
-    max-height: calc(100dvh - 16px);
+    width: calc(100% - 16px - var(--host-safe-area-left, 0px) - var(--host-safe-area-right, 0px));
+    max-height: calc(
+      100dvh - 16px - var(--host-safe-area-top, 0px) - var(--host-safe-area-bottom, 0px)
+    );
   }
 }
 
@@ -334,6 +414,10 @@ legend {
   padding: 4px 10px;
   font-size: var(--font-text-sm-size, 0.929em);
 }
+.status-badge[data-status="confirmed"] {
+  color: var(--color-text-success, var(--foreground));
+  background: var(--color-background-success, var(--secondary));
+}
 .delivery-meta {
   display: flex;
   flex-wrap: wrap;
@@ -345,7 +429,7 @@ legend {
   justify-content: space-between;
   gap: 16px;
   padding: 14px 0 0;
-  border-top: 1px solid var(--border);
+  border-top: var(--border-width-regular, 1px) solid var(--color-border-tertiary, var(--border));
 }
 .order-update-info {
   display: grid;
@@ -372,7 +456,7 @@ legend {
 .menu-browser {
   margin-top: 28px;
   padding-top: 24px;
-  border-top: 1px solid var(--border);
+  border-top: var(--border-width-regular, 1px) solid var(--color-border-tertiary, var(--border));
 }
 .menu-browser > h2 {
   margin-bottom: 14px;
@@ -412,7 +496,7 @@ legend {
   width: 34px;
   height: 34px;
   border: 0;
-  border-radius: var(--radius);
+  border-radius: var(--border-radius-sm, var(--radius));
   background: transparent;
   color: var(--muted-foreground);
   font: inherit;
@@ -448,8 +532,8 @@ legend {
   margin-top: 12px;
   padding: 16px;
   background: var(--secondary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
+  border: var(--border-width-regular, 1px) solid var(--color-border-tertiary, var(--border));
+  border-radius: var(--border-radius-lg, var(--radius));
 }
 .meal-results > .result-count {
   margin: 14px 0 20px;
@@ -457,7 +541,7 @@ legend {
 .restaurant-group + .restaurant-group {
   margin-top: 32px;
   padding-top: 24px;
-  border-top: 1px solid var(--border);
+  border-top: var(--border-width-regular, 1px) solid var(--color-border-tertiary, var(--border));
 }
 .restaurant-heading {
   display: flex;
@@ -465,7 +549,6 @@ legend {
   gap: 10px;
 }
 .restaurant-heading h3 {
-  font-size: 1.15em;
   font-weight: var(--font-weight-medium, 500);
 }
 .filter-fields {
@@ -488,7 +571,7 @@ legend {
 }
 
 html[data-display-mode="inline"] #app {
-  padding: 12px;
+  --content-padding: 12px;
   max-height: 720px;
   overflow-y: auto;
 }
@@ -577,4 +660,22 @@ html[data-display-mode="inline"] #app {
   clip-path: inset(50%);
   white-space: nowrap;
   border: 0;
+}
+
+@media (pointer: coarse) {
+  .btn,
+  .icon-button,
+  .refresh-button,
+  .search-clear {
+    min-height: 44px;
+  }
+  .icon-button,
+  .refresh-button,
+  .search-clear {
+    min-width: 44px;
+  }
+  .meal-search .form-control {
+    min-height: 48px;
+    padding-right: 54px;
+  }
 }

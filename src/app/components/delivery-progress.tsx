@@ -31,7 +31,7 @@ export function DeliveryProgress({
   return (
     <section className="delivery-progress" aria-label="Delivery updates">
       <div className="delivery-summary">
-        <span className="status-badge">
+        <span className="status-badge" data-status={delivery.status}>
           {delivery.status === "confirmed" ? "Confirmed" : "Meal selection"}
         </span>
         <span>{statusLabel}</span>

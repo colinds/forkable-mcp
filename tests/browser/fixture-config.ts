@@ -24,6 +24,16 @@ const fixtureConfigSchema = z.object({
   notesAllowed: z.boolean().default(true),
   currentNotes: z.string().optional(),
   displayMode: z.enum(["inline", "fullscreen"]).default("inline"),
+  appearance: z.enum(["minimal", "claude", "cursor", "chatgpt"]).default("minimal"),
+  theme: z.enum(["light", "dark"]).default("light"),
+  safeAreaInsets: z
+    .object({
+      top: z.number().nonnegative(),
+      right: z.number().nonnegative(),
+      bottom: z.number().nonnegative(),
+      left: z.number().nonnegative(),
+    })
+    .optional(),
   sizing: z.enum(["fixed", "auto", "clamped"]).default("fixed"),
   initialFrameHeight: z.number().positive().default(1600),
   context: z
@@ -42,6 +52,7 @@ const fixtureConfigSchema = z.object({
     .optional(),
   readError: z.boolean().default(false),
   auxiliaryReads: z.enum(["normal", "held", "error"]).default("normal"),
+  details: z.enum(["normal", "held", "error-once"]).default("normal"),
   refreshFailure: z.enum(["list", "search"]).optional(),
   write: z
     .object({

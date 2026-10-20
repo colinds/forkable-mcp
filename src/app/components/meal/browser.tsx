@@ -92,7 +92,7 @@ export function MealBrowser({
     browser.choose(menuId, itemId, sourcePieceId);
   }
   return (
-    <div aria-busy={busy} className={compact ? "compact-view" : undefined}>
+    <div aria-busy={busy && !state.selectedMeal} className={compact ? "compact-view" : undefined}>
       <BrowserToolbar
         title={title}
         date={compact ? delivery?.date : undefined}
@@ -126,7 +126,7 @@ export function MealBrowser({
           Chat context could not be updated. Try reopening the app.
         </p>
       )}
-      {notice && !detail && (
+      {notice && !detail && !state.selectedMeal && (
         <p className={`notice ${problem ? "error" : ""}`} role={problem ? "alert" : "status"}>
           {notice}
         </p>
@@ -211,8 +211,12 @@ export function MealBrowser({
           )}
         </>
       )}
-      {detail && delivery && (
-        <MealDialog busy={busy} onClose={browser.back} returnFocus={opener}>
+      {(detail || state.selectedMeal) && delivery && (
+        <MealDialog
+          busy={busy && state.pendingAction !== "loading"}
+          onClose={browser.back}
+          returnFocus={opener}
+        >
           <MealDetail browser={browser} />
         </MealDialog>
       )}
