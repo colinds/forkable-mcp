@@ -1,5 +1,6 @@
 import type { AppBridge } from "@modelcontextprotocol/ext-apps/app-bridge";
 import type { ResolvedFixtureConfig } from "./fixture-config.ts";
+import type { DeliveryStatus } from "@forkable-mcp/shared/contracts/meals.ts";
 
 export function createToolFixtures(config: ResolvedFixtureConfig) {
   const calls: { name: string; arguments?: Record<string, unknown> }[] = [];
@@ -124,13 +125,17 @@ export function createToolFixtures(config: ResolvedFixtureConfig) {
     if (args.name === "list_deliveries" && config.deliveryScenario === "no-meals" && !changed) {
       for (const delivery of result.deliveries as { meals: unknown[] }[]) delivery.meals = [];
     }
-    if (args.name === "list_deliveries" && config.deliveryScenario === "dates") {
+    if (
+      args.name === "list_deliveries" &&
+      ["dates", "date-statuses"].includes(config.deliveryScenario)
+    ) {
       const first = (result.deliveries as Record<string, unknown>[])[0]!;
       result.deliveries = ["05", "06", "07", "08", "09", "12", "13", "13"].map((day, index) =>
         Object.assign({}, first, {
           deliveryId: index + 1,
           date: `2026-10-${day}`,
           service: index === 7 ? "Dinner" : "Lunch",
+          meals: config.deliveryScenario === "date-statuses" && index === 1 ? [] : first.meals,
         }),
       );
     }
@@ -185,6 +190,29 @@ export function createToolFixtures(config: ResolvedFixtureConfig) {
           billing: { reportedDueCents: 250 },
         },
       };
+    if (args.name === "get_delivery_status" && config.deliveryUpdates) {
+      const status = result.status as DeliveryStatus;
+      status.fulfillment = "delivered";
+      status.orders[0] = {
+        ...status.orders[0]!,
+        fulfillment: "delivered",
+        dropoffCompletedAt: "2026-10-05T18:28:00Z",
+        trackingUrl: "https://track.example/meal",
+      };
+      if (config.deliveryUpdates === "multiple") {
+        status.fulfillment = "partially delivered";
+        status.delayed = true;
+        status.orders.push({
+          orderId: 101,
+          venue: "Second Restaurant",
+          fulfillment: "delayed",
+          etaStart: "2026-10-05T19:10:00Z",
+          etaEnd: "2026-10-05T19:30:00Z",
+          dropoffCompletedAt: null,
+          trackingUrl: "https://track.example/second",
+        });
+      }
+    }
     if (args.name === "get_menus")
       result = args.arguments?.itemId
         ? {

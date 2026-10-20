@@ -11,7 +11,13 @@ import {
   restaurantGroups,
   menuView,
 } from "@/app/lib/menu-filters.ts";
-import { fulfillmentLabel, arrivalTime } from "@/app/lib/delivery-labels.ts";
+import {
+  fulfillmentLabel,
+  arrivalTime,
+  arrivalRange,
+  serviceLabel,
+  deliveryZoneLabel,
+} from "@/app/lib/delivery-labels.ts";
 import { describe, expect, test } from "bun:test";
 import { Confirmation, data, selectionArgs, type CallTool } from "@/app/lib/tools.ts";
 import { imageUrl } from "@forkable-mcp/shared/images.ts";
@@ -131,11 +137,24 @@ test("malformed tool data fails at the boundary instead of entering UI state", (
 
 test("delivery labels distinguish order lifecycle from courier ETA", () => {
   expect(fulfillmentLabel("initial")).toBe("Awaiting delivery updates");
-  expect(fulfillmentLabel("ontime")).toBe("Arriving On Time");
+  expect(fulfillmentLabel("ontime")).toBe("Arriving on time");
   expect(fulfillmentLabel("delivered")).toBe("Delivered");
   expect(fulfillmentLabel("something-new")).toBe("Delivery status unavailable");
   expect(arrivalTime("2026-10-05T18:50:00Z", "America/Los_Angeles")).toBe("11:50 AM PDT");
   expect(arrivalTime("2026-10-05T11:50:00-07:00", null)).toBe("11:50 AM UTC-07:00");
+  expect(arrivalRange("2026-10-05T18:50:00Z", "2026-10-05T19:10:00Z", "America/Los_Angeles")).toBe(
+    "11:50 AM–12:10 PM PDT",
+  );
+  expect(serviceLabel("lunch")).toBe("Lunch");
+  expect(serviceLabel("afternoon")).toBe("Dinner");
+  expect(serviceLabel(null)).toBeUndefined();
+  expect(
+    deliveryZoneLabel("America/Los_Angeles", "2026-10-05", "America/Los_Angeles"),
+  ).toBeUndefined();
+  expect(deliveryZoneLabel("America/Los_Angeles", "2026-10-05", "America/New_York")).toBe("PDT");
+  expect(deliveryZoneLabel("America/Los_Angeles", "2026-12-05", "America/New_York")).toBe("PST");
+  expect(deliveryZoneLabel(null, "2026-10-05", "America/New_York")).toBeUndefined();
+  expect(deliveryZoneLabel("invalid", "2026-10-05", "America/New_York")).toBeUndefined();
 });
 
 test("search matches description tokens and filters unknown prices conservatively", () => {

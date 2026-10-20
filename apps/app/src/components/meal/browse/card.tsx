@@ -3,7 +3,7 @@ import { MealIngredients } from "../ingredients.tsx";
 import type { IngredientCategory } from "@forkable-mcp/shared/contracts/meals.ts";
 
 import { money } from "@forkable-mcp/shared/currency.ts";
-import { useId } from "react";
+import { useId, type ReactNode } from "react";
 
 interface MealCardProps {
   name: string;
@@ -15,7 +15,7 @@ interface MealCardProps {
   soldOut?: boolean;
   recommendationRank?: number;
   caption?: string;
-  description?: string;
+  description?: ReactNode;
   horizontal?: boolean;
   disabled?: boolean;
   onChoose?: () => void;

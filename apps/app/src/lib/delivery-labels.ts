@@ -2,7 +2,7 @@
 export function fulfillmentLabel(status: string | null | undefined): string {
   switch (status) {
     case "ontime":
-      return "Arriving On Time";
+      return "Arriving on time";
     case "delayed":
       return "Delayed";
     case "delivered":
@@ -19,6 +19,32 @@ export function fulfillmentLabel(status: string | null | undefined): string {
       return "Awaiting delivery updates";
     default:
       return "Delivery status unavailable";
+  }
+}
+
+export function serviceLabel(service: string | null | undefined): string | undefined {
+  if (!service) return undefined;
+  const label = service === "afternoon" ? "dinner" : service;
+  return label.charAt(0).toUpperCase() + label.slice(1);
+}
+
+export function deliveryZoneLabel(
+  timezone: string | null | undefined,
+  date: string,
+  deviceTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone,
+): string | undefined {
+  if (!timezone) return undefined;
+  try {
+    const formatter = new Intl.DateTimeFormat("en-US", {
+      timeZone: timezone,
+      timeZoneName: "short",
+    });
+    if (formatter.resolvedOptions().timeZone === deviceTimezone) return undefined;
+    return formatter
+      .formatToParts(new Date(`${date}T12:00:00Z`))
+      .find((part) => part.type === "timeZoneName")?.value;
+  } catch {
+    return undefined;
   }
 }
 export function arrivalTime(iso: string | null, timezone: string | null): string | null {
@@ -54,9 +80,7 @@ export function trackingUrl(value: string | null): string | undefined {
   }
 }
 
-const compact = (value: string) => value.replace(/ (AM|PM)/g, (part) => part.trim().toLowerCase());
-
-/** Compact 12-hour ranges use a spaced dash and one trailing timezone. */
+/** Use a consistent 12-hour range with one trailing timezone. */
 export function arrivalRange(
   start: string | null,
   end: string | null,
@@ -65,10 +89,8 @@ export function arrivalRange(
   const left = arrivalTime(start, timezone);
   const right = arrivalTime(end, timezone);
   if (!left || !right) return null;
-  const first = compact(left);
-  const last = compact(right);
-  const zone = / (?:[A-Z]{2,5}|UTC[+-]\d{2}:?\d{2})$/.exec(last)?.[0];
-  return `${zone && first.endsWith(zone) ? first.slice(0, -zone.length) : first} - ${last}`;
+  const zone = / (?:[A-Z]{2,5}|UTC[+-]\d{2}:?\d{2})$/.exec(right)?.[0];
+  return `${zone && left.endsWith(zone) ? left.slice(0, -zone.length) : left}–${right}`;
 }
 
 const weekdayFormatter = new Intl.DateTimeFormat("en-US", { weekday: "short", timeZone: "UTC" });
