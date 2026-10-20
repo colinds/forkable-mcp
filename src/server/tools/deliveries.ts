@@ -1,10 +1,11 @@
+import { withReauth } from "@/shared/contracts/errors.ts";
 import { deliveriesSchema, deliveryStatusSchema } from "@/shared/contracts/meals.ts";
 import { listDeliveriesInputSchema, deliveryStatusInputSchema } from "@/shared/contracts/inputs.ts";
 import { type McpServer } from "@modelcontextprotocol/server";
 import { deliveryStatus, formatDeliveryStatus } from "@/server/order/status.ts";
 
 import { appResult, errResult } from "@/server/results.ts";
-import { appGuard, APP_TOOL_META } from "@/server/tools/shared.ts";
+import { guard, APP_TOOL_META } from "@/server/tools/shared.ts";
 import {
   DELIVERY_SEL,
   DELIVERY_DETAIL_SEL,
@@ -26,11 +27,11 @@ export function registerDeliveryListTool(server: McpServer): void {
         "List deliveries, selected meals, and the IDs used by other tools. Defaults to today through " +
         "21 days out; pass both dates for a past-only range. A date can have multiple service or club deliveries.",
       inputSchema: listDeliveriesInputSchema,
-      outputSchema: deliveriesSchema,
+      outputSchema: withReauth(deliveriesSchema),
       annotations: { readOnlyHint: true, openWorldHint: true },
     },
     async (args) =>
-      appGuard(async (client) => {
+      guard(async (client) => {
         // Validate after defaults so a past `to` without `from` cannot invert the range.
         const w = deliveryRange(args.from, args.to);
         if (w.to < w.from)
@@ -68,11 +69,11 @@ export function registerDeliveryStatusTool(server: McpServer): void {
       description:
         "Show meal fulfillment, courier ETA, arrival, and each owned order's tracking link, plus delivery access notes.",
       inputSchema: deliveryStatusInputSchema,
-      outputSchema: deliveryStatusSchema,
+      outputSchema: withReauth(deliveryStatusSchema),
       annotations: { readOnlyHint: true, openWorldHint: true },
     },
     async ({ deliveryId, from, to }) =>
-      appGuard(async (client) => {
+      guard(async (client) => {
         // The default includes recent completed deliveries and the forward horizon.
         const since = from ?? dateOffsetLocal(-14);
         if (to && to < since)

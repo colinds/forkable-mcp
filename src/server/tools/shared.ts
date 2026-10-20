@@ -78,13 +78,3 @@ export function gateCtx(client: ForkableClient, session: SessionRecord): GateCtx
 
 export const WRITE_NOTE =
   "Returns a preview and confirmToken. Call again with the same arguments plus that token to send the change.";
-
-/** SDK v1 clients validate any structured payload, even on an error result. */
-export async function appGuard<T extends CallToolResult | InputRequiredResult>(
-  fn: (client: ForkableClient, session: SessionRecord) => Promise<T>,
-): Promise<T | CallToolResult> {
-  const result = await guard(fn);
-  return "isError" in result && result.isError
-    ? { ...result, structuredContent: undefined }
-    : result;
-}
