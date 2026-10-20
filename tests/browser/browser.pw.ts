@@ -38,6 +38,59 @@ test("returning to the app refreshes delivery data without reloading menus", asy
   expect(calls.filter((call) => call.name === "set_meal")).toHaveLength(0);
 });
 
+test("slow date menus leave the browser and selected delivery visible", async ({ page }) => {
+  await page.goto(
+    fixtureUrl({ deliveryScenario: "dates", menuRead: { deliveryId: 2, response: "held" } }),
+  );
+  const ui = page.frameLocator("iframe");
+  const next = ui.getByRole("button", { name: "Tue, Oct 6, Lunch, Office", exact: true });
+  await next.click();
+  await expect(next).toHaveAttribute("aria-pressed", "true");
+  await expect(ui.getByRole("group", { name: "Delivery dates" })).toBeVisible();
+  await expect(ui.getByRole("region", { name: "Selected meals" })).toBeVisible();
+  await expect(ui.getByRole("heading", { name: "Deliveries", exact: true })).toBeVisible();
+  await expect
+    .poll(() =>
+      page.evaluate(() =>
+        (
+          window as unknown as { calls: { name: string; arguments?: { deliveryId?: number } }[] }
+        ).calls.some((call) => call.name === "get_menus" && call.arguments?.deliveryId === 2),
+      ),
+    )
+    .toBe(true);
+  await page.evaluate(() => (window as unknown as { releaseMenus: () => void }).releaseMenus());
+  await expect(ui.getByRole("button", { name: /View Spicy tofu/ })).toBeEnabled();
+});
+
+test("date menu errors keep navigation available", async ({ page }) => {
+  await page.goto(
+    fixtureUrl({ deliveryScenario: "dates", menuRead: { deliveryId: 2, response: "error-once" } }),
+  );
+  const ui = page.frameLocator("iframe");
+  await ui.getByRole("button", { name: "Tue, Oct 6, Lunch, Office", exact: true }).click();
+  await expect(ui.getByRole("alert")).toContainText("Menus unavailable.");
+  await expect(ui.getByRole("region", { name: "Selected meals" })).toBeVisible();
+  const other = ui.getByRole("button", { name: "Wed, Oct 7, Lunch, Office", exact: true });
+  await other.click();
+  await expect(other).toHaveAttribute("aria-pressed", "true");
+  await expect(ui.getByRole("button", { name: /View Spicy tofu/ })).toBeVisible();
+  await expect(ui.getByRole("alert")).toHaveCount(0);
+});
+
+test("bootstrap menu errors retry the failed read", async ({ page }) => {
+  await page.goto(fixtureUrl({ menuRead: { deliveryId: 1, response: "error-once" } }));
+  const ui = page.frameLocator("iframe");
+  await expect(ui.getByRole("alert")).toContainText("Menus unavailable.");
+  await ui.getByRole("button", { name: "Refresh", exact: true }).click();
+  await expect(ui.getByRole("button", { name: /View Spicy tofu/ })).toBeVisible();
+  const menus = await page.evaluate(() =>
+    (window as unknown as { calls: { name: string }[] }).calls.filter(
+      (call) => call.name === "get_menus",
+    ),
+  );
+  expect(menus).toHaveLength(2);
+});
+
 test("return refresh waits until meal editing closes and keeps entered options", async ({
   page,
 }) => {

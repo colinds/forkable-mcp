@@ -10,6 +10,10 @@ export function MealLoadError({ error }: ErrorComponentProps) {
     mutationFn: async () => {
       await queryClient.invalidateQueries({ refetchType: "none" });
       await queryClient.fetchQuery(queries.deliveries());
+      await queryClient.refetchQueries(
+        { predicate: (query) => query.state.status === "error" },
+        { throwOnError: true },
+      );
       await router.invalidate();
     },
   });

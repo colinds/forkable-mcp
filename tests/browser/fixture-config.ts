@@ -19,6 +19,9 @@ const fixtureConfigSchema = z.object({
     .enum(["default", "dates", "empty", "historical", "no-meals"])
     .default("default"),
   menus: z.enum(["default", "restaurants"]).default("default"),
+  menuRead: z
+    .object({ deliveryId: z.number().int().positive(), response: z.enum(["held", "error-once"]) })
+    .optional(),
   searchResults: z.enum(["default", "empty", "many"]).default("default"),
   tracking: z.boolean().default(false),
   notesAllowed: z.boolean().default(true),

@@ -39,6 +39,7 @@ function sortDeliveries(deliveries: Delivery[]) {
 
 export function createMealQueries(call: CallTool, initial?: InitialView) {
   const seed = initialData(initial);
+  const seededAt = Date.now();
   const range = initialRange(initial);
   const initialId = initial?.input.deliveryId ?? seed.status?.deliveryId;
   function seedForDelivery<T>(delivery: Delivery, values: T[] | undefined): T[] | undefined {
@@ -51,6 +52,7 @@ export function createMealQueries(call: CallTool, initial?: InitialView) {
     launch: initialLaunch(initial),
     deliveries: () =>
       queryOptions({
+        initialDataUpdatedAt: seededAt,
         queryKey: ["deliveries", range],
         queryFn: async () =>
           sortDeliveries(data(await call("list_deliveries", range), deliveriesSchema).deliveries),
@@ -58,6 +60,7 @@ export function createMealQueries(call: CallTool, initial?: InitialView) {
       }),
     menus: (delivery: Delivery) =>
       queryOptions({
+        initialDataUpdatedAt: seededAt,
         queryKey: ["menus", delivery.deliveryId],
         queryFn: async () =>
           isPastDelivery(delivery.date)
@@ -67,6 +70,7 @@ export function createMealQueries(call: CallTool, initial?: InitialView) {
       }),
     recommendations: (delivery: Delivery, limit?: number) =>
       queryOptions({
+        initialDataUpdatedAt: seededAt,
         queryKey: ["recommendations", delivery.deliveryId, limit],
         queryFn: async () =>
           isPastDelivery(delivery.date)
@@ -82,6 +86,7 @@ export function createMealQueries(call: CallTool, initial?: InitialView) {
       }),
     status: (delivery: Delivery) =>
       queryOptions({
+        initialDataUpdatedAt: seededAt,
         queryKey: ["status", delivery.deliveryId, delivery.date],
         queryFn: async () =>
           data(
@@ -96,6 +101,7 @@ export function createMealQueries(call: CallTool, initial?: InitialView) {
       }),
     detail: (identity: { deliveryId: number; menuId: number; itemId: number }) =>
       queryOptions({
+        initialDataUpdatedAt: seededAt,
         queryKey: ["meal", identity.deliveryId, identity.menuId, identity.itemId],
         queryFn: async () => data(await call("get_menus", identity), itemDetailSchema).item,
         initialData:
@@ -107,6 +113,7 @@ export function createMealQueries(call: CallTool, initial?: InitialView) {
       }),
     search: (deliveryId: number, query: string) =>
       queryOptions({
+        initialDataUpdatedAt: seededAt,
         queryKey: ["search", deliveryId, query],
         queryFn: async () =>
           data(await call("search_items", { deliveryId, query }), searchResultsSchema).items,
