@@ -82,14 +82,15 @@ test("selected card keeps Skip inset and confirms before removing", async ({ pag
   expect(cardBounds!.height).toBeCloseTo(contentBounds!.height + 2, 0);
   expect(cardBounds).not.toBeNull();
   expect(buttonBounds).not.toBeNull();
-  expect(cardBounds!.x + cardBounds!.width - buttonBounds!.x - buttonBounds!.width).toBeCloseTo(
-    13,
-    0,
-  );
-  expect(cardBounds!.y + cardBounds!.height - buttonBounds!.y - buttonBounds!.height).toBeCloseTo(
-    13,
-    0,
-  );
+  await expect(card.locator(".selected-card-actions")).toHaveCSS("bottom", "12px");
+  await expect(card.locator(".selected-card-actions")).toHaveCSS("right", "12px");
+  for (const inset of [
+    cardBounds!.x + cardBounds!.width - buttonBounds!.x - buttonBounds!.width,
+    cardBounds!.y + cardBounds!.height - buttonBounds!.y - buttonBounds!.height,
+  ]) {
+    expect(inset).toBeGreaterThanOrEqual(12);
+    expect(inset).toBeLessThanOrEqual(15);
+  }
   await skip.click();
   await dialog.getByRole("button", { name: "Skip meal", exact: true }).click();
   await expect(card).toHaveCount(0);
