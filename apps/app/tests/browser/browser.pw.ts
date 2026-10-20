@@ -56,6 +56,45 @@ test("card intent prefetches options and reuses them when opened", async ({ page
   expect(await requests()).toBe(1);
 });
 
+test("selected card keeps Skip inset and confirms before removing", async ({ page }) => {
+  await page.setViewportSize({ width: 375, height: 900 });
+  await page.goto(fixtureUrl({}));
+  const ui = page.frameLocator("iframe");
+  const card = ui
+    .locator(".selected-card")
+    .filter({ has: ui.getByRole("heading", { name: "Pasta", exact: true }) });
+  const skip = card.getByRole("button", { name: "Skip meal", exact: true });
+  await skip.click();
+  const dialog = ui.getByRole("dialog", { name: "Skip Pasta?" });
+  await expect(dialog).toBeVisible();
+  await dialog.getByRole("button", { name: "Cancel" }).click();
+  await expect(skip).toBeFocused();
+  expect(
+    await page.evaluate(() =>
+      (window as unknown as { calls: { name: string }[] }).calls.filter(
+        (call) => call.name === "remove_meal",
+      ),
+    ),
+  ).toHaveLength(0);
+  const cardBounds = await card.boundingBox();
+  const buttonBounds = await skip.boundingBox();
+  const contentBounds = await card.locator(".meal-card").boundingBox();
+  expect(cardBounds!.height).toBeCloseTo(contentBounds!.height + 2, 0);
+  expect(cardBounds).not.toBeNull();
+  expect(buttonBounds).not.toBeNull();
+  expect(cardBounds!.x + cardBounds!.width - buttonBounds!.x - buttonBounds!.width).toBeCloseTo(
+    13,
+    0,
+  );
+  expect(cardBounds!.y + cardBounds!.height - buttonBounds!.y - buttonBounds!.height).toBeCloseTo(
+    13,
+    0,
+  );
+  await skip.click();
+  await dialog.getByRole("button", { name: "Skip meal", exact: true }).click();
+  await expect(card).toHaveCount(0);
+});
+
 for (const displayMode of ["inline", "fullscreen"] as const) {
   test(`${displayMode} skip requires confirmation and removes only the selected owned meal`, async ({
     page,
@@ -63,12 +102,18 @@ for (const displayMode of ["inline", "fullscreen"] as const) {
     await page.setViewportSize({ width: 375, height: 900 });
     await page.goto(fixtureUrl({ displayMode }));
     const ui = page.frameLocator("iframe");
-    await expect(ui.getByRole("button", { name: "Skip meal", exact: true })).toHaveCount(0);
+    await expect(
+      ui
+        .getByRole("region", { name: "Selected meals" })
+        .getByRole("button", { name: "Skip meal", exact: true }),
+    ).toHaveCount(2);
     await ui
       .getByRole("region", { name: "Selected meals" })
       .getByRole("button", { name: /^View Pasta/ })
       .click();
-    const skip = ui.getByRole("button", { name: "Skip meal", exact: true });
+    const skip = ui
+      .getByRole("region", { name: "Meal details" })
+      .getByRole("button", { name: "Skip meal", exact: true });
     await ui.getByLabel("Kimchi").check();
     await ui.getByLabel("Notes", { exact: false }).fill("Keep these edits");
     const removals = () =>
@@ -80,6 +125,12 @@ for (const displayMode of ["inline", "fullscreen"] as const) {
     await skip.click();
     const dialog = ui.getByRole("dialog", { name: "Skip Pasta?" });
     await expect(dialog).toBeVisible();
+    const cancelBounds = await dialog.getByRole("button", { name: "Cancel" }).boundingBox();
+    const confirmBounds = await dialog
+      .getByRole("button", { name: "Skip meal", exact: true })
+      .boundingBox();
+    expect(cancelBounds!.y).toBeCloseTo(confirmBounds!.y, 0);
+    expect(cancelBounds!.x + cancelBounds!.width).toBeLessThan(confirmBounds!.x);
     expect(await removals()).toHaveLength(0);
     if (displayMode === "fullscreen") await page.keyboard.press("Escape");
     else await dialog.getByRole("button", { name: "Cancel" }).click();
@@ -125,7 +176,10 @@ for (const outcome of ["blocked", "expired", "rejected"] as const) {
       .getByRole("region", { name: "Selected meals" })
       .getByRole("button", { name: /^View Pasta/ })
       .click();
-    await ui.getByRole("button", { name: "Skip meal", exact: true }).click();
+    await ui
+      .getByRole("region", { name: "Meal details" })
+      .getByRole("button", { name: "Skip meal", exact: true })
+      .click();
     const dialog = ui.getByRole("dialog", { name: "Skip Pasta?" });
     await dialog.getByRole("button", { name: "Skip meal", exact: true }).click();
     await expect(dialog.getByRole("alert")).toBeVisible();
@@ -148,7 +202,10 @@ test("an uncertain skip locks further writes until explicit refresh", async ({ p
     .getByRole("region", { name: "Selected meals" })
     .getByRole("button", { name: /^View Pasta/ })
     .click();
-  await ui.getByRole("button", { name: "Skip meal", exact: true }).click();
+  await ui
+    .getByRole("region", { name: "Meal details" })
+    .getByRole("button", { name: "Skip meal", exact: true })
+    .click();
   const dialog = ui.getByRole("dialog", { name: "Skip Pasta?" });
   await dialog.getByRole("button", { name: "Skip meal", exact: true }).click();
   await expect(dialog.getByRole("alert")).toContainText("Outcome unknown");
@@ -165,7 +222,11 @@ test("an uncertain skip locks further writes until explicit refresh", async ({ p
     .getByRole("region", { name: "Selected meals" })
     .getByRole("button", { name: /^View Pasta/ })
     .click();
-  await expect(ui.getByRole("button", { name: "Skip meal", exact: true })).toBeEnabled();
+  await expect(
+    ui
+      .getByRole("region", { name: "Meal details" })
+      .getByRole("button", { name: "Skip meal", exact: true }),
+  ).toBeEnabled();
   const calls = await page.evaluate(() =>
     (window as unknown as { calls: { name: string }[] }).calls.filter(
       (call) => call.name === "remove_meal",
@@ -183,7 +244,10 @@ test("duplicate skip confirmations send one removal and cannot close while pendi
     .getByRole("region", { name: "Selected meals" })
     .getByRole("button", { name: /^View Pasta/ })
     .click();
-  await ui.getByRole("button", { name: "Skip meal", exact: true }).click();
+  await ui
+    .getByRole("region", { name: "Meal details" })
+    .getByRole("button", { name: "Skip meal", exact: true })
+    .click();
   const dialog = ui.getByRole("dialog", { name: "Skip Pasta?" });
   await dialog.getByRole("button", { name: "Skip meal", exact: true }).evaluate((button) => {
     (button as HTMLButtonElement).click();

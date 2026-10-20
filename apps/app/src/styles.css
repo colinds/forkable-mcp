@@ -241,7 +241,7 @@ button:disabled {
   background: var(--background);
   border-top: var(--border-width-regular, 1px) solid var(--color-border-tertiary, var(--border));
 }
-.detail-actions .btn {
+.detail-actions > .btn {
   width: 100%;
   min-height: 40px;
 }
@@ -342,6 +342,22 @@ legend {
 .selected-cards {
   display: grid;
   gap: 12px;
+}
+.selected-card {
+  position: relative;
+  overflow: hidden;
+  border: var(--border-width-regular, 1px) solid var(--color-border-tertiary, var(--border));
+  border-radius: var(--border-radius-lg, var(--radius));
+  background: var(--secondary);
+}
+.selected-card > .meal-card {
+  border: 0;
+  border-radius: 0;
+}
+.selected-card-actions {
+  position: absolute;
+  bottom: 12px;
+  right: 12px;
 }
 .selected-action {
   margin-top: 12px;

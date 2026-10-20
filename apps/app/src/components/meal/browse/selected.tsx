@@ -1,3 +1,5 @@
+import { MealSkipAction } from "../editor/skip-action.tsx";
+import { isPastDelivery } from "@/app/lib/initial-view.ts";
 import { MealCard } from "./card.tsx";
 import { Button } from "@/app/components/button.tsx";
 import type { Delivery, Menu, DeliveryStatus } from "@forkable-mcp/shared/contracts/meals.ts";
@@ -34,27 +36,33 @@ export function SelectedMeals({
           const menu = menus.find((candidate) => candidate.menuId === meal.menuId);
           const item = menu?.items.find((candidate) => candidate.itemId === meal.itemId);
           return (
-            <MealCard
-              key={meal.pieceId}
-              horizontal
-              name={meal.name ?? item?.name ?? "Selected meal"}
-              imageUrl={item?.imageUrl ?? null}
-              restaurant={mealStatus?.venue ?? menu?.name}
-              price={mealStatus?.price}
-              description={mealStatus?.options.join(" · ")}
-              caption={
-                meal.cancellationPending
-                  ? "Removal pending"
-                  : ["Selected", mealStatus?.group ? `Group ${mealStatus.group}` : null]
-                      .filter(Boolean)
-                      .join(" · ")
-              }
-              disabled={busy}
-              onChoose={
-                item && menu ? () => choose(menu.menuId, item.itemId, meal.pieceId) : undefined
-              }
-              onPrefetch={item && menu ? () => prefetchMeal(menu.menuId, item.itemId) : undefined}
-            />
+            <div className="selected-card" key={meal.pieceId}>
+              <MealCard
+                horizontal
+                name={meal.name ?? item?.name ?? "Selected meal"}
+                imageUrl={item?.imageUrl ?? null}
+                restaurant={mealStatus?.venue ?? menu?.name}
+                price={mealStatus?.price}
+                description={mealStatus?.options.join(" · ")}
+                caption={
+                  meal.cancellationPending
+                    ? "Removal pending"
+                    : ["Selected", mealStatus?.group ? `Group ${mealStatus.group}` : null]
+                        .filter(Boolean)
+                        .join(" · ")
+                }
+                disabled={busy}
+                onChoose={
+                  item && menu ? () => choose(menu.menuId, item.itemId, meal.pieceId) : undefined
+                }
+                onPrefetch={item && menu ? () => prefetchMeal(menu.menuId, item.itemId) : undefined}
+              />
+              {!isPastDelivery(delivery.date) && !meal.cancellationPending && (
+                <div className="selected-card-actions">
+                  <MealSkipAction meal={meal} />
+                </div>
+              )}
+            </div>
           );
         })}
       </div>
